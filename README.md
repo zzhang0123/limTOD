@@ -309,6 +309,8 @@ def GDSM_sky_model(freq, nside)
 
 ## Examples
 
+Also see the [example Jupyter notebook](examples.ipynb)
+
 ### Example 1: Basic TOD Simulation
 
 ```python
