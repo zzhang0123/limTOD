@@ -8,7 +8,6 @@ but adaptable to other radio telescopes.
 """
 
 from setuptools import setup, find_packages
-import os
 
 
 # Read the README file for long description
