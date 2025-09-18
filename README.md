@@ -151,7 +151,7 @@ The transformation follows the sequence:
 
 For detailed mathematical formulations, coordinate system definitions, and algorithmic conventions used in this package, please refer to:
 
-**📄 [Mathematical Conventions Document](conventions.pdf)**
+** [Mathematical Conventions Document](conventions.pdf)**
 
 This document contains:
 - Coordinate system definitions and transformations
