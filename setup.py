@@ -88,6 +88,5 @@ setup(
     project_urls={
         "Bug Reports": "https://github.com/zzhang0123/meerTOD/issues",
         "Source": "https://github.com/zzhang0123/meerTOD",
-        "Documentation": "https://meertod.readthedocs.io/",
     },
 )
