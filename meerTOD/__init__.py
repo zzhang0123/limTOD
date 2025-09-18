@@ -17,20 +17,16 @@ from .tod_simulator import (
     pointing_beam_in_eq_sys,
     GDSM_sky_model,
     example_beam_map,
-    ValidationError,
-    ComputationError,
 )
 
 __all__ = [
     'meerTODsim',
     'example_scan',
     'generate_LSTs_deg',
-    'zyzy2zyz', 
+    'zyzy2zyz',
     'zyz_of_pointing',
     'generate_TOD_sky',
     'pointing_beam_in_eq_sys',
     'GDSM_sky_model',
     'example_beam_map',
-    'ValidationError',
-    'ComputationError',
 ]

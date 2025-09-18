@@ -69,17 +69,12 @@ setup(
             'seaborn>=0.11.0',
         ]
     },
-    entry_points={
-        'console_scripts': [
-            'meertod-simulate=meertod.cli:main',
-        ],
-    },
     include_package_data=True,
     package_data={
-        'meertod': ['data/*', 'examples/*'],
+        'meerTOD': ['data/*', 'examples/*'],
     },
     keywords=[
-        'time-ordered data', 'simulation', 'MeerKAT', 
+        'time-ordered data', 'simulation', 'MeerKAT',
         'HEALPix', 'beam patterns', 'sky models', 'noise modeling'
     ],
     project_urls={

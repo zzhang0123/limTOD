@@ -276,8 +276,8 @@ def generate_TOD_sky(beam_map, sky_map, LST_deg_list, lat_deg, azimuth_deg_list,
     return np.array(tod)
 
 
-import mpiutil 
-from flicker_model import sim_noise
+import meerTOD.mpiutil as mpiutil
+from meerTOD.flicker_model import sim_noise
 
 def GDSM_sky_model(freq, nside):
     from pygdsm import GlobalSkyModel
