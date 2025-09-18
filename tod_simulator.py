@@ -177,7 +177,7 @@ def _rotate_healpix_map(alm, psi_rad, theta_rad, phi_rad, nside, return_map=True
 
     # Make a copy of alm since hp.rotate_alm operates in-place
     alm_rot = alm.copy()
-    hp.rotate_alm(alm_rot, psi_rad, theta_rad, phi_rad)
+    hp.rotate_alm(alm_rot, phi_rad, theta_rad, psi_rad)
     if return_map:
         map_pointed = hp.alm2map(alm_rot, nside)
         return map_pointed
@@ -197,11 +197,11 @@ def _normalize_map(input_map):
     '''
     return input_map / np.sum(input_map)
 
-def pointing_beam_in_eq_sys(beam_lm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside):
+def pointing_beam_in_eq_sys(beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside):
     '''
     Point the beam in the equatorial coordinate system.
     Parameters:
-    beam_lm : array
+    beam_alm : array
         The alm coefficients of the beam in its native orientation.
     LST_deg : float
         The Local Sidereal Time in degrees.
@@ -218,8 +218,8 @@ def pointing_beam_in_eq_sys(beam_lm, LST_deg, lat_deg, azimuth_deg, elevation_de
     array 
         The pointed beam map in the equatorial coordinate system.
     '''
-    psi_rad, theta_rad, phi_rad = zyz_of_pointing(LST_deg, lat_deg, azimuth_deg, elevation_deg)
-    beam_pointed = _rotate_healpix_map(beam_lm, psi_rad, theta_rad, phi_rad, nside)
+    psi_rad, theta_rad, phi_rad = zyz_of_pointing(LST_deg=LST_deg, lat_deg=lat_deg, azimuth_deg=azimuth_deg, elevation_deg=elevation_deg)
+    beam_pointed = _rotate_healpix_map(beam_alm, psi_rad, theta_rad, phi_rad, nside)
     return beam_pointed
 
 def _beam_weighted_sum(beam_map, sky_map):
@@ -290,7 +290,7 @@ def example_beam_map(freq, nside, FWHM_major=1.1, FWHM_minor=1.1):
     """
     Generate an example Gaussian beam map.
     This toy model is achromatic. 
-    
+
     FWHM_major: major axis FWHM in degrees
     FWHM_minor: minor axis FWHM in degrees
     """
