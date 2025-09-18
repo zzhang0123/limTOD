@@ -1,6 +1,7 @@
 """
 This module is adapted from https://github.com/radiocosmology/caput/blob/master/caput/mpiutil.py
 """
+
 import numpy as np
 import logging
 
@@ -21,19 +22,23 @@ logger = logging.getLogger(__name__)
 # Add MPI initialization control
 _mpi_initialized = False
 
+
 def init_mpi():
     """Initialize MPI once at module import"""
     global _mpi_initialized
     if not _mpi_initialized:
         from mpi4py import MPI
+
         if not MPI.Is_initialized():
             MPI.Init()
         _mpi_initialized = True
+
 
 # Initialize MPI when module is imported
 init_mpi()
 
 from mpi4py import MPI
+
 _comm = MPI.COMM_WORLD
 world = _comm
 rank = _comm.Get_rank()
@@ -73,6 +78,7 @@ def partition_list(full_list, i, n, method="con"):
     else:
         raise ValueError("Unknown partition method %s" % method)
 
+
 def partition_list_mpi(full_list, method="con", comm=_comm):
     """
     Return the partition of a list specific to the current MPI process.
@@ -83,7 +89,10 @@ def partition_list_mpi(full_list, method="con", comm=_comm):
 
     return partition_list(full_list, rank, size, method=method)
 
-def parallel_map_gather(func, glist, multi_inputs=False, root=None, method="con", comm=_comm):
+
+def parallel_map_gather(
+    func, glist, multi_inputs=False, root=None, method="con", comm=_comm
+):
     """
     Apply a parallel map using MPI.
     Should be called collectively on the same list. All ranks return the full
@@ -153,6 +162,7 @@ def parallel_map_gather(func, glist, multi_inputs=False, root=None, method="con"
     else:
         return None
 
+
 def parallel_jobs_no_gather_no_return(func, glist, method="con", comm=_comm):
     """
     Apply a parallel map using MPI.
@@ -183,7 +193,6 @@ def parallel_jobs_no_gather_no_return(func, glist, method="con", comm=_comm):
     if comm is None or comm.size == 1:
         return [func(item) for item in glist]
 
-
     # Partition list based on MPI rank
     llist = partition_list_mpi(glist, method=method, comm=comm)
 
@@ -194,6 +203,7 @@ def parallel_jobs_no_gather_no_return(func, glist, method="con", comm=_comm):
     # Synchronize
     barrier(comm=comm)
     return None
+
 
 def barrier(comm=_comm):
     """
