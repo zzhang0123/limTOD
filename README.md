@@ -4,20 +4,51 @@
 
 **MeerTOD** is a Python package for simulating Time-Ordered Data (TOD) from MeerKLASS observations using asymetric beam. Although it also supports a symmetric beam, it could be unnecessarily slow compared to directly convolving the sky with the healpy smoothing function.
 
-- Simulating radio telescope observations with realistic beam patterns
-- Generating time-ordered data from sky maps using HEALPix projections
-- Incorporating various noise models including 1/f gain fluctuations
-- Coordinate transformations between telescope and celestial reference frames
-- Parallel processing capabilities for large-scale simulations
+📖 **For detailed mathematical conventions and coordinate system definitions, see [conventions.pdf](conventions.pdf).**
+
+### Input Parameters:
+
+#### Telescope Configuration:
+- **ant_latitude_deg** (`float`): Latitude of the antenna/site in degrees.
+- **ant_longitude_deg** (`float`): Longitude of the antenna/site in degrees.
+- **ant_height_m** (`float`): Height of the antenna/site in meters.
+- **beam_func** (`function`): Function that takes frequency and nside as input and returns the beam map.
+- **sky_func** (`function`): Function that takes frequency and nside as input and returns the sky map.
+- **nside** (`int`, optional): The nside parameter for Healpix maps.
+
+#### Observation Parameters:
+- **freq_list** (`list` or `array`): List of frequencies.
+- **time_list** (`list` or `array`): List of time offsets in seconds (for each observation time) from start_time_utc.
+- **azimuth_deg_list** (`list` or `array`): List of azimuth values in degrees for each observation.
+- **elevation_deg** (`list` or `float`): 
+  - If float: Elevation value in degrees universal for all observations.
+  - If list: List of elevation values in degrees for each observation.
+- **start_time_utc** (`str`): Start time in UTC (e.g. "2019-04-23 20:41:56.397").
+
+#### Noise and Calibration Parameters (Optional):
+- **residual_Tsys_TOD** (`array`, optional): Array of residual system temperature TOD (shape: nfreq x ntime). Default is None (no residual).
+- **background_gain_TOD** (`array`, optional): Array of background gain TOD (shape: nfreq x ntime). Default is None (unity gain).
+- **gain_noise_TOD** (`array`, optional): Array of gain noise TOD (shape: nfreq x ntime). Default is None (no gain noise).
+- **gain_noise_params** (`list`, optional): List of parameters [f0, fc, alpha] for generating gain noise if gain_noise_TOD is None. Default is [1.4e-5, 1e-3, 2].
+- **white_noise_var** (`float`, optional): Variance of white noise to be added. Default is None (uses default value of 2.5e-6).
+
+### Output Parameters:
+- **overall_TOD** (`ndarray`): Complete TOD with all components (nfreq × ntime)
+- **sky_TOD** (`ndarray`): Sky signal component only (beam-weighted sum of sky maps, nfreq × ntime)
+- **gain_noise_TOD** (`ndarray`): Gain noise component (nfreq × ntime)
+
+
+
 
 ## Table of Contents
 
 1. [Installation](#installation)
 2. [Quick Start](#quick-start)
 3. [Theoretical Background](#theoretical-background)
-4. [API Reference](#api-reference)
-5. [Examples](#examples)
-6. [Performance Considerations](#performance-considerations)
+4. [Mathematical Conventions](#mathematical-conventions)
+5. [API Reference](#api-reference)
+6. [Examples](#examples)
+7. [Performance Considerations](#performance-considerations)
 
 
 ## Installation
@@ -116,6 +147,19 @@ The transformation follows the sequence:
 -  "zyzy" representation → effective "zyz" Euler angles for spherical harmonic rotation
 - Apply rotation to beam pattern in spherical harmonic space
 
+## Mathematical Conventions
+
+For detailed mathematical formulations, coordinate system definitions, and algorithmic conventions used in this package, please refer to:
+
+**📄 [Mathematical Conventions Document](conventions.pdf)**
+
+This document contains:
+- Coordinate system definitions and transformations
+- Euler angle conventions (ZYZY ↔ ZYZ)
+- Spherical harmonics formulations
+- Beam convolution algorithms
+- Noise model specifications
+
 ## API Reference
 
 ### Core Classes
@@ -166,7 +210,7 @@ def generate_TOD(self,
 **Parameters:**
 - `freq_list` (array_like): Observation frequencies in MHz
 - `time_list` (array_like): Time offsets from start time in seconds
-- `azimuth_deg_list` (array_like): Azimuth angles in degrees
+- `azimuth_deg_list` (array_like): Time-ordered azimuth angles in degrees
 - `elevation_deg` (float or array_like): Elevation angle(s) in degrees
 - `start_time_utc` (str): UTC start time in ISO format
 - `residual_Tsys_TOD` (array_like, optional): System temperature residuals
