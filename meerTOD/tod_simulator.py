@@ -5,6 +5,7 @@ For comprehensive documentation, see README.md.
 """
 
 from typing import Union, List, Tuple
+
 import numpy as np
 import healpy as hp
 from astropy.time import Time, TimeDelta
@@ -12,6 +13,11 @@ from astropy.coordinates import EarthLocation
 import astropy.units as u
 import tqdm
 from scipy.spatial.transform import Rotation as R
+from pygdsm import GlobalSkyModel
+
+
+import meerTOD.mpiutil as mpiutil
+from meerTOD.flicker_model import sim_noise
 
 
 # Enhanced type aliases for better code readability
@@ -296,13 +302,7 @@ def generate_TOD_sky(
     return np.array(tod)
 
 
-import meerTOD.mpiutil as mpiutil
-from meerTOD.flicker_model import sim_noise
-
-
 def GDSM_sky_model(freq, nside):
-    from pygdsm import GlobalSkyModel
-
     gsm = GlobalSkyModel()
     skymap = gsm.generate(freq)
     skymap = hp.ud_grade(skymap, nside_out=nside)
