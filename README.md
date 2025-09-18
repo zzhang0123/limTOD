@@ -71,21 +71,21 @@ mpmath >= 1.2.0 (for flicker noise modeling)
 ```bash
 git clone https://github.com/zzhang0123/meerTOD.git
 cd meerTOD
-pip install -e .
+pip install .
 ```
 
 ## Quick Start
 
 ```python
 import numpy as np
-from tod_simulator import meerTODsim, example_scan
+from meerTOD import meerTODsim, example_scan
 
 # Initialize the simulator with MeerKAT coordinates
 simulator = meerTODsim(
     ant_latitude_deg=-30.7130,   # MeerKAT latitude
     ant_longitude_deg=21.4430,   # MeerKAT longitude
     ant_height_m=1054,           # MeerKAT altitude
-    nside=256                    # HEALPix resolution
+    nside=64                    # HEALPix resolution
 )
 
 # Generate a simple scanning pattern
@@ -95,7 +95,7 @@ time_list, azimuth_list = example_scan()
 freq_list = [950, 1000, 1050]  # MHz
 tod_array, sky_tod, gain_noise = simulator.generate_TOD(
     freq_list=freq_list,
-    time_list=time_list,
+    time_list=time_list[:100],  # Simulate only the first 100 times
     azimuth_deg_list=azimuth_list,
     elevation_deg=41.5
 )
@@ -180,9 +180,9 @@ class meerTODsim:
 ```
 
 **Parameters:**
-- `ant_latitude_deg` (float): Antenna latitude in degrees
-- `ant_longitude_deg` (float): Antenna longitude in degrees  
-- `ant_height_m` (float): Antenna height above sea level in meters
+- `ant_latitude_deg` (float): Antenna latitude in degrees. [Default to MeerKAT]
+- `ant_longitude_deg` (float): Antenna longitude in degrees. [Default to MeerKAT]
+- `ant_height_m` (float): Antenna height above sea level in meters. [Default to MeerKAT]
 - `beam_func` (callable): Function returning beam map given (freq, nside)
 - `sky_func` (callable): Function returning sky map given (freq, nside)
 - `nside` (int): HEALPix resolution parameter (must be power of 2)
@@ -313,11 +313,11 @@ def GDSM_sky_model(freq, nside)
 
 ```python
 import numpy as np
-from tod_simulator import meerTODsim, example_scan
+from meerTOD import meerTODsim, example_scan
 import matplotlib.pyplot as plt
 
 # Initialize simulator
-sim = meerTODsim(nside=128)  # Lower resolution for speed
+sim = meerTODsim(nside=64)  # Lower resolution for speed
 
 # Generate scanning pattern
 time_list, az_list = example_scan(dt=1.0)
@@ -354,11 +354,11 @@ plt.show()
 
 ```python
 # Wide frequency range
-frequencies = np.linspace(900, 1100, 21)  # 21 channels
+frequencies = np.linspace(900, 1000, 11)  # 11 channels
 
 tod_multifreq, sky_multifreq, _ = sim.generate_TOD(
     freq_list=frequencies,
-    time_list=time_list[:50],
+    time_list=time_list[:100],
     azimuth_deg_list=az_list[:50],
     elevation_deg=60.0,
     gain_noise_params=[1e-5, 1e-3, 1.8]  # Custom noise parameters
@@ -403,13 +403,13 @@ def point_source_sky(freq, nside):
 sim_custom = meerTODsim(
     beam_func=custom_beam,
     sky_func=point_source_sky,
-    nside=256
+    nside=64
 )
 
 # Simulate with custom models
 tod_custom, _, _ = sim_custom.generate_TOD(
     freq_list=[1000],
-    time_list=time_list,
+    time_list=time_list[:100],
     azimuth_deg_list=az_list,
     elevation_deg=50.0
 )
@@ -464,5 +464,3 @@ This project is licensed under the MIT License - see LICENSE file for details.
 ## Acknowledgments
 
 - MeerKLASS team 
-
-
