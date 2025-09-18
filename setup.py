@@ -79,7 +79,7 @@ setup(
         'meertod': ['data/*', 'examples/*'],
     },
     keywords=[
-        'radio astronomy', 'time-ordered data', 'simulation', 'MeerKAT', 
+        'time-ordered data', 'simulation', 'MeerKAT', 
         'HEALPix', 'beam patterns', 'sky models', 'noise modeling'
     ],
     project_urls={

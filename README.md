@@ -17,9 +17,8 @@
 3. [Theoretical Background](#theoretical-background)
 4. [API Reference](#api-reference)
 5. [Examples](#examples)
-6. [Mathematical Foundations](#mathematical-foundations)
-7. [Performance Considerations](#performance-considerations)
-8. [Contributing](#contributing)
+6. [Performance Considerations](#performance-considerations)
+
 
 ## Installation
 
@@ -372,107 +371,9 @@ tod_custom, _, _ = sim_custom.generate_TOD(
 )
 ```
 
-### Example 4: High-Resolution Simulation with Caching
 
-```python
-import pickle
-
-# High-resolution simulation
-sim_hires = meerTODsim(nside=512)
-
-# Generate longer time series
-t_long, az_long = example_scan(dt=0.5)  # Higher time resolution
-
-# For computational efficiency, you might want to cache sky maps
-def cached_sky_model(freq, nside):
-    cache_file = f"sky_{freq}MHz_nside{nside}.pkl"
-    try:
-        with open(cache_file, 'rb') as f:
-            return pickle.load(f)
-    except FileNotFoundError:
-        sky = GDSM_sky_model(freq, nside)
-        with open(cache_file, 'wb') as f:
-            pickle.dump(sky, f)
-        return sky
-
-sim_hires.sky_func = cached_sky_model
-
-tod_hires, _, _ = sim_hires.generate_TOD(
-    freq_list=np.arange(950, 1051, 10),  # 10 MHz steps
-    time_list=t_long,
-    azimuth_deg_list=az_long,
-    elevation_deg=30.0
-)
-```
-
-## Mathematical Foundations
-
-### Spherical Harmonic Rotations
-
-The core mathematical operation is rotating spherical harmonics to simulate telescope pointing. Given a function on the sphere represented as:
-
-```
-f(θ,φ) = Σ_l Σ_m a_lm Y_lm(θ,φ)
-```
-
-A rotation by Euler angles (α,β,γ) transforms the coefficients as:
-
-```
-a'_lm = Σ_m' a_lm' D^l_mm'(α,β,γ)
-```
-
-Where D^l_mm' are Wigner D-matrices. HEALPix implements this efficiently via `rotate_alm()`.
-
-### Noise Modeling
-
-#### 1/f Gain Noise
-
-Gain fluctuations follow a power spectrum:
-
-```
-P(f) = f_0^α / (f_c^2 + f^2)^(α/2)
-```
-
-The time-domain correlation function is:
-
-```
-C(τ) = (f_0/f_c)^α × Γ(1-α,|f_c τ|) / (π|τ|)
-```
-
-This is implemented using incomplete gamma functions from `mpmath`.
-
-#### White Noise
-
-Thermal noise is modeled as uncorrelated Gaussian:
-
-```
-⟨η(t)η(t')⟩ = σ²δ(t-t')
-```
-
-### Coordinate Systems
-
-The package handles transformations between three coordinate systems:
-
-1. **Horizontal** (Az, El): Telescope-fixed coordinates
-2. **Equatorial** (RA, Dec): Earth-fixed celestial coordinates  
-3. **HEALPix** (θ, φ): Spherical coordinates for map pixels
-
-The transformation chain:
-(Az,El,t) → (RA,Dec) → (θ,φ) → Euler angles → Rotated beam
 
 ## Performance Considerations
-
-### Memory Usage
-
-- HEALPix maps scale as O(N_side²) 
-- For N_side=512: ~3 million pixels, ~12 MB per map
-- Spherical harmonic coefficients: ~(N_side×3)² complex numbers
-
-### Computational Scaling
-
-- `map2alm()`: O(N_side² log N_side)
-- `rotate_alm()`: O(N_side²)  
-- `alm2map()`: O(N_side² log N_side)
 
 ### Parallel Processing
 
@@ -489,9 +390,8 @@ tod_array = sim.generate_TOD(freq_list=frequencies, ...)
 ### Optimization Tips
 
 1. **Use appropriate N_side**: Balance resolution vs. speed
-2. **Cache sky maps**: Avoid recomputing identical sky models
-3. **Batch processing**: Process multiple frequencies together
-4. **Memory mapping**: Use `numpy.memmap` for large datasets
+2. **Batch processing**: Process multiple frequencies together
+3. ...
 
 ## Error Handling and Validation
 
@@ -509,7 +409,6 @@ Common error scenarios and solutions:
 git clone https://github.com/zzhang0123/meerTOD.git
 cd meerTOD
 pip install -e ".[dev]"
-pytest tests/
 ```
 
 ## License
@@ -522,6 +421,4 @@ This project is licensed under the MIT License - see LICENSE file for details.
 
 - MeerKLASS team 
 
----
 
-For more information, visit the [project repository](https://github.com/yourusername/meerTOD) or contact the maintainers.
