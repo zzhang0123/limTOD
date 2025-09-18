@@ -288,7 +288,9 @@ def GDSM_sky_model(freq, nside):
 
 def example_beam_map(freq, nside, FWHM_major=1.1, FWHM_minor=1.1):
     """
-    Generate an asymmetric (elliptical) Gaussian beam map.
+    Generate an example Gaussian beam map.
+    This toy model is achromatic. 
+    
     FWHM_major: major axis FWHM in degrees
     FWHM_minor: minor axis FWHM in degrees
     """

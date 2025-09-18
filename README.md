@@ -173,12 +173,12 @@ def generate_TOD(self,
 - `residual_Tsys_TOD` (array_like, optional): System temperature residuals
 - `background_gain_TOD` (array_like, optional): Background gain variations
 - `gain_noise_TOD` (array_like, optional): Pre-computed gain noise
-- `gain_noise_params` (list): [f0, fc, alpha] for 1/f noise generation
+- `gain_noise_params` (list): [f0, fc, alpha] for 1/f noise generation, if gain_noise_TOD is not provided
 - `white_noise_var` (float, optional): White noise variance
 
 **Returns:**
 - `overall_TOD` (ndarray): Complete TOD with all components (nfreq × ntime)
-- `sky_TOD` (ndarray): Sky signal component only (nfreq × ntime)
+- `sky_TOD` (ndarray): Sky signal component only (beam-weighted sum of sky maps, no gain and no noise. Shape: nfreq × ntime)
 - `gain_noise_TOD` (ndarray): Gain noise component (nfreq × ntime)
 
 #### `simulate_sky_TOD()`
