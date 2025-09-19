@@ -27,7 +27,6 @@ def flicker_corr(tau, f0, fc, alpha, var_w=0.0):
     result = theta_0**alpha * aux_int(mu, theta_c)
     return result * norm
 
-
 def sim_noise(f0, fc, alpha, time_list, n_samples=1, white_n_variance=5e-6):
     lags = time_list - time_list[0]
     corr_list = [flicker_corr(t, f0, fc, alpha, var_w=white_n_variance) for t in lags]
