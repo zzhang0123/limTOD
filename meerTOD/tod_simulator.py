@@ -1,9 +1,8 @@
 """
-MeerTOD: Time-Ordered Data Simulator forMeerKLASS
+limTOD: Time-Ordered Data Simulator for single-dish radio telescopes.
 
 For comprehensive documentation, see README.md.
 """
-
 from typing import Union, List, Tuple
 
 import numpy as np
@@ -13,8 +12,7 @@ from astropy.coordinates import EarthLocation
 import astropy.units as u
 import tqdm
 from scipy.spatial.transform import Rotation as R
-from pygdsm import GlobalSkyModel
-
+from pygdsm import GlobalSkyModel16 as GlobalSkyModel
 
 import meerTOD.mpiutil as mpiutil
 from meerTOD.flicker_model import sim_noise
@@ -341,7 +339,7 @@ def example_beam_map(freq, nside, FWHM_major=1.1, FWHM_minor=1.1):
     return beam_map
 
 
-class meerTODsim:
+class limTODsim:
     def __init__(
         self,
         ant_latitude_deg=-30.7130,
@@ -352,7 +350,7 @@ class meerTODsim:
         nside=256,
     ):
         """
-        Initialize the meerTODsim class.
+        Initialize the limTODsim class.
         Parameters:
         ant_latitude_deg : float
             Latitude of the antenna/site in degrees.
@@ -442,7 +440,7 @@ class meerTODsim:
         azimuth_deg_list,
         elevation_deg=41.5,
         start_time_utc="2019-04-23 20:41:56.397",
-        residual_Tsys_TOD=None,
+        Tsys_others_TOD=None,
         background_gain_TOD=None,
         gain_noise_TOD=None,
         gain_noise_params=[1.4e-5, 1e-3, 2],
@@ -452,7 +450,7 @@ class meerTODsim:
         Generate overall TOD including sky signal and other components.
 
         Data model:
-        overall_TOD = background_gain_TOD * (1 + gain_noise_TOD) * (sky_TOD + residual_Tsys_TOD) * (1 + white_noise_TOD)
+        overall_TOD = background_gain_TOD * (1 + gain_noise_TOD) * (sky_TOD + Tsys_others_TOD) * (1 + white_noise_TOD)
 
         Parameters:
         freq_list : list or array
@@ -466,7 +464,7 @@ class meerTODsim:
             If list: List of elevation values in degrees for each observation.
         start_time_utc : str
             Start time in UTC (e.g. "2019-04-23 20:41:56.397").
-        residual_Tsys_TOD : array, optional
+        Tsys_others_TOD : array, optional
             Array of residual system temperature TOD (shape: nfreq x ntime). Default is None (no residual).
         background_gain_TOD : array, optional
             Array of background gain TOD (shape: nfreq x ntime). Default is None (unity gain).
@@ -489,8 +487,8 @@ class meerTODsim:
         nfreq = len(freq_list)
         ntime = len(time_list)
 
-        if residual_Tsys_TOD is None:
-            residual_Tsys_TOD = 0.0
+        if Tsys_others_TOD is None:
+            Tsys_others_TOD = 0.0
         if background_gain_TOD is None:
             background_gain_TOD = 1.0
         if white_noise_var is None:
@@ -534,19 +532,8 @@ class meerTODsim:
         overall_TOD = (
             background_gain_TOD
             * (1 + gain_noise_TOD)
-            * (sky_TOD + residual_Tsys_TOD)
+            * (sky_TOD + Tsys_others_TOD)
             * (1 + white_noise_TOD)
         )
 
         return overall_TOD, sky_TOD, gain_noise_TOD
-
-
-# # Example usage:
-# TOD_sim_test = meerTODsim()
-# t_list, azimuths = example_scan()
-
-# TOD_arr, sky_TOD, gain_noise_TOD = TOD_sim_test.generate_TOD(
-#     freq_list=[950, 1050],
-#     time_list=t_list,
-#     azimuth_deg_list=azimuths,
-# )
