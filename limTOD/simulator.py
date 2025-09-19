@@ -3,6 +3,7 @@ limTOD: Time-Ordered Data Simulator for single-dish radio telescopes.
 
 For comprehensive documentation, see README.md.
 """
+
 from typing import Union, List, Tuple
 
 import numpy as np
@@ -14,8 +15,8 @@ import tqdm
 from scipy.spatial.transform import Rotation as R
 from pygdsm import GlobalSkyModel16 as GlobalSkyModel
 
-import meerTOD.mpiutil as mpiutil
-from meerTOD.flicker_model import sim_noise
+import limTOD.mpiutil as mpiutil
+from limTOD.flicker_model import sim_noise
 
 
 # Enhanced type aliases for better code readability
@@ -34,7 +35,6 @@ DEFAULT_GAIN_NOISE_PARAMS = [1.4e-5, 1e-3, 2.0]  # [f0, fc, alpha] for 1/f noise
 
 
 def example_scan(az_s=-60.3, az_e=-42.3, dt=2.0):
-
     aux = np.linspace(az_s, az_e, 111)
     azimuths = np.concatenate((aux[1:-1][::-1], aux))
     azimuths = np.tile(azimuths, 5)
@@ -339,7 +339,7 @@ def example_beam_map(freq, nside, FWHM_major=1.1, FWHM_minor=1.1):
     return beam_map
 
 
-class limTODsim:
+class TODsim:
     def __init__(
         self,
         ant_latitude_deg=-30.7130,
@@ -504,8 +504,10 @@ class limTODsim:
             else:
                 if mpiutil.rank0:
                     print(
-                        f"Generating gain noise with parameters: f0={gain_noise_params[0]}, fc={gain_noise_params[1]}, alpha={gain_noise_params[2]}.  \
-                          Note that these 1/f noise are uncorrelated between frequencies."
+                        "Generating gain noise with parameters: "
+                        f"f0={gain_noise_params[0]}, fc={gain_noise_params[1]}, "
+                        f"alpha={gain_noise_params[2]}."
+                        "\nNote that these 1/f noise are uncorrelated in frequencies."
                     )
 
                 f0, fc, alpha = gain_noise_params

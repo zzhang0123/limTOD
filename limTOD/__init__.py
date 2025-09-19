@@ -7,8 +7,8 @@ __author__ = "Zheng Zhang"
 __email__ = "zheng.zhang@manchester.ac.uk"
 __license__ = "MIT"
 
-from .tod_simulator import (
-    limTODsim,
+from .simulator import (
+    TODsim,
     example_scan,
     generate_LSTs_deg,
     zyzy2zyz,
@@ -20,15 +20,13 @@ from .tod_simulator import (
 )
 
 __all__ = [
-    'limTODsim',
-    'example_scan',
-    'generate_LSTs_deg',
-    'zyzy2zyz', 
-    'zyz_of_pointing',
-    'generate_TOD_sky',
-    'pointing_beam_in_eq_sys',
-    'GDSM_sky_model',
-    'example_beam_map',
-    'ValidationError',
-    'ComputationError',
+    "TODsim",
+    "example_scan",
+    "generate_LSTs_deg",
+    "zyzy2zyz",
+    "zyz_of_pointing",
+    "generate_TOD_sky",
+    "pointing_beam_in_eq_sys",
+    "GDSM_sky_model",
+    "example_beam_map",
 ]

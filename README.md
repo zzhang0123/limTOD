@@ -1,8 +1,8 @@
-# limTOD: Time-Ordered Data Simulator for single-dish (autocorrelation) line intensity mapping measurements
+# limTOD: Time-ordered Data Simulator for Single-dish Line Intensity Mapping Observation
 
 ## Overview
 
-**limTOD** is a Python package for simulating Time-Ordered Data (TOD) from single-dish/autocorrelation observations using asymetric beam. Although it also supports a symmetric beam, it could be unnecessarily slow compared to directly convolving the sky with the healpy smoothing function.
+**limTOD** is a Python package for simulating Time-Ordered Data (TOD) from single-dish/autocorrelation observations. It assumes abritory sky model and beam model, including asymmetric beam, passed to the main `TODSim` class as a callable function. Although symmetric beam is supported, it could be unnecessarily slow compared to directly convolving the sky with the healpy smoothing function.
 
 📖 **For detailed mathematical conventions and coordinate system definitions, see [conventions.pdf](conventions.pdf).**
 
@@ -85,7 +85,7 @@ simulator = limTODsim(
     ant_latitude_deg=-30.7130,   # MeerKAT latitude
     ant_longitude_deg=21.4430,   # MeerKAT longitude
     ant_height_m=1054,           # MeerKAT altitude
-    nside=64                    # HEALPix resolution
+    nside=64                     # HEALPix resolution
 )
 
 # Generate a simple scanning pattern
