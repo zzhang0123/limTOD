@@ -1,5 +1,5 @@
 """
-MeerTOD: Time-Ordered Data Simulator for MeerKLASS
+limTOD: Time-Ordered Data Simulator for MeerKLASS
 """
 
 __version__ = "1.0.0"
@@ -8,7 +8,7 @@ __email__ = "zheng.zhang@manchester.ac.uk"
 __license__ = "MIT"
 
 from .tod_simulator import (
-    meerTODsim,
+    limTODsim,
     example_scan,
     generate_LSTs_deg,
     zyzy2zyz,
@@ -22,7 +22,7 @@ from .tod_simulator import (
 )
 
 __all__ = [
-    'meerTODsim',
+    'limTODsim',
     'example_scan',
     'generate_LSTs_deg',
     'zyzy2zyz', 

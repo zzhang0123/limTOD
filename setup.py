@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Setup script for MeerTOD: Time-Ordered Data Simulator for Radio Astronomy
+Setup script for limTOD: Time-Ordered Data Simulator for Radio Astronomy
 
 This package provides comprehensive tools for simulating time-ordered data (TOD) 
 from radio astronomy observations, specifically designed for MeerKAT telescope 
@@ -21,14 +21,14 @@ def read_requirements():
         return [line.strip() for line in f if line.strip() and not line.startswith('#')]
 
 setup(
-    name="meerTOD",
+    name="limTOD",
     version="1.0.0",
     author="Zheng Zhang",
     author_email="zheng.zhang@manchester.ac.uk",
     description="Time-Ordered Data Simulator for MeerKLASS",
     long_description=read_readme(),
     long_description_content_type="text/markdown",
-    url="https://github.com/zzhang0123/meerTOD",
+    url="https://github.com/zzhang0123/limTOD",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 4 - Beta",
@@ -71,20 +71,20 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'meertod-simulate=meertod.cli:main',
+            'limTOD-simulate=limTOD.cli:main',
         ],
     },
     include_package_data=True,
     package_data={
-        'meertod': ['data/*', 'examples/*'],
+        'limTOD': ['data/*', 'examples/*'],
     },
     keywords=[
         'time-ordered data', 'simulation', 'MeerKAT', 
         'HEALPix', 'beam patterns', 'sky models', 'noise modeling'
     ],
     project_urls={
-        'Bug Reports': 'https://github.com/zzhang0123/meerTOD/issues',
-        'Source': 'https://github.com/zzhang0123/meerTOD',
-        'Documentation': 'https://meertod.readthedocs.io/',
+        'Bug Reports': 'https://github.com/zzhang0123/limTOD/issues',
+        'Source': 'https://github.com/zzhang0123/limTOD',
+        'Documentation': 'https://limTOD.readthedocs.io/', # Placeholder URL (to be defined)
     },
 )
