@@ -1,8 +1,0 @@
-numpy>=1.19.0
-healpy>=1.14.0
-astropy>=4.0.0
-scipy>=1.5.0
-tqdm>=4.60.0
-mpi4py>=3.0.0
-pygdsm>=1.2.0
-mpmath>=1.2.0
