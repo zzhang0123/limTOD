@@ -1,8 +1,8 @@
-# MeerTOD: Time-Ordered Data Simulator for MeerKLASS single-dish measurements
+# limTOD: Time-Ordered Data Simulator for single-dish (autocorrelation) line intensity mapping measurements
 
 ## Overview
 
-**MeerTOD** is a Python package for simulating Time-Ordered Data (TOD) from MeerKLASS observations using asymetric beam. Although it also supports a symmetric beam, it could be unnecessarily slow compared to directly convolving the sky with the healpy smoothing function.
+**limTOD** is a Python package for simulating Time-Ordered Data (TOD) from single-dish/autocorrelation observations using asymetric beam. Although it also supports a symmetric beam, it could be unnecessarily slow compared to directly convolving the sky with the healpy smoothing function.
 
 📖 **For detailed mathematical conventions and coordinate system definitions, see [conventions.pdf](conventions.pdf).**
 
@@ -69,8 +69,8 @@ mpmath >= 1.2.0 (for flicker noise modeling)
 ### Install from source
 
 ```bash
-git clone https://github.com/zzhang0123/meerTOD.git
-cd meerTOD
+git clone https://github.com/zzhang0123/limTOD.git
+cd limTOD
 pip install -e .
 ```
 
@@ -78,10 +78,10 @@ pip install -e .
 
 ```python
 import numpy as np
-from tod_simulator import meerTODsim, example_scan
+from tod_simulator import limTODsim, example_scan
 
 # Initialize the simulator with MeerKAT coordinates
-simulator = meerTODsim(
+simulator = limTODsim(
     ant_latitude_deg=-30.7130,   # MeerKAT latitude
     ant_longitude_deg=21.4430,   # MeerKAT longitude
     ant_height_m=1054,           # MeerKAT altitude
@@ -164,12 +164,12 @@ This document contains:
 
 ### Core Classes
 
-#### `meerTODsim`
+#### `limTODsim`
 
 Main simulator class for generating time-ordered data.
 
 ```python
-class meerTODsim:
+class limTODsim:
     def __init__(self, 
                  ant_latitude_deg=-30.7130,
                  ant_longitude_deg=21.4430, 
@@ -313,11 +313,11 @@ def GDSM_sky_model(freq, nside)
 
 ```python
 import numpy as np
-from tod_simulator import meerTODsim, example_scan
+from tod_simulator import limTODsim, example_scan
 import matplotlib.pyplot as plt
 
 # Initialize simulator
-sim = meerTODsim(nside=128)  # Lower resolution for speed
+sim = limTODsim(nside=128)  # Lower resolution for speed
 
 # Generate scanning pattern
 time_list, az_list = example_scan(dt=1.0)
@@ -400,7 +400,7 @@ def point_source_sky(freq, nside):
     return sky
 
 # Use custom models
-sim_custom = meerTODsim(
+sim_custom = limTODsim(
     beam_func=custom_beam,
     sky_func=point_source_sky,
     nside=256
@@ -450,8 +450,8 @@ Common error scenarios and solutions:
 ### Development Setup
 
 ```bash
-git clone https://github.com/zzhang0123/meerTOD.git
-cd meerTOD
+git clone https://github.com/zzhang0123/limTOD.git
+cd limTOD
 pip install -e ".[dev]"
 ```
 
