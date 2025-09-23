@@ -1,45 +1,69 @@
-# limTOD: Time-ordered Data Simulator for Single-dish Line Intensity Mapping Observation
+# limTOD: Time-Ordered Data Simulator for single-dish (autocorrelation) line intensity mapping measurements
 
 ## Overview
 
-**limTOD** is a Python package for simulating Time-Ordered Data (TOD) from single-dish radio intensity mapping observations. It assumes abritory sky model and beam model, including asymmetric beam, and perform direct convolution to calculate the TOD. The sky and beam models must be passed as Callable functions. A wrapper function of PyGDSM and a function to generate generic Gaussian elliptical beam are provided. The A generic 1/f noise model is also included. Other contributation to the TOD can be passed as arrays. Although symmetric beam is supported, the calculation could be unnecessarily slow due to the use of direct convolution as oppose to using a healpy smoothing function.
+**limTOD** is a Python package for simulating Time-Ordered Data (TOD) from single-dish/autocorrelation observations using asymetric beam. Although it also supports a symmetric beam, it could be unnecessarily slow compared to directly convolving the sky with the healpy smoothing function.
+
+## Citation
+
+If you use limTOD in your research, please cite:
+
+```bibtex
+@software{zheng_zhang_2025_17159124,
+  author       = {Zheng Zhang},
+  title        = {zzhang0123/limTOD: limTOD: Time-Ordered Data
+                   Simulator for line intensity mapping experiments
+                  },
+  month        = sep,
+  year         = 2025,
+  publisher    = {Zenodo},
+  version      = {v1.0.0},
+  doi          = {10.5281/zenodo.17159124},
+  url          = {https://doi.org/10.5281/zenodo.17159124},
+  swhid        = {swh:1:dir:6ce550d9495bcca3c7ad611986cdcfbdcf46a2de
+                   ;origin=https://doi.org/10.5281/zenodo.17159123;vi
+                   sit=swh:1:snp:c55636bc6c217da228dfcef2497edd037de3
+                   fb30;anchor=swh:1:rel:d71baa2ce452220ee21a2ca8b114
+                   ca9d3b280b86;path=zzhang0123-limTOD-c2c3492
+                  },
+}
+```
 
 📖 **For detailed mathematical conventions and coordinate system definitions, see [conventions.pdf](conventions.pdf).**
 
-### Input Parameters
+### Input Parameters:
 
-#### Telescope Configuration
+#### Telescope Configuration:
+- **ant_latitude_deg** (`float`): Latitude of the antenna/site in degrees.
+- **ant_longitude_deg** (`float`): Longitude of the antenna/site in degrees.
+- **ant_height_m** (`float`): Height of the antenna/site in meters.
+- **beam_func** (`function`): Function that takes frequency and nside as input and returns the beam map.
+- **sky_func** (`function`): Function that takes frequency and nside as input and returns the sky map.
+- **nside** (`int`, optional): The nside parameter for Healpix maps.
 
-* **ant_latitude_deg** (`float`): Latitude of the antenna/site in degrees.
-* **ant_longitude_deg** (`float`): Longitude of the antenna/site in degrees.
-* **ant_height_m** (`float`): Height of the antenna/site in meters.
-* **beam_func** (`function`): Function that takes frequency and nside as input and returns the beam map.
-* **sky_func** (`function`): Function that takes frequency and nside as input and returns the sky map.
-* **nside** (`int`, optional): The nside parameter for Healpix maps.
+#### Observation Parameters:
+- **freq_list** (`list` or `array`): List of frequencies.
+- **time_list** (`list` or `array`): List of time offsets in seconds (for each observation time) from start_time_utc.
+- **azimuth_deg_list** (`list` or `array`): List of azimuth values in degrees for each observation.
+- **elevation_deg** (`list` or `float`): 
+  - If float: Elevation value in degrees universal for all observations.
+  - If list: List of elevation values in degrees for each observation.
+- **start_time_utc** (`str`): Start time in UTC (e.g. "2019-04-23 20:41:56.397").
 
-#### Observation Parameters
+#### Noise and Calibration Parameters (Optional):
+- **Tsys_others_TOD** (`array`, optional): Array of the remaining system temperature TOD (shape: nfreq x ntime). Default is None (no other components).
+- **background_gain_TOD** (`array`, optional): Array of background gain TOD (shape: nfreq x ntime). Default is None (unity gain).
+- **gain_noise_TOD** (`array`, optional): Array of gain noise TOD (shape: nfreq x ntime). Default is None (no gain noise).
+- **gain_noise_params** (`list`, optional): List of parameters [f0, fc, alpha] for generating gain noise if gain_noise_TOD is None. Default is [1.4e-5, 1e-3, 2].
+- **white_noise_var** (`float`, optional): Variance of white noise to be added. Default is None (uses default value of 2.5e-6).
 
-* **freq_list** (`list` or `array`): List of frequencies.
-* **time_list** (`list` or `array`): List of time offsets in seconds (for each observation time) from start_time_utc.
-* **azimuth_deg_list** (`list` or `array`): List of azimuth values in degrees for each observation.
-* **elevation_deg** (`list` or `float`):
-  + If float: Elevation value in degrees universal for all observations.
-  + If list: List of elevation values in degrees for each observation.
-* **start_time_utc** (`str`): Start time in UTC (e.g. "2019-04-23 20:41:56.397").
+### Output Parameters:
+- **overall_TOD** (`ndarray`): Complete TOD with all components (nfreq × ntime)
+- **sky_TOD** (`ndarray`): Sky signal component only (beam-weighted sum of sky maps, nfreq × ntime)
+- **gain_noise_TOD** (`ndarray`): Gain noise component (nfreq × ntime)
 
-#### Noise and Calibration Parameters (Optional)
 
-* **Tsys_others_TOD** (`array`, optional): Array of the remaining system temperature TOD (shape: nfreq x ntime). Default is None (no other components).
-* **background_gain_TOD** (`array`, optional): Array of background gain TOD (shape: nfreq x ntime). Default is None (unity gain).
-* **gain_noise_TOD** (`array`, optional): Array of gain noise TOD (shape: nfreq x ntime). Default is None (no gain noise).
-* **gain_noise_params** (`list`, optional): List of parameters [f0, fc, alpha] for generating gain noise if gain_noise_TOD is None. Default is [1.4e-5, 1e-3, 2].
-* **white_noise_var** (`float`, optional): Variance of white noise to be added. Default is None (uses default value of 2.5e-6).
 
-### Output Parameters
-
-* **overall_TOD** (`ndarray`): Complete TOD with all components (nfreq × ntime)
-* **sky_TOD** (`ndarray`): Sky signal component only (beam-weighted sum of sky maps, nfreq × ntime)
-* **gain_noise_TOD** (`ndarray`): Gain noise component (nfreq × ntime)
 
 ## Table of Contents
 
@@ -50,6 +74,7 @@
 5. [API Reference](#api-reference)
 6. [Examples](#examples)
 7. [Performance Considerations](#performance-considerations)
+
 
 ## Installation
 
@@ -71,23 +96,21 @@ mpmath >= 1.2.0 (for flicker noise modeling)
 ```bash
 git clone https://github.com/zzhang0123/limTOD.git
 cd limTOD
-pip install .
+pip install -e .
 ```
 
 ## Quick Start
 
 ```python
 import numpy as np
-from limTOD import TODSim, example_scan, example_beam_map, GDSM_sky_model
+from tod_simulator import limTODsim, example_scan
 
 # Initialize the simulator with MeerKAT coordinates
-simulator = TODsim(
-    ant_latitude_deg=-30.7130,  # MeerKAT latitude
-    ant_longitude_deg=21.4430,  # MeerKAT longitude
-    ant_height_m=1054,          # MeerKAT altitude
-    nside=64,                   # HEALPix resolution
-    beam_func=example_beam_map, # Return HEALPix beam array of shape (hp.nside2npix(nside))
-    sky_func=GDSM_sky_model     # Return HEALPix sky map of shape (hp.nside2npix(nside))
+simulator = limTODsim(
+    ant_latitude_deg=-30.7130,   # MeerKAT latitude
+    ant_longitude_deg=21.4430,   # MeerKAT longitude
+    ant_height_m=1054,           # MeerKAT altitude
+    nside=256                    # HEALPix resolution
 )
 
 # Generate a simple scanning pattern
@@ -97,9 +120,9 @@ time_list, azimuth_list = example_scan()
 freq_list = [950, 1000, 1050]  # MHz
 tod_array, sky_tod, gain_noise = simulator.generate_TOD(
     freq_list=freq_list,
-    time_list=time_list[:100],  # Simulate only the first 100 times
+    time_list=time_list,
     azimuth_deg_list=azimuth_list,
-    elevation_deg=41.5,
+    elevation_deg=41.5
 )
 
 print(f"Generated TOD shape: {tod_array.shape}")  # (3, n_time)
@@ -116,12 +139,11 @@ TOD(ν,t) = G_bg(ν,t) × [1 + G_noise(ν,t)] × [sky_TOD(ν,t) + Tsys_others(ν
 ```
 
 Where:
-
-* `G_bg(ν,t)`: Background gain pattern
-* `G_noise(ν,t)`: Gain noise fluctuations (1/f noise)
-* `sky_TOD(ν,t)`: Sky signal convolved with beam
-* `Tsys_others(ν,t)`: All the other system temperature components
-* `η(t)`: White noise component
+- `G_bg(ν,t)`: Background gain pattern
+- `G_noise(ν,t)`: Gain noise fluctuations (1/f noise)
+- `sky_TOD(ν,t)`: Sky signal convolved with beam
+- `Tsys_others(ν,t)`: All the other system temperature components
+- `η(t)`: White noise component
 
 ### Sky Signal Computation
 
@@ -135,8 +157,7 @@ This is efficiently computed using HEALPix spherical harmonics:
 
 1. Convert beam map to spherical harmonic coefficients: `B_lm = map2alm(B)`
 2. Rotate beam to pointing direction using Euler angles
-3. Revert the roated beam back to map domain
-4. Compute beam-weighted sum with sky map
+3. Compute beam-weighted sum with sky map
 
 ### Coordinate Transformations
 
@@ -145,63 +166,57 @@ The package handles coordinate transformations between:
 1. **Local Telescope frame** (time, Azimuth, Elevation) → **Equatorial frame** (RA, Dec)
 2. Representations of the transformation: **ZYZY Euler angles** → **ZYZ Euler angles** for HEALPix rotations
 
-#### Detailed Workflow
+#### Detailed Workflow:
 
 **Step 1: Scan Specifications → LST Sequence**
-
-* Convert UTC timestamps to Local Sidereal Time using telescope location
-* Function: `generate_LSTs_deg()`
+- Convert UTC timestamps to Local Sidereal Time using telescope location
+- Function: `generate_LSTs_deg()`
 
 **Step 2: Telescope Pointing → ZYZY Angles**  
-
-* Map telescope parameters to natural rotation sequence:
-  + α = LST (Earth's rotation tracking)
-  + β = 90° - latitude (site location correction)
-  + γ = azimuth (local pointing direction)
-  + δ = 90° - elevation (altitude correction)
+- Map telescope parameters to natural rotation sequence:
+  - α = LST (Earth's rotation tracking)
+  - β = 90° - latitude (site location correction)
+  - γ = azimuth (local pointing direction)
+  - δ = 90° - elevation (altitude correction)
 
 **Step 3: ZYZY → ZYZ Conversion**
-
-* Convert to HEALPix-compatible Euler angles using `zyzy2zyz()`
-* This handles the mathematical transformation: R_zyzy = R_y(δ)R_z(γ)R_y(β)R_z(α) → R_zyz = R_z(φ)R_y(θ)R_z(ψ)
+- Convert to HEALPix-compatible Euler angles using `zyzy2zyz()`
+- This handles the mathematical transformation: R_zyzy = R_y(δ)R_z(γ)R_y(β)R_z(α) → R_zyz = R_z(φ)R_y(θ)R_z(ψ)
 
 **Step 4: Beam Rotation in Spherical Harmonic Space**
-
-* Apply rotation to beam's alm coefficients using `pointing_beam_in_eq_sys()`
-* Efficiently rotates beam pattern without pixel-by-pixel calculations
-* Function: `_rotate_healpix_map()` calls `healpy.rotate_alm()`
+- Apply rotation to beam's alm coefficients using `pointing_beam_in_eq_sys()`
+- Efficiently rotates beam pattern without pixel-by-pixel calculations
+- Function: `_rotate_healpix_map()` calls `healpy.rotate_alm()`
 
 **Step 5: Sky Integration**
+- Compute beam-weighted sum: SKY_TOD_SAMPLE = ∫ B_pointed(θ,φ) × T_sky(θ,φ) dΩ
+- Function: `_beam_weighted_sum()`
 
-* Compute beam-weighted sum: SKY_TOD_SAMPLE = ∫ B_pointed(θ, φ) × T_sky(θ, φ) dΩ
-* Function: `_beam_weighted_sum()`
-
-This approach allows accurate simulation of how the telescope beam tracks celestial sources as the Earth rotates and the telescope points to different directions. However, note that accuracy of the TOD will strongly depend on the structure of the sky components and the resolution of the simulation (the `nside` parameter).
+This approach allows accurate simulation of how the telescope beam tracks celestial sources as the Earth rotates and the telescope points to different directions.
 
 ## Mathematical Conventions
 
 For detailed mathematical formulations, coordinate system definitions, and algorithmic conventions used in this package, please refer to:
 
-**[Mathematical Conventions Document](conventions.pdf)**
+** [Mathematical Conventions Document](conventions.pdf)**
 
 This document contains:
-
-* Coordinate system definitions and transformations
-* Euler angle conventions (ZYZY ↔ ZYZ)
-* Spherical harmonics formulations
-* Beam convolution algorithms
-* Noise model specifications
+- Coordinate system definitions and transformations
+- Euler angle conventions (ZYZY ↔ ZYZ)
+- Spherical harmonics formulations
+- Beam convolution algorithms
+- Noise model specifications
 
 ## API Reference
 
 ### Core Classes
 
-#### `TODSim`
+#### `limTODsim`
 
 Main simulator class for generating time-ordered data.
 
 ```python
-class TODSim:
+class limTODsim:
     def __init__(self, 
                  ant_latitude_deg=-30.7130,
                  ant_longitude_deg=21.4430, 
@@ -212,13 +227,12 @@ class TODSim:
 ```
 
 **Parameters:**
-
-* `ant_latitude_deg` (float): Antenna latitude in degrees. [Default to MeerKAT]
-* `ant_longitude_deg` (float): Antenna longitude in degrees. [Default to MeerKAT]
-* `ant_height_m` (float): Antenna height above sea level in meters. [Default to MeerKAT]
-* `beam_func` (callable): Function returning beam map given (freq, nside)
-* `sky_func` (callable): Function returning sky map given (freq, nside)
-* `nside` (int): HEALPix resolution parameter (must be power of 2)
+- `ant_latitude_deg` (float): Antenna latitude in degrees
+- `ant_longitude_deg` (float): Antenna longitude in degrees  
+- `ant_height_m` (float): Antenna height above sea level in meters
+- `beam_func` (callable): Function returning beam map given (freq, nside)
+- `sky_func` (callable): Function returning sky map given (freq, nside)
+- `nside` (int): HEALPix resolution parameter (must be power of 2)
 
 ### Core Functions
 
@@ -241,23 +255,21 @@ def generate_TOD(self,
 ```
 
 **Parameters:**
-
-* `freq_list` (array_like): Observation frequencies in MHz
-* `time_list` (array_like): Time offsets from start time in seconds
-* `azimuth_deg_list` (array_like): Time-ordered azimuth angles in degrees
-* `elevation_deg` (float or array_like): Elevation angle(s) in degrees
-* `start_time_utc` (str): UTC start time in ISO format
-* `Tsys_others_TOD` (array_like, optional): All the other system temperature components
-* `background_gain_TOD` (array_like, optional): Background gain variations
-* `gain_noise_TOD` (array_like, optional): Pre-computed gain noise
-* `gain_noise_params` (list): [f0, fc, alpha] for 1/f noise generation, if gain_noise_TOD is not provided
-* `white_noise_var` (float, optional): White noise variance
+- `freq_list` (array_like): Observation frequencies in MHz
+- `time_list` (array_like): Time offsets from start time in seconds
+- `azimuth_deg_list` (array_like): Time-ordered azimuth angles in degrees
+- `elevation_deg` (float or array_like): Elevation angle(s) in degrees
+- `start_time_utc` (str): UTC start time in ISO format
+- `Tsys_others_TOD` (array_like, optional): All the other system temperature components
+- `background_gain_TOD` (array_like, optional): Background gain variations
+- `gain_noise_TOD` (array_like, optional): Pre-computed gain noise
+- `gain_noise_params` (list): [f0, fc, alpha] for 1/f noise generation, if gain_noise_TOD is not provided
+- `white_noise_var` (float, optional): White noise variance
 
 **Returns:**
-
-* `overall_TOD` (ndarray): Complete TOD with all components (nfreq × ntime)
-* `sky_TOD` (ndarray): Sky signal component only (beam-weighted sum of sky maps, no gain and no noise. Shape: nfreq × ntime)
-* `gain_noise_TOD` (ndarray): Gain noise component (nfreq × ntime)
+- `overall_TOD` (ndarray): Complete TOD with all components (nfreq × ntime)
+- `sky_TOD` (ndarray): Sky signal component only (beam-weighted sum of sky maps, no gain and no noise. Shape: nfreq × ntime)
+- `gain_noise_TOD` (ndarray): Gain noise component (nfreq × ntime)
 
 #### `simulate_sky_TOD()`
 
@@ -273,8 +285,7 @@ def simulate_sky_TOD(self,
 ```
 
 **Returns:**
-
-* `sky_TOD` (ndarray): Sky signal TOD (nfreq × ntime)
+- `sky_TOD` (ndarray): Sky signal TOD (nfreq × ntime)
 
 ### Utility Functions
 
@@ -287,15 +298,13 @@ def example_scan(az_s=-60.3, az_e=-42.3, dt=2.0)
 ```
 
 **Parameters:**
-
-* `az_s` (float): Starting azimuth in degrees
-* `az_e` (float): Ending azimuth in degrees  
-* `dt` (float): Time step in seconds
+- `az_s` (float): Starting azimuth in degrees
+- `az_e` (float): Ending azimuth in degrees  
+- `dt` (float): Time step in seconds
 
 **Returns:**
-
-* `time_list` (ndarray): Time offsets in seconds
-* `azimuth_list` (ndarray): Azimuth angles in degrees
+- `time_list` (ndarray): Time offsets in seconds
+- `azimuth_list` (ndarray): Azimuth angles in degrees
 
 #### `generate_LSTs_deg()`
 
@@ -307,8 +316,7 @@ def generate_LSTs_deg(ant_latitude_deg, ant_longitude_deg, ant_height_m,
 ```
 
 **Returns:**
-
-* `LST_deg_list` (ndarray): LST values in degrees
+- `LST_deg_list` (ndarray): LST values in degrees
 
 #### Coordinate Transformation Functions
 
@@ -321,21 +329,18 @@ def zyzy2zyz(alpha, beta, gamma, delta, output_degrees=False)
 ```
 
 **Parameters:**
-
-* `alpha` (float): First Z rotation angle in degrees
-* `beta` (float): First Y rotation angle in degrees  
-* `gamma` (float): Second Z rotation angle in degrees
-* `delta` (float): Second Y rotation angle in degrees
-* `output_degrees` (bool): If True, return angles in degrees; otherwise radians
+- `alpha` (float): First Z rotation angle in degrees
+- `beta` (float): First Y rotation angle in degrees  
+- `gamma` (float): Second Z rotation angle in degrees
+- `delta` (float): Second Y rotation angle in degrees
+- `output_degrees` (bool): If True, return angles in degrees; otherwise radians
 
 **Returns:**
-
-* `(psi, theta, phi)` (tuple): ZYZ Euler angles for HEALPix rotation
+- `(psi, theta, phi)` (tuple): ZYZ Euler angles for HEALPix rotation
 
 **Mathematical Background:**
-
-* **ZYZY rotation**: R = R_y(δ) × R_z(γ) × R_y(β) × R_z(α)
-* **ZYZ rotation**: R = R_z(φ) × R_y(θ) × R_z(ψ)
+- **ZYZY rotation**: R = R_y(δ) × R_z(γ) × R_y(β) × R_z(α)
+- **ZYZ rotation**: R = R_z(φ) × R_y(θ) × R_z(ψ)
 
 This conversion is necessary because telescope pointing naturally follows ZYZY rotations (combining Earth rotation and local pointing), while HEALPix requires ZYZ convention.
 
@@ -348,18 +353,15 @@ def zyz_of_pointing(LST_deg, lat_deg, azimuth_deg, elevation_deg)
 ```
 
 **Parameters:**
-
-* `LST_deg` (float): Local Sidereal Time in degrees
-* `lat_deg` (float): Telescope latitude in degrees
-* `azimuth_deg` (float): Pointing azimuth in degrees
-* `elevation_deg` (float): Pointing elevation in degrees
+- `LST_deg` (float): Local Sidereal Time in degrees
+- `lat_deg` (float): Telescope latitude in degrees
+- `azimuth_deg` (float): Pointing azimuth in degrees
+- `elevation_deg` (float): Pointing elevation in degrees
 
 **Returns:**
-
-* `(psi, theta, phi)` (tuple): ZYZ Euler angles in radians for `hp.rotate_alm()`
+- `(psi, theta, phi)` (tuple): ZYZ Euler angles in radians for `hp.rotate_alm()`
 
 **Algorithm:**
-
 1. Convert pointing parameters to ZYZY angles:
    - α = LST (Earth rotation)
    - β = 90° - lat (latitude correction)
@@ -369,6 +371,7 @@ def zyz_of_pointing(LST_deg, lat_deg, azimuth_deg, elevation_deg)
 
 This maps the natural telescope coordinate system to the mathematical framework required for spherical harmonic rotations.
 def zyz_of_pointing(LST_deg, lat_deg, azimuth_deg, elevation_deg)
+```
 
 ##### `pointing_beam_in_eq_sys()`
 
@@ -379,20 +382,17 @@ def pointing_beam_in_eq_sys(beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_d
 ```
 
 **Parameters:**
-
-* `beam_alm` (array): Spherical harmonic coefficients of the beam in its native orientation
-* `LST_deg` (float): Local Sidereal Time in degrees  
-* `lat_deg` (float): Latitude of the observation site in degrees
-* `azimuth_deg` (float): Azimuth of the pointing in degrees
-* `elevation_deg` (float): Elevation of the pointing in degrees
-* `nside` (int): HEALPix resolution parameter
+- `beam_alm` (array): Spherical harmonic coefficients of the beam in its native orientation
+- `LST_deg` (float): Local Sidereal Time in degrees  
+- `lat_deg` (float): Latitude of the observation site in degrees
+- `azimuth_deg` (float): Azimuth of the pointing in degrees
+- `elevation_deg` (float): Elevation of the pointing in degrees
+- `nside` (int): HEALPix resolution parameter
 
 **Returns:**
-
-* `beam_pointed` (ndarray): The rotated beam map in equatorial coordinates
+- `beam_pointed` (ndarray): The rotated beam map in equatorial coordinates
 
 **Algorithm:**
-
 1. Convert telescope pointing (LST, lat, az, el) to ZYZ Euler angles using `zyz_of_pointing()`
 2. Rotate the beam's spherical harmonic coefficients using `_rotate_healpix_map()`
 3. Return the pointed beam map in equatorial coordinate system
@@ -410,14 +410,12 @@ def _rotate_healpix_map(alm, psi_rad, theta_rad, phi_rad, nside, return_map=True
 ```
 
 **Parameters:**
-
-* `alm` (array): Spherical harmonic coefficients of the map
-* `psi_rad`,   `theta_rad`,  `phi_rad` (float): ZYZ Euler angles in radians
-* `nside` (int): HEALPix resolution parameter
-* `return_map` (bool): If True, return rotated map; if False, return rotated alm
+- `alm` (array): Spherical harmonic coefficients of the map
+- `psi_rad`, `theta_rad`, `phi_rad` (float): ZYZ Euler angles in radians
+- `nside` (int): HEALPix resolution parameter
+- `return_map` (bool): If True, return rotated map; if False, return rotated alm
 
 **Algorithm:**
-
 1. Creates a copy of input spherical harmonic coefficients
 2. Applies rotation using `healpy.rotate_alm()` with ZYZ convention
 3. Converts back to map format if requested
@@ -431,13 +429,11 @@ def _beam_weighted_sum(beam_map, sky_map)
 ```
 
 **Parameters:**
-
-* `beam_map` (array): HEALPix beam pattern (will be normalized)
-* `sky_map` (array): HEALPix sky brightness temperature map
+- `beam_map` (array): HEALPix beam pattern (will be normalized)
+- `sky_map` (array): HEALPix sky brightness temperature map
 
 **Returns:**
-
-* `float`: Beam-weighted integral ∫ B(θ, φ) × T_sky(θ, φ) dΩ
+- `float`: Beam-weighted integral ∫ B(θ,φ) × T_sky(θ,φ) dΩ
 
 This implements the discrete version of the beam convolution integral that produces each TOD sample.
 
@@ -461,7 +457,113 @@ def GDSM_sky_model(freq, nside)
 
 ## Examples
 
-See the [example Jupyter notebook](examples.ipynb)
+### Example 1: Basic TOD Simulation
+
+```python
+import numpy as np
+from tod_simulator import limTODsim, example_scan
+import matplotlib.pyplot as plt
+
+# Initialize simulator
+sim = limTODsim(nside=128)  # Lower resolution for speed
+
+# Generate scanning pattern
+time_list, az_list = example_scan(dt=1.0)
+
+# Single frequency simulation
+tod, sky_tod, gain_noise = sim.generate_TOD(
+    freq_list=[1000],  # 1 GHz
+    time_list=time_list[:100],  # First 100 time points
+    azimuth_deg_list=az_list[:100],
+    elevation_deg=45.0
+)
+
+# Plot results
+fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 8))
+
+ax1.plot(time_list[:100], tod[0])
+ax1.set_ylabel('Total TOD [K]')
+ax1.set_title('Complete TOD with all components')
+
+ax2.plot(time_list[:100], sky_tod[0])
+ax2.set_ylabel('Sky Signal [K]')
+ax2.set_title('Sky component only')
+
+ax3.plot(time_list[:100], gain_noise[0])
+ax3.set_ylabel('Gain Noise')
+ax3.set_xlabel('Time [s]')
+ax3.set_title('Gain noise component')
+
+plt.tight_layout()
+plt.show()
+```
+
+### Example 2: Multi-frequency Simulation
+
+```python
+# Wide frequency range
+frequencies = np.linspace(900, 1100, 21)  # 21 channels
+
+tod_multifreq, sky_multifreq, _ = sim.generate_TOD(
+    freq_list=frequencies,
+    time_list=time_list[:50],
+    azimuth_deg_list=az_list[:50],
+    elevation_deg=60.0,
+    gain_noise_params=[1e-5, 1e-3, 1.8]  # Custom noise parameters
+)
+
+# Plot frequency-time waterfall
+plt.figure(figsize=(10, 6))
+plt.imshow(sky_multifreq, aspect='auto', origin='lower',
+           extent=[0, len(time_list[:50]), frequencies[0], frequencies[-1]])
+plt.colorbar(label='Temperature [K]')
+plt.xlabel('Time sample')
+plt.ylabel('Frequency [MHz]')
+plt.title('Sky TOD - Frequency vs Time')
+plt.show()
+```
+
+### Example 3: Custom Beam and Sky Models
+
+```python
+def custom_beam(freq, nside):
+    """Custom frequency-dependent beam"""
+    # Beam size scales with frequency
+    fwhm = 70 / freq  # degrees, typical radio telescope scaling
+    return example_beam_map(freq, nside, FWHM_major=fwhm, FWHM_minor=fwhm*0.8)
+
+def point_source_sky(freq, nside):
+    """Sky with a single point source"""
+    npix = hp.nside2npix(nside)
+    sky = np.zeros(npix)
+    
+    # Add point source at specific coordinates
+    ra, dec = 180.0, -30.0  # degrees
+    theta = np.pi/2 - np.radians(dec)
+    phi = np.radians(ra)
+    
+    ipix = hp.ang2pix(nside, theta, phi)
+    sky[ipix] = 100.0  # 100 K source
+    
+    return sky
+
+# Use custom models
+sim_custom = limTODsim(
+    beam_func=custom_beam,
+    sky_func=point_source_sky,
+    nside=256
+)
+
+# Simulate with custom models
+tod_custom, _, _ = sim_custom.generate_TOD(
+    freq_list=[1000],
+    time_list=time_list,
+    azimuth_deg_list=az_list,
+    elevation_deg=50.0
+)
+```
+
+
 
 ## Performance Considerations
 
