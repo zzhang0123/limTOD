@@ -300,14 +300,14 @@ def generate_TOD_sky(
     return np.array(tod)
 
 
-def GDSM_sky_model(freq, nside):
+def GDSM_sky_model(*, freq, nside):
     gsm = GlobalSkyModel()
     skymap = gsm.generate(freq)
     skymap = hp.ud_grade(skymap, nside_out=nside)
     return skymap
 
 
-def example_beam_map(freq, nside, FWHM_major=1.1, FWHM_minor=1.1):
+def example_beam_map(*, freq, nside, FWHM_major=1.1, FWHM_minor=1.1):
     """
     Generate an example Gaussian beam map.
     This toy model is achromatic.
@@ -413,8 +413,8 @@ class TODsim:
         )
 
         def single_freq_sky_TOD(freq):
-            beam_map = self.beam_func(freq, self.nside)
-            sky_map = self.sky_func(freq, self.nside)
+            beam_map = self.beam_func(freq=freq, nside=self.nside)
+            sky_map = self.sky_func(freq=freq, nside=self.nside)
 
             tod = generate_TOD_sky(
                 beam_map,
