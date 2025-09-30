@@ -37,8 +37,8 @@ If you use limTOD in your research, please cite:
 - **ant_latitude_deg** (`float`): Latitude of the antenna/site in degrees.
 - **ant_longitude_deg** (`float`): Longitude of the antenna/site in degrees.
 - **ant_height_m** (`float`): Height of the antenna/site in meters.
-- **beam_func** (`function`): Function that takes frequency and nside as input and returns the beam map.
-- **sky_func** (`function`): Function that takes frequency and nside as input and returns the sky map.
+- **beam_func** (`function`): Function that takes _keyword-only_ inputs, two of which must be `freq` (for frequency) and `nside` and returns the HEALPix beam map of shape (npix,). Optional keywords can be passed to the function for customisation.
+- **sky_func** (`function`): Function that takes _keyword-only_ inputs, two of which must be `freq` (for frequency) and `nside` and returns the HEALPix sky map of shape (npix,). Optional keywords can be passed to the function for customisation.
 - **nside** (`int`, optional): The nside parameter for Healpix maps.
 
 #### Observation Parameters:
@@ -230,8 +230,8 @@ class limTODsim:
 - `ant_latitude_deg` (float): Antenna latitude in degrees
 - `ant_longitude_deg` (float): Antenna longitude in degrees  
 - `ant_height_m` (float): Antenna height above sea level in meters
-- `beam_func` (callable): Function returning beam map given (freq, nside)
-- `sky_func` (callable): Function returning sky map given (freq, nside)
+- `beam_func` (callable): Function returning beam map given (freq, nside) as keyword arguments
+- `sky_func` (callable): Function returning sky map given (freq, nside) as keyword arguments
 - `nside` (int): HEALPix resolution parameter (must be power of 2)
 
 ### Core Functions
@@ -444,7 +444,7 @@ This implements the discrete version of the beam convolution integral that produ
 Generate elliptical Gaussian beam pattern.
 
 ```python
-def example_beam_map(freq, nside, FWHM_major=1.1, FWHM_minor=1.1)
+def example_beam_map(*, freq, nside, FWHM_major=1.1, FWHM_minor=1.1)
 ```
 
 ##### `GDSM_sky_model()`
@@ -452,7 +452,7 @@ def example_beam_map(freq, nside, FWHM_major=1.1, FWHM_minor=1.1)
 Generate sky map using Global Sky Model.
 
 ```python
-def GDSM_sky_model(freq, nside)
+def GDSM_sky_model(*, freq, nside)
 ```
 
 ## Examples
@@ -526,13 +526,13 @@ plt.show()
 ### Example 3: Custom Beam and Sky Models
 
 ```python
-def custom_beam(freq, nside):
+def custom_beam(*, freq, nside, fwhm0=70):
     """Custom frequency-dependent beam"""
     # Beam size scales with frequency
-    fwhm = 70 / freq  # degrees, typical radio telescope scaling
-    return example_beam_map(freq, nside, FWHM_major=fwhm, FWHM_minor=fwhm*0.8)
+    fwhm = fwhm0 / freq  # degrees, typical radio telescope scaling
+    return example_beam_map(freq=freq, nside=nside, FWHM_major=fwhm, FWHM_minor=fwhm*0.8)
 
-def point_source_sky(freq, nside):
+def point_source_sky(*, freq, nside):
     """Sky with a single point source"""
     npix = hp.nside2npix(nside)
     sky = np.zeros(npix)
