@@ -13,9 +13,9 @@ from astropy.coordinates import EarthLocation
 import astropy.units as u
 import tqdm
 from scipy.spatial.transform import Rotation as R
-from pygdsm import GlobalSkyModel16 as GlobalSkyModel
 
 import limTOD.mpiutil as mpiutil
+import limTOD.sky_model as sky_model
 from limTOD.flicker_model import sim_noise
 
 
@@ -166,6 +166,10 @@ def _rotate_healpix_map(alm, psi_rad, theta_rad, phi_rad, nside, return_map=True
     Parameters:
     alm : array
         The alm coefficients of the Healpix map to be rotated.
+        Input map(s) can be:
+            a single array is considered I,
+            array with 3 rows:[I,Q,U]
+            array with 4 rows:[I,Q,U,V]
     psi_rad : float
         The first Euler angle (rotation about z-axis) in radians.
     theta_rad : float
@@ -183,10 +187,26 @@ def _rotate_healpix_map(alm, psi_rad, theta_rad, phi_rad, nside, return_map=True
     """
 
     # Make a copy of alm since hp.rotate_alm operates in-place
-    alm_rot = alm.copy()
-    hp.rotate_alm(alm_rot, phi_rad, theta_rad, psi_rad)
+    # If input alm is single array or 3-row array, directly rotate
+    alm_rot = np.zeros_like(alm, dtype=alm.dtype)
+    if alm.ndim == 1 or alm.shape[0] == 3:
+        alm_rot = hp.rotate_alm(alm, phi_rad, theta_rad, psi_rad, inplace=False)
+        stokes_V = False
+    elif alm.shape[0] == 4:
+        # If input alm has 4 rows, ignore the V component (4th row)
+        alm_rot[:3] = hp.rotate_alm(alm[:3], phi_rad, theta_rad, psi_rad, inplace=False)
+        alm_rot[3] = hp.rotate_alm(alm[3], phi_rad, theta_rad, psi_rad, inplace=False)
+        stokes_V = True
+    else:
+        raise ValueError("Input alm must be a 1D array or a 2D array with 3 or 4 rows.")
+
     if return_map:
-        map_pointed = hp.alm2map(alm_rot, nside)
+        if stokes_V:
+            map_pointed = hp.alm2map(alm_rot[:3], nside)
+            map_V = hp.alm2map(alm_rot[3], nside)
+            map_pointed = np.vstack((map_pointed, map_V))
+        else:
+            map_pointed = hp.alm2map(alm_rot, nside)
         return map_pointed
     return alm_rot
 
@@ -214,6 +234,10 @@ def pointing_beam_in_eq_sys(
     Parameters:
     beam_alm : array
         The alm coefficients of the beam in its native orientation.
+        Input map can be:
+            a single array is considered I,
+            array with 3 rows:[I,Q,U]
+            array with 4 rows:[I,Q,U,V]
     LST_deg : float
         The Local Sidereal Time in degrees.
     lat_deg : float
@@ -246,15 +270,22 @@ def _beam_weighted_sum(beam_map, sky_map):
     Parameters:
     beam_map : array
         The Healpix map of the beam (should be normalized).
+        Input map can be:
+            a single array is considered I,
+            array with 3 rows:[I,Q,U]
+            array with 4 rows:[I,Q,U,V]
     sky_map : array
         The Healpix map of the sky.
+        Input map can be:
+            a single array is considered I,
+            array with 3 rows:[I,Q,U]
+            array with 4 rows:[I,Q,U,V]
 
     Returns:
     float
         The beam-weighted sum of the sky map.
     """
-    beam_map_normalized = _normalize_map(beam_map)
-    return np.sum(beam_map_normalized * sky_map)
+    return np.sum(beam_map * sky_map)
 
 
 def generate_TOD_sky(
@@ -267,8 +298,16 @@ def generate_TOD_sky(
     Parameters:
     beam_map : array
         The Healpix map of the beam pattern.
+        Input map can be:
+            a single array is considered I,
+            array with 3 rows:[I,Q,U]
+            array with 4 rows:[I,Q,U,V]
     sky_map : array
         The Healpix map of the sky.
+        Input map can be:
+            a single array is considered I,
+            array with 3 rows:[I,Q,U]
+            array with 4 rows:[I,Q,U,V]
     LST_deg_list : array
         List of Local Sidereal Time values in degrees for each observation.
     lat_deg : float
@@ -282,9 +321,23 @@ def generate_TOD_sky(
     array
         The generated Time-Ordered Data (TOD) as a 1D array.
     """
+    assert beam_map.shape == sky_map.shape, "Beam map and sky map must have the same shape."
 
-    beam_alm = hp.map2alm(beam_map)
-    nside = hp.get_nside(beam_map)
+    # Convert beam map to alm coefficients
+    if beam_map.ndim == 1 or beam_map.shape[0] == 3:
+        beam_alm = hp.map2alm(beam_map)
+    elif beam_map.shape[0] == 4:
+        beam_alm_IQU = hp.map2alm(beam_map[:3])
+        beam_alm_V = hp.map2alm(beam_map[3])
+        beam_alm = np.vstack((beam_alm_IQU, beam_alm_V))
+    else:
+        raise ValueError("Input beam_map must be a 1D array or a 2D array with 3 or 4 rows.")
+    
+    if beam_alm.ndim == 1:
+        nside = hp.get_nside(beam_map)
+    else:
+        nside = hp.get_nside(beam_map[0])
+        
     tod = []
 
     # for LST_deg, azimuth_deg, elevation_deg in zip(LST_deg_list, azimuth_deg_list, elevation_deg_list):
@@ -298,13 +351,6 @@ def generate_TOD_sky(
         tod.append(sample)
 
     return np.array(tod)
-
-
-def GDSM_sky_model(*, freq, nside):
-    gsm = GlobalSkyModel()
-    skymap = gsm.generate(freq)
-    skymap = hp.ud_grade(skymap, nside_out=nside)
-    return skymap
 
 
 def example_beam_map(*, freq, nside, FWHM_major=1.1, FWHM_minor=1.1):
@@ -346,7 +392,7 @@ class TODsim:
         ant_longitude_deg=21.4430,
         ant_height_m=1054,
         beam_func=example_beam_map,
-        sky_func=GDSM_sky_model,
+        sky_func=sky_model.GDSM_sky_model,
         nside=256,
     ):
         """
@@ -359,9 +405,17 @@ class TODsim:
         ant_height_m : float
             Height of the antenna/site in meters.
         beam_func : function
-            Function that takes frequency and nside as input and returns the beam map.
+            Function that takes frequency and nside as keyword input and returns the beam map.
+            The output map can be:
+                a single array is considered I,
+                array with 3 rows:[I,Q,U]
+                array with 4 rows:[I,Q,U,V]
         sky_func : function
-            Function that takes frequency and nside as input and returns the sky map.
+            Function that takes frequency and nside as keyword input and returns the sky map.
+            The output map can be:
+                a single array is considered I,
+                array with 3 rows:[I,Q,U]
+                array with 4 rows:[I,Q,U,V]
         nside : int, optional
             The nside parameter for Healpix maps.
         """
@@ -394,7 +448,7 @@ class TODsim:
             If float: Elevation value in degrees universal for all observations.
             If list: List of elevation values in degrees for each observation.
         start_time_utc : str
-            Start time in UTC (e.g. "2019-04-23 20:
+            Start time in UTC (e.g. "2019-04-23 20:41:56.397").
         """
         # the beam-weighted sum of the sky map at each pointing.
 
@@ -539,3 +593,144 @@ class TODsim:
         )
 
         return overall_TOD, sky_TOD, gain_noise_TOD
+
+
+
+
+
+
+def truncate_stacked_beam(
+    beam_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, threshold=0.01
+):
+    """
+    Generate the selected pixel indices based on beam sensitivity.
+    The selected pixels are those with beam response above a given threshold in the stacked abs(beam) map.
+
+    Parameters:
+    beam_map : array
+        The Healpix map of the beam pattern.
+        Input map can be:
+            a single array is considered I,
+            array with 3 rows:[I,Q,U]
+            array with 4 rows:[I,Q,U,V]
+    LST_deg_list : array
+        List of Local Sidereal Time values in degrees for each observation.
+    lat_deg : float
+        The latitude of the observation site in degrees.
+    azimuth_deg_list : array
+        List of azimuth values in degrees for each observation.
+    elevation_deg_list : array
+        List of elevation values in degrees for each observation.
+    threshold : float
+        The threshold to cut off the fractional beam response np.abs(beam[pixel])/beam_max, default is 0.01.
+        e.g., if threshold=0.01, only pixels with beam response larger than 1% of the maximum will be considered.
+
+    Returns:
+    pixel_indices : array
+        The selected pixel indices based on the beam sensitivity.
+    """
+
+    # Convert beam map to alm coefficients
+    if beam_map.ndim == 1 or beam_map.shape[0] == 3:
+        beam_alm = hp.map2alm(beam_map)
+    elif beam_map.shape[0] == 4:
+        beam_alm_IQU = hp.map2alm(beam_map[:3])
+        beam_alm_V = hp.map2alm(beam_map[3])
+        beam_alm = np.vstack((beam_alm_IQU, beam_alm_V))
+    else:
+        raise ValueError("Input beam_map must be a 1D array or a 2D array with 3 or 4 rows.")
+    
+    if beam_alm.ndim == 1:
+        nside = hp.get_nside(beam_map)
+    else:
+        nside = hp.get_nside(beam_map[0])
+        
+
+    sum_beam = np.zeros_like(beam_map)
+
+    # Integrate the beam map as the sum map, select pixels above threshold
+
+    print("Step 1: Generating the stacked abs(beam) map ... \n")
+
+    for LST_deg, azimuth_deg, elevation_deg in tqdm.tqdm(
+        zip(LST_deg_list, azimuth_deg_list, elevation_deg_list), total=len(LST_deg_list)
+    ):
+        beam_pointed = pointing_beam_in_eq_sys(
+            beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside=nside
+        )
+        sum_beam += np.abs(beam_pointed)
+
+    print("Step 2: Selecting pixels above threshold sensitivity ... \n")
+    bool_map = sum_beam > threshold
+    if bool_map.ndim == 2:
+        bool_map = np.any(bool_map, axis=0)
+    pixel_indices = np.where(bool_map)[0]
+
+    return pixel_indices
+
+
+
+
+def generate_sky2sys_projection(
+    beam_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, pixel_indices
+):
+    """
+    Generate the sky-to-Tsys projection matrix and the selected pixel indices based on beam sensitivity.
+    The projection matrix maps the sky pixels to the system temperature.
+
+    Parameters:
+    beam_map : array
+        The Healpix map of the beam pattern.
+        Input map can be:
+            a single array is considered I,
+            array with 3 rows:[I,Q,U]
+            array with 4 rows:[I,Q,U,V]
+    LST_deg_list : array
+        List of Local Sidereal Time values in degrees for each observation.
+    lat_deg : float
+        The latitude of the observation site in degrees.
+    azimuth_deg_list : array
+        List of azimuth values in degrees for each observation.
+    elevation_deg_list : array
+        List of elevation values in degrees for each observation.
+
+    Returns:
+    array
+        The generated Time-Ordered Data (TOD) as a 1D array.
+    """
+
+    # Convert beam map to alm coefficients
+    if beam_map.ndim == 1 or beam_map.shape[0] == 3:
+        beam_alm = hp.map2alm(beam_map)
+    elif beam_map.shape[0] == 4:
+        beam_alm_IQU = hp.map2alm(beam_map[:3])
+        beam_alm_V = hp.map2alm(beam_map[3])
+        beam_alm = np.vstack((beam_alm_IQU, beam_alm_V))
+    else:
+        raise ValueError("Input beam_map must be a 1D array or a 2D array with 3 or 4 rows.")
+    
+    if beam_alm.ndim == 1:
+        nside = hp.get_nside(beam_map)
+    else:
+        nside = hp.get_nside(beam_map[0])
+        
+
+    if beam_map.ndim == 1:
+        sky2sys = np.zeros((len(LST_deg_list), len(pixel_indices)))
+    else:
+        sky2sys = np.zeros((len(LST_deg_list), beam_map.shape[0], len(pixel_indices)))
+
+    i = 0
+    for LST_deg, azimuth_deg, elevation_deg  in tqdm.tqdm(
+        zip(LST_deg_list, azimuth_deg_list, elevation_deg_list), total=len(LST_deg_list)
+    ):
+        beam_pointed = pointing_beam_in_eq_sys(
+            beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside=nside
+        )
+        if beam_map.ndim == 1:
+            sky2sys[i, :] = beam_pointed[pixel_indices]
+        else:
+            sky2sys[i, :, :] = beam_pointed[:, pixel_indices]
+        i += 1
+
+    return sky2sys.reshape(i, -1)  # shape: ntime x (npol * npix)
