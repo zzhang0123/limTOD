@@ -19,6 +19,11 @@ from .simulator import (
     example_beam_map,
 )
 
+from .sky_model import (
+    GDSM_sky_model,
+    generate_gaussian_field,
+)
+
 __all__ = [
     "TODsim",
     "example_scan",
@@ -29,4 +34,5 @@ __all__ = [
     "pointing_beam_in_eq_sys",
     "GDSM_sky_model",
     "example_beam_map",
+    "generate_gaussian_field",
 ]
