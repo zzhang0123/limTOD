@@ -24,6 +24,14 @@ from .sky_model import (
     generate_gaussian_field,
 )
 
+from .HPW_filter import (
+    get_filtfilt_matrix,
+    HP_filter_TOD,
+    wiener_filter_map,
+    simple_wiener_map,
+    HPW_mapmaking
+)
+
 __all__ = [
     "TODsim",
     "example_scan",
@@ -35,4 +43,9 @@ __all__ = [
     "GDSM_sky_model",
     "example_beam_map",
     "generate_gaussian_field",
+    "get_filtfilt_matrix",
+    "HP_filter_TOD",
+    "wiener_filter_map",
+    "simple_wiener_map",
+    "HPW_mapmaking",
 ]
