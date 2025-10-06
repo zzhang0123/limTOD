@@ -2,6 +2,8 @@
 
 **limTOD** is a Python package for simulating Time-Ordered Data (TOD) from single-dish/autocorrelation observations using asymetric beam. Although it also supports a symmetric beam, it could be unnecessarily slow compared to directly convolving the sky with the healpy smoothing function.
 
+� **For the latest updates and release notes, see [CHANGELOG.md](CHANGELOG.md)**
+
 ## Table of Contents
 
 1. [Installation](#installation)
@@ -12,22 +14,7 @@
 6. [Examples](#examples)
 7. [Performance Considerations](#performance-considerations)
 
-## Latest Updates
 
-**[5 Oct 2025]**: Major improvements and new features:
-- 🐛 **Bug Fix**: Corrected a critical sign error in coordinate rotation transformations
-- 🎯 **Full Stokes Support**: Added complete polarization handling (I, Q, U, V) for both TOD simulation and map-making. 
-''beam_func'' and ''sky_func'' require keyword-only arguments, two of which must be freq and nside:
-```python
-# beam_func(freq=, nside=xx) and sky_func(freq=xx, nside=xx)
-```
-Their outputs must be HEALPix maps of the sampe shape, but the shape can be one of the three types:
-- 1D array of length npix for unpolarized (**I**) beam/sky 
-- 2D array of shape (3, npix) for polarized (**I, Q, U**) beam/sky
-- 2D array of shape (4, npix) for polarized (**I, Q, U, V**) beam/sky
-- 🗺️ **Map-Making Pipeline**: Implemented `HPW_mapmaking` class combining high-pass filtering and Wiener filtering for sky reconstruction from TOD
-- 🎲 **Gaussian Random Field Generator**: Added generator for correlated sky realizations from frequency-frequency angular power spectra C_ℓ(ν,ν'), enabling realistic simulation of line intensity mapping signals with spectral correlations (credit: Katrine Alice Glasscock, Philip Bull)
-- 📓 **Example Notebooks**: Added comprehensive Jupyter notebook demonstrating the full map-making workflow ([test/mm_example.ipynb](test/mm_example.ipynb))
 
 ## Citation
 
