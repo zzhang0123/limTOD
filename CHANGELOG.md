@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.2.0] - 2025-10-06
 
+### Added
+
+- Add `CHANGELOG.md`
+
 ### Changed
 
 - **BREAKING**: Renamed `TODsim` class to `TODSim` for better Python naming conventions
@@ -18,14 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Improved
 
-- 📝 **Documentation Structure**: Moved "Latest Updates" section from README.md to dedicated CHANGELOG.md file
-- 📋 **Table of Contents**: Updated README.md Table of Contents to accurately reflect document structure
-- 🔧 **Code Organization**: Improved consistency in class naming across all files including:
-  - Source code (`simulator.py`)
-  - Package exports (`__init__.py`)
-  - Documentation (`README.md`)
-  - Example notebooks (`examples.ipynb`, `mm_example.ipynb`)
-  - Change Log (`CHANGELOG.md`)
+- 📝 **Documentation**:
+  - **Structure**: Moved "Latest Updates" section from README.md to dedicated CHANGELOG.md file
+  - 📋 **Table of Contents**: Updated README.md Table of Contents to accurately reflect document structure
+  - **Examples**: Removed in flavour of example notebooks to simplify maintainace
+- 🔧 **Code Organization**:
+  - Move example notebooks to `examples/`
+  - Improved consistency in class naming across all files including:
+    - Source code (`simulator.py`)
+    - Package exports (`__init__.py`)
+    - Documentation (`README.md`)
+    - Example notebooks (`examples.ipynb`, `mm_example.ipynb`)
+    - Change Log (`CHANGELOG.md`)
 
 ### Fixed
 
