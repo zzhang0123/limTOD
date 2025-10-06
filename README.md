@@ -4,7 +4,24 @@
 
 **limTOD** is a Python package for simulating Time-Ordered Data (TOD) from single-dish/autocorrelation observations using asymetric beam. Although it also supports a symmetric beam, it could be unnecessarily slow compared to directly convolving the sky with the healpy smoothing function.
 
-## Citation
+### Latest Updates
+
+**[5 Oct 2025]**: Major improvements and new features:
+- 🐛 **Bug Fix**: Corrected a critical sign error in coordinate rotation transformations
+- 🎯 **Full Stokes Support**: Added complete polarization handling (I, Q, U, V) for both TOD simulation and map-making. 
+''beam_func'' and ''sky_func'' require keyword-only arguments, two of which must be freq and nside:
+```python
+# beam_func(freq=, nside=xx) and sky_func(freq=xx, nside=xx)
+```
+Their outputs must be HEALPix maps of the sampe shape, but the shape can be one of the three types:
+- 1D array of length npix for unpolarized (**I**) beam/sky 
+- 2D array of shape (3, npix) for polarized (**I, Q, U**) beam/sky
+- 2D array of shape (4, npix) for polarized (**I, Q, U, V**) beam/sky
+- 🗺️ **Map-Making Pipeline**: Implemented `HPW_mapmaking` class combining high-pass filtering and Wiener filtering for optimal sky reconstruction from TOD
+- 🎲 **Gaussian Random Field Generator**: Added generator for correlated sky realizations from frequency-frequency angular power spectra C_ℓ(ν,ν'), enabling realistic simulation of line intensity mapping signals with spectral correlations (credit: Katrine Alice Glasscock, Philip Bull)
+- 📓 **Example Notebooks**: Added comprehensive Jupyter notebook demonstrating the full map-making workflow ([test/mm_example.ipynb](test/mm_example.ipynb))
+
+### Citation
 
 If you use limTOD in your research, please cite:
 
@@ -29,9 +46,13 @@ If you use limTOD in your research, please cite:
 }
 ```
 
-📖 **For detailed mathematical conventions and coordinate system definitions, see [conventions.pdf](conventions.pdf).**
+### 📖 Info
+- **For detailed coordinate system definitions, see [conventions.pdf](conventions.pdf).**
+- **For working examples of TOD simulation, see [test/TODsim_examples.ipynb](test/TODsim_examples.ipynb)**
+- **For working examples of HighPass+Wiener mapmaking, see map-making workflow ([test/mm_example.ipynb](test/mm_example.ipynb))**
 
-### Input Parameters:
+
+### Input Parameters for the TOD simulator:
 
 #### Telescope Configuration:
 - **ant_latitude_deg** (`float`): Latitude of the antenna/site in degrees.
@@ -177,7 +198,7 @@ The package handles coordinate transformations between:
   - α = LST (Earth's rotation tracking)
   - β = 90° - latitude (site location correction)
   - γ = azimuth (local pointing direction)
-  - δ = 90° - elevation (altitude correction)
+  - δ = elevation - 90°  (altitude correction)
 
 **Step 3: ZYZY → ZYZ Conversion**
 - Convert to HEALPix-compatible Euler angles using `zyzy2zyz()`
@@ -562,6 +583,237 @@ tod_custom, _, _ = sim_custom.generate_TOD(
     elevation_deg=50.0
 )
 ```
+
+
+
+## Map-Making with HPW_mapmaking
+
+### Overview
+
+The `HPW_mapmaking` class provides a sophisticated map-making pipeline that combines high-pass filtering and Wiener filtering to reconstruct sky maps from Time-Ordered Data (TOD). This implementation handles 1/f noise through high-pass filtering while optimally recovering sky signals using Wiener filtering with optional priors.
+
+### Theoretical Background
+
+The map-making process follows these key steps:
+
+1. **High-Pass Filtering**: Remove low-frequency drifts and 1/f noise using a Butterworth filter
+2. **Forward Modeling**: Build an operator that maps sky parameters to TOD samples
+3. **Wiener Filtering**: Solve the inverse problem optimally:
+   ```
+   x̂ = (A^T N^{-1} A + S^{-1})^{-1} (A^T N^{-1} d + S^{-1} μ)
+   ```
+   where:
+   - `A`: System operator (beam convolution + instrumental effects)
+   - `N`: Noise covariance matrix
+   - `S`: Signal prior covariance matrix
+   - `d`: Measured TOD data
+   - `μ`: Prior mean for sky parameters
+
+### API Reference
+
+#### `HPW_mapmaking` Class
+
+```python
+class HPW_mapmaking:
+    def __init__(self, *,
+                 beam_map,
+                 LST_deg_list_group,
+                 lat_deg,
+                 azimuth_deg_list_group,
+                 elevation_deg_list_group,
+                 threshold=0.01,
+                 Tsys_others_operator=None)
+```
+
+**Parameters** (all keyword-only):
+- `beam_map` (array): HEALPix beam pattern. Can be:
+  - 1D array (length npix) for intensity-only (I)
+  - 2D array (3 × npix) for polarization (I, Q, U)
+  - 2D array (4 × npix) for full Stokes (I, Q, U, V)
+- `LST_deg_list_group` (list): LST values in degrees for each TOD or list of LST lists
+- `lat_deg` (float): Observation site latitude in degrees
+- `azimuth_deg_list_group` (list): Azimuth angles in degrees for each TOD
+- `elevation_deg_list_group` (list): Elevation angles in degrees for each TOD
+- `threshold` (float): Fractional beam response threshold (e.g., 0.01 = 1% of peak)
+- `Tsys_others_operator` (array, optional): Operator for other system components (e.g., receiver temperature variations)
+
+#### Calling the Map-Maker
+
+```python
+sky_map, sky_uncertainty = mapmaker(
+    TOD_group,
+    dtime,
+    cutoff_freq_group,
+    gain_group=None,
+    known_injection_group=None,
+    Tsky_prior_mean=None,
+    Tsky_prior_inv_cov_diag=None,
+    Tsys_other_prior_mean_group=None,
+    Tsys_other_prior_inv_cov_group=None,
+    regularization=1e-12,
+    return_full_cov=False
+)
+```
+
+**Parameters:**
+- `TOD_group` (list): List of TOD arrays, one per observation
+- `dtime` (float): Time sampling interval in seconds
+- `cutoff_freq_group` (list): High-pass filter cutoff frequencies in Hz
+- `gain_group` (list, optional): Gain calibration factors for each TOD
+- `known_injection_group` (list, optional): Known signals to subtract (e.g., calibration diodes)
+- `Tsky_prior_mean` (array, optional): Prior mean for sky temperature
+- `Tsky_prior_inv_cov_diag` (array, optional): Diagonal of prior inverse covariance matrix
+- `Tsys_other_prior_mean_group` (list, optional): Prior means for other system parameters
+- `Tsys_other_prior_inv_cov_group` (list, optional): Prior inverse covariances for other system parameters
+- `regularization` (float): Regularization parameter for numerical stability
+- `return_full_cov` (bool): If True, return full posterior covariance matrix
+
+**Returns:**
+- `sky_map` (array): Reconstructed sky map(s) in temperature units
+- `sky_uncertainty` (array): Per-pixel uncertainty estimates
+- `Tsys_others_estimation_group` (list, optional): Estimated other system parameters
+- `Tsys_others_uncertainty_group` (list, optional): Uncertainties for other system parameters
+
+### Map-Making Examples
+
+📓 **For a complete working example, see [test/mm_example.ipynb](test/mm_example.ipynb)**
+
+This notebook demonstrates:
+- Simulating multiple TOD sets at different elevations
+- Initializing the `HPW_mapmaking` class with keyword arguments
+- Performing map-making with high-pass + wiener filtering
+- Visualizing reconstructed sky maps using `gnomview_patch`
+
+
+#### Example 1: Basic Map-Making from Simulated TODs
+
+```python
+import numpy as np
+from limTOD import TODsim, HPW_mapmaking, example_beam_map, GDSM_sky_model
+
+# 1. Simulate TODs (as in previous examples)
+simulator = TODsim(
+    ant_latitude_deg=-30.7130,  # MeerKAT
+    ant_longitude_deg=21.4430,
+    ant_height_m=1054,
+    nside=64,
+    beam_func=example_beam_map,
+    sky_func=GDSM_sky_model
+)
+
+# Generate multiple scans
+TOD_group = []
+LST_deg_list_group = []
+azimuth_deg_list_group = []
+elevation_deg_list_group = []
+
+for elevation in [38.5, 41.5, 44.5]:  # Multiple elevations
+    time_list, azimuth_list = example_scan(dt=2.0, n_repeats=7)
+    
+    tod, _, _, LST_list = simulator.generate_TOD(
+        freq_list=[950],  # MHz
+        time_list=time_list,
+        azimuth_deg_list=azimuth_list,
+        elevation_deg=elevation,
+        start_time_utc="2019-04-23 20:41:56.397",
+        return_LSTs=True
+    )
+    
+    TOD_group.append(tod[0])
+    LST_deg_list_group.append(LST_list)
+    azimuth_deg_list_group.append(azimuth_list)
+    elevation_deg_list_group.append(elevation * np.ones_like(tod[0]))
+
+# 2. Initialize map-maker
+beam_map = example_beam_map(freq=950, nside=64)
+
+mapmaker = HPW_mapmaking(
+    beam_map=beam_map,
+    LST_deg_list_group=LST_deg_list_group,
+    lat_deg=simulator.ant_latitude_deg,
+    azimuth_deg_list_group=azimuth_deg_list_group,
+    elevation_deg_list_group=elevation_deg_list_group,
+    threshold=0.05  # Only use pixels with >5% beam response
+)
+
+# 3. Perform map-making
+cutoff_freqs = [0.001] * len(TOD_group)  # 0.001 Hz high-pass filter
+
+sky_map, sky_unc = mapmaker(
+    TOD_group=TOD_group,
+    dtime=2.0,  # seconds
+    cutoff_freq_group=cutoff_freqs
+)
+
+print(f"Reconstructed {len(sky_map)} sky pixels")
+print(f"Mean temperature: {np.mean(sky_map):.2f} K")
+print(f"Mean uncertainty: {np.mean(sky_unc):.2f} K")
+```
+
+#### Example 2: Map-Making with Priors
+
+```python
+# Use a previously reconstructed map as a prior
+prior_map = ... # e.g., from previous observation or simulation
+
+# Set prior with moderate confidence (inverse variance)
+prior_inv_variance = 1.0 / (10.0**2)  # σ_prior = 10 K
+
+sky_map_with_prior, sky_unc_with_prior = mapmaker(
+    TOD_group=TOD_group,
+    dtime=2.0,
+    cutoff_freq_group=cutoff_freqs,
+    Tsky_prior_mean=prior_map,
+    Tsky_prior_inv_cov_diag=prior_inv_variance * np.ones_like(prior_map)
+)
+```
+
+#### Example 3: Joint Estimation of Sky and Systematics
+
+```python
+# Build operator for receiver temperature variations
+# E.g., using Legendre polynomials
+from numpy.polynomial.legendre import legval
+
+n_time = len(TOD_group[0])
+n_legendre = 5
+t_normalized = np.linspace(-1, 1, n_time)
+
+Trec_operator = np.zeros((n_time, n_legendre))
+for i in range(n_legendre):
+    coeffs = np.zeros(n_legendre)
+    coeffs[i] = 1.0
+    Trec_operator[:, i] = legval(t_normalized, coeffs)
+
+# Initialize with systematics operator
+mapmaker_with_sys = HPW_mapmaking(
+    beam_map=beam_map,
+    LST_deg_list_group=LST_deg_list_group,
+    lat_deg=simulator.ant_latitude_deg,
+    azimuth_deg_list_group=azimuth_deg_list_group,
+    elevation_deg_list_group=elevation_deg_list_group,
+    threshold=0.05,
+    Tsys_others_operator=Trec_operator  # Add systematics operator
+)
+
+# Prior for receiver temperature coefficients
+Trec_prior_mean = [300.0, 0.0, 0.0, 0.0, 0.0]  # ~300 K baseline
+Trec_prior_inv_cov = np.diag([1e-6, 1e-2, 1e-2, 1e-2, 1e-2])  # Tight on mean, loose on variations
+
+# Perform joint estimation
+sky_map, sky_unc, Trec_est, Trec_unc = mapmaker_with_sys(
+    TOD_group=TOD_group,
+    dtime=2.0,
+    cutoff_freq_group=cutoff_freqs,
+    Tsys_other_prior_mean_group=[Trec_prior_mean] * len(TOD_group),
+    Tsys_other_prior_inv_cov_group=[Trec_prior_inv_cov] * len(TOD_group)
+)
+
+print("Receiver temperature coefficients:")
+for i, (est, unc) in enumerate(zip(Trec_est[0], Trec_unc[0])):
+    print(f"  Coeff {i}: {est:.3f} ± {unc:.3f}")
+```
+
 
 
 

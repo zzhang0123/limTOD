@@ -33,6 +33,7 @@ keywords = [
     "beam patterns",
     "sky models",
     "noise modeling",
+    "map making"
 ]
 dependencies = [
     "numpy>=1.19.0",
