@@ -18,19 +18,20 @@ def get_filtfilt_matrix(n_samples, b, a):
     
     return H
 
-def HP_filter_TOD(TOD, dtime, Tsys_operator, cutoff_freq=0.001):
+def HP_filter_TOD(n_samples, dtime, cutoff_freq=0.001, filter_order=4):
     """
     Apply high-pass Butterworth filter to the TOD.
     Parameters:
     -----------
-    TOD : array-like, shape (n_time,)
-        Time-ordered data to be filtered
+    n_samples : int
+        Number of samples in the TOD
     dtime : float
         Time interval between samples in seconds
-    Tsys_operator : array-like, shape (n_time, n_params)
-        System temperature operator mapping system parameters (e.g. sky pixels and linear coefficients of receiver temperatures) to TOD samples
     cutoff_freq : float, default=0.001 Hz
         Cutoff frequency for high-pass filter in unit of Hz
+    filter_order : int, default=4
+        Order of the Butterworth filter (typical range: 2-8)
+        Higher order = sharper cutoff but more edge effects
 
     Returns:
     --------
@@ -43,16 +44,24 @@ def HP_filter_TOD(TOD, dtime, Tsys_operator, cutoff_freq=0.001):
     nyquist = fs / 2.0
     normalized_cutoff = cutoff_freq / nyquist # Normalized cutoff frequency for high-pass filter
 
-    b, a = signal.butter(4, normalized_cutoff, btype='high', analog=False) # 4th order Butterworth filter
-    n_samples = len(TOD)
+    # Validate normalized cutoff frequency
+    if normalized_cutoff <= 0:
+        raise ValueError(f"Cutoff frequency must be positive. Got cutoff_freq={cutoff_freq} Hz")
+    if normalized_cutoff >= 1:
+        raise ValueError(
+            f"Cutoff frequency ({cutoff_freq} Hz) must be less than Nyquist frequency ({nyquist} Hz). "
+            f"Normalized cutoff = {normalized_cutoff:.3f} >= 1.0"
+        )
+
+    b, a = signal.butter(filter_order, normalized_cutoff, btype='high', analog=False)
 
     H_exact = get_filtfilt_matrix(n_samples, b, a) # Exact matrix representation of filtfilt operation
-    HP_operator = H_exact @ Tsys_operator
-    return HP_operator
+    return H_exact
 
-# Define Wiener filter for mapmaking of the TOD
+
+
 def wiener_filter_map(TOD, operator, noise_variance=None, prior_inv_cov=None, guess=None,
-                      regularization=1e-12, return_full_cov=False):
+                      regularization=1e-12, return_full_cov=False, rolling_variance=True):
     """
     Apply Wiener filtering for mapmaking from time-ordered data.
     
@@ -93,14 +102,43 @@ def wiener_filter_map(TOD, operator, noise_variance=None, prior_inv_cov=None, gu
     if noise_variance is None:
         # Simple estimate: variance of high-pass filtered residuals
         residual = TOD - operator @ np.linalg.pinv(operator) @ TOD
-        noise_variance = np.var(residual)
-        print(f"Estimated noise variance: {noise_variance:.6f}")
+        if rolling_variance:
+            window_size = 100
+            half_window = window_size // 2
+            
+            # Pad with first N and last N samples (reflected)
+            # This provides smoother boundaries than just repeating edge value
+            left_pad = residual[:half_window][::-1]  # First N samples, reversed
+            right_pad = residual[-half_window:][::-1]  # Last N samples, reversed
+            padded_residual = np.concatenate([left_pad, residual, right_pad])
+            
+            # Apply rolling window to squared residuals
+            noise_variance = np.convolve(
+                padded_residual**2,
+                np.ones(window_size)/window_size,
+                mode='valid'
+            )
+            
+            # Trim to exact length if needed
+            if len(noise_variance) > len(residual):
+                # Take the middle portion
+                excess = len(noise_variance) - len(residual)
+                start = excess // 2
+                noise_variance = noise_variance[start:start+len(residual)]
+        else:
+            noise_variance = np.var(residual)
+            print(f"Estimated noise variance: {noise_variance:.6f}")
+
+
+    
+    
 
     # Create noise inverse covariance matrix (assume diagonal)
     if np.isscalar(noise_variance):
         N_inv = np.eye(n_time) / noise_variance
     else:
-        N_inv = diags(1.0 / np.asarray(noise_variance))
+        # Convert to dense diagonal matrix for consistent matrix operations
+        N_inv = np.diag(1.0 / np.asarray(noise_variance))
     
     # Create signal inverse covariance matrix
     if prior_inv_cov is None:
@@ -108,7 +146,8 @@ def wiener_filter_map(TOD, operator, noise_variance=None, prior_inv_cov=None, gu
     elif np.isscalar(prior_inv_cov):
         S_inv = np.eye(n_pixels) * prior_inv_cov
     elif prior_inv_cov.ndim == 1:
-        S_inv = diags(1.0 * np.asarray(prior_inv_cov))
+        # Convert to dense diagonal matrix for consistent matrix operations
+        S_inv = np.diag(np.asarray(prior_inv_cov))
     elif prior_inv_cov.ndim == 2:
         S_inv = np.asarray(prior_inv_cov)
     else:
@@ -116,17 +155,21 @@ def wiener_filter_map(TOD, operator, noise_variance=None, prior_inv_cov=None, gu
 
     if guess is None:
         guess = np.zeros(n_pixels)
-        S_inv = np.zeros((n_pixels, n_pixels))  # Uninformative prior
-        if prior_inv_cov is not None:
-            print("Warning: guess is None, ignoring provided prior_inv_cov and using uninformative prior.")
+        # Only override prior if none was provided
+        if prior_inv_cov is None:
+            S_inv = np.zeros((n_pixels, n_pixels))  # Uninformative prior
     else:
         guess = np.asarray(guess)
         if len(guess) != n_pixels:
             raise ValueError("Length of guess must match number of pixels.")
 
     # Compute Wiener filter components
-    AtN = operator.T @ N_inv  # A^T N^-1
-    AtNA = AtN @ operator     # A^T N^-1 A
+    # If float type, transpose; if complex, conjugate transpose
+    if np.iscomplexobj(operator):
+        AtN = operator.conj().T @ N_inv  # A^H N^-1
+    else:
+        AtN = operator.T @ N_inv  # A^T N^-1
+    AtNA = AtN @ operator     # A^dagger N^-1 A
     
     # Add signal prior and regularization
     covariance_inv = AtNA + S_inv + regularization * np.eye(n_pixels)
@@ -158,14 +201,14 @@ def wiener_filter_map(TOD, operator, noise_variance=None, prior_inv_cov=None, gu
         return sky_map, uncertainty
 
 
+
+
 # Alternative simplified version for quick mapmaking
 def simple_wiener_map(TOD, operator, noise_var=None):
     """
     Simplified Wiener filter assuming uninformative signal prior.
     Equivalent to: (A^T A + lambda*I)^-1 A^T d
-    """
-    import numpy as np
-    
+    """    
     if noise_var is None:
         # Estimate from residuals
         residual = TOD - operator @ np.linalg.pinv(operator) @ TOD
@@ -190,14 +233,15 @@ class HPW_mapmaking:
     """
 
     def __init__(
-        self,         
+        self,
+        *,
         beam_map, 
         LST_deg_list_group, 
         lat_deg, 
         azimuth_deg_list_group, 
         elevation_deg_list_group, 
         threshold=0.01,
-        Tsys_others_operator=None,
+        Tsys_others_operator_group=None,
     ):
         """
         Initialize the HPW_mapmaking class.
@@ -212,21 +256,29 @@ class HPW_mapmaking:
 
         LST_deg_list_group : a LST list or a list of LST lists corresponding to each TOD in TOD_group.
             e.g. [LST_deg_list_1, LST_deg_list_2, ...]
+            Note that it can be generated by limTOD.simulator.generate_LSTs_deg function. For example:
+                LST_deg_list = generate_LSTs_deg(
+                    ant_latitude_deg,
+                    ant_longitude_deg,
+                    ant_height_m,
+                    time_list,
+                    start_time_utc=start_time_utc,
+                )
 
         lat_deg : float
             The latitude of the observation site in degrees.
 
-        azimuth_deg_list_group : an azimuth list or a list of azimuth lists corresponding to each TOD in TOD_group.
+        azimuth_deg_list_group : an azimuth array or a list of azimuth lists corresponding to each TOD in TOD_group.
             e.g. [azimuth_deg_list_1, azimuth_deg_list_2, ...]
 
-        elevation_deg_list_group : an elevation list or a list of elevation lists corresponding to each TOD in TOD_group.
+        elevation_deg_list_group : an elevation array or a list of elevation lists corresponding to each TOD in TOD_group.
             e.g. [elevation_deg_list_1, elevation_deg_list_2, ...]
 
         threshold : float
             The threshold to cut off the fractional beam response np.abs(beam[pixel])/beam_max, default is 0.01.
             e.g., if threshold=0.01, only pixels with beam response larger than 1% of the maximum will be considered.
 
-        Tsys_others_operator : array, optional
+        Tsys_others_operator_group : an array or a list of arrays, optional
             The operator for other system temperature components (e.g., Trec and Tdiode) mapping to TOD.
 
         """
@@ -252,11 +304,12 @@ class HPW_mapmaking:
         else:
             raise ValueError("beam_map must be a 1D or 2D array.")
 
-        if Tsys_others_operator is not None:
+        if Tsys_others_operator_group is not None:
             self.Tsys_others = True
-            self.n_params_others = Tsys_others_operator.shape[1]
+            self.n_params_others = Tsys_others_operator_group[0].shape[1]
         else:
             self.Tsys_others = False
+            self.n_params_others = 0
 
         self.pixel_indices = truncate_stacked_beam(
             beam_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, threshold=threshold
@@ -269,7 +322,6 @@ class HPW_mapmaking:
         if self.num_tods > 1:
 
             self.Tsys_operators = []
-            null_operator = np.zeros_like(Tsys_others_operator) if Tsys_others_operator is not None else None
 
             for i in range(self.num_tods):
                 LST_deg_list_i = LST_deg_list_group[i]
@@ -277,36 +329,47 @@ class HPW_mapmaking:
                 elevation_deg_list_i = elevation_deg_list_group[i]
 
                 sky_operator_i = generate_sky2sys_projection(
-                    beam_map, LST_deg_list_i, lat_deg, azimuth_deg_list_i, elevation_deg_list_i, self.pixel_indices
+                    beam_map, LST_deg_list_i, lat_deg, azimuth_deg_list_i, elevation_deg_list_i, self.pixel_indices, normalize=True
                 )
-                other_operators = [null_operator]*self.num_tods 
-                other_operators[i] = Tsys_others_operator 
+                if Tsys_others_operator_group is not None:
+                    other_operators = [np.zeros_like(item) for item in Tsys_others_operator_group]
+                    other_operators[i] = Tsys_others_operator_group[i]
+                    Tsys_operator_i = np.concatenate([sky_operator_i] + other_operators, axis=1) 
+                else:
+                    Tsys_operator_i = sky_operator_i
 
-                Tsys_operator_i = np.concatenate([sky_operator_i] + other_operators, axis=1) if Tsys_others_operator is not None else sky_operator_i
+                # # Debug: print the shape of each Tsys_operator_i
+                # print(f"Tsys_operator for TOD {i} shape: {Tsys_operator_i.shape}")
+                # # Debug: check the rank of each Tsys_operator_i
+                # rank = np.linalg.matrix_rank(Tsys_operator_i)
+                # print(f"Rank of Tsys_operator for TOD {i}: {rank}")
+
                 self.Tsys_operators.append(Tsys_operator_i)
 
         else:
             sky_operators = generate_sky2sys_projection(
-                beam_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, self.pixel_indices
+                beam_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, self.pixel_indices, normalize=True
             )
-            if Tsys_others_operator is not None:
-                self.Tsys_operators = np.concatenate([sky_operators, Tsys_others_operator], axis=1)
+            if Tsys_others_operator_group is not None:
+                self.Tsys_operators = np.concatenate([sky_operators, Tsys_others_operator_group], axis=1)
             else:
                 self.Tsys_operators = sky_operators
 
     def __call__(
-        self,         
+        self,  
+        *,       
         TOD_group,
-        gain_group,
         dtime,
         cutoff_freq_group,
-        mu_group=None,
+        gain_group=None,
+        known_injection_group=None,
         Tsky_prior_mean=None,
         Tsky_prior_inv_cov_diag=None,
         Tsys_other_prior_mean_group=None,
         Tsys_other_prior_inv_cov_group=None,
         regularization=1e-12,
         return_full_cov=False,
+        filter_order=4,
     ):
         """
         TOD_group : a TOD array or a list of TOD arrays at the same frequency channel.
@@ -315,6 +378,7 @@ class HPW_mapmaking:
         gain_group : a gain array or a list of gain arrays corresponding to each TOD in TOD_group.
             e.g. [gain_1, gain_2, ...]
             gain_i can be a single value (constant gain) or an array with the same length as TOD_i.
+            If None, assumed to be 1. (i.e., TOD is already calibrated)
             
         dtime : float
             Time interval between samples in seconds.
@@ -322,7 +386,7 @@ class HPW_mapmaking:
         cutoff_freq_group : list of float, 
             Cutoff frequency for high-pass filter in unit of the nyquist frequency.
 
-        mu_group : a list of known system temperature components to be subtracted from Tsys (calibrated TOD),  each element corresponding to each TOD in TOD_group.
+        known_injection_group : a list of known system temperature components to be subtracted from Tsys (calibrated TOD),  each element corresponding to each TOD in TOD_group.
             e.g. [mu_1, mu_2, ...]
             A concrete example in MeerKLASS, mu_i can be time sequence of constant noise diode temperature, if we do not take it as a parameter.
 
@@ -361,21 +425,45 @@ class HPW_mapmaking:
             Per-parameter uncertainty (diagonal of covariance matrix) for other system temperature components, only returned if Tsys_others_operator is provided.
         """
 
+        if gain_group is None:
+            gain_group = [1.0]*self.num_tods
 
-        for i in range(self.num_tods):
-            hp_operator_i = HP_filter_TOD(TOD_group[i], dtime, self.Tsys_operators[i], cutoff_freq=cutoff_freq_group[i])
-            calibrated_TOD_i = TOD_group[i] / gain_group[i] 
-            if mu_group is not None:
-                calibrated_TOD_i -= mu_group[i]
-            hp_cal_TOD_i = hp_operator_i @ calibrated_TOD_i
-            hp_Tsys_operator_i = hp_operator_i @ self.Tsys_operators[i]
+        self.HP_exact = []
+        if self.num_tods > 1:
 
-            if i == 0:
-                HP_Tsys_operator_overall = hp_Tsys_operator_i
-                HP_cal_TOD_overall = hp_cal_TOD_i
-            else:
-                HP_Tsys_operator_overall = np.concatenate([HP_Tsys_operator_overall, hp_Tsys_operator_i])
-                HP_cal_TOD_overall = np.concatenate([HP_cal_TOD_overall, hp_cal_TOD_i])
+            for i in range(self.num_tods):
+                hp_filter_mat = HP_filter_TOD(len(TOD_group[i]), dtime, cutoff_freq=cutoff_freq_group[i], filter_order=filter_order)
+                self.HP_exact.append(hp_filter_mat)
+                calibrated_TOD_i = np.asarray(TOD_group[i]) / gain_group[i] 
+                if known_injection_group is not None:
+                    calibrated_TOD_i -= known_injection_group[i]
+                hp_cal_TOD_i = hp_filter_mat @ calibrated_TOD_i
+                hp_Tsys_operator_i = hp_filter_mat @ self.Tsys_operators[i]
+
+                if i == 0:
+                    HP_Tsys_operator_overall = hp_Tsys_operator_i
+                    HP_cal_TOD_overall = hp_cal_TOD_i
+                else:
+                    HP_Tsys_operator_overall = np.concatenate([HP_Tsys_operator_overall, hp_Tsys_operator_i])
+                    HP_cal_TOD_overall = np.concatenate([HP_cal_TOD_overall, hp_cal_TOD_i])
+
+        elif self.num_tods == 1:
+            TOD = TOD_group if isinstance(TOD_group, np.ndarray) and TOD_group.ndim == 1 else TOD_group[0]
+            cutoff_freq = cutoff_freq_group if isinstance(cutoff_freq_group, (int, float)) else cutoff_freq_group[0]
+            gain = gain_group if isinstance(gain_group, (int, float)) else gain_group[0]
+            calibrated_TOD = np.asarray(TOD) / gain
+            if known_injection_group is not None:
+                known_injection = known_injection_group if isinstance(known_injection_group, np.ndarray) and known_injection_group.ndim == 1 else known_injection_group[0]
+                calibrated_TOD -= known_injection
+            hp_filter_mat = HP_filter_TOD(len(TOD), dtime, cutoff_freq=cutoff_freq, filter_order=filter_order)
+            HP_cal_TOD_overall = hp_filter_mat @ calibrated_TOD
+            HP_Tsys_operator_overall = hp_filter_mat @ self.Tsys_operators
+
+        # # Debug: print the shape of the overall operator
+        # print(f"Overall HP_Tsys_operator shape: {HP_Tsys_operator_overall.shape}")
+        # # Debug: check the rank of the overall operator
+        # rank = np.linalg.matrix_rank(HP_Tsys_operator_overall)
+        # print(f"Rank of overall HP_Tsys_operator: {rank}")
 
         self.nparams = HP_Tsys_operator_overall.shape[1]
 

@@ -181,7 +181,7 @@ Desktop.ini
 *.npy
 
 # Data directories (customize as needed)
-data/
+test/data/
 output/
 results/
 plots/

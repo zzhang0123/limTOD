@@ -15,8 +15,8 @@ from .simulator import (
     zyz_of_pointing,
     generate_TOD_sky,
     pointing_beam_in_eq_sys,
-    GDSM_sky_model,
     example_beam_map,
+    example_symm_beam_map,
 )
 
 from .sky_model import (
@@ -42,6 +42,7 @@ __all__ = [
     "pointing_beam_in_eq_sys",
     "GDSM_sky_model",
     "example_beam_map",
+    "example_symm_beam_map",
     "generate_gaussian_field",
     "get_filtfilt_matrix",
     "HP_filter_TOD",
