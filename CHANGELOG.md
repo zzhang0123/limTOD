@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2025-10-06
+
+### Changed
+
+- **BREAKING**: Renamed `TODsim` class to `TODSim` for better Python naming conventions
+- Renamed old `limTODsim` class references to `TODSim` throughout codebase
+- Updated all import statements and class instantiations to use `TODSim`
+- Updated `__init__.py` and `__all__` exports to reflect new class name
+
+### Improved
+
+- 📝 **Documentation Structure**: Moved "Latest Updates" section from README.md to dedicated CHANGELOG.md file
+- 📋 **Table of Contents**: Updated README.md Table of Contents to accurately reflect document structure
+- 🔧 **Code Organization**: Improved consistency in class naming across all files including:
+  - Source code (`simulator.py`)
+  - Package exports (`__init__.py`)
+  - Documentation (`README.md`)
+  - Example notebooks (`examples.ipynb`, `mm_example.ipynb`)
+  - Change Log (`CHANGELOG.md`)
+
+### Fixed
+
+- Corrected all references to use consistent `TODSim` class name
+- Fixed import statements in example notebooks and documentation
+
 ## [1.1.0] - 2025-10-05
 
 ### Added
