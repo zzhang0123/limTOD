@@ -1,10 +1,18 @@
 # limTOD: Time-Ordered Data Simulator for single-dish (autocorrelation) line intensity mapping measurements
 
-## Overview
-
 **limTOD** is a Python package for simulating Time-Ordered Data (TOD) from single-dish/autocorrelation observations using asymetric beam. Although it also supports a symmetric beam, it could be unnecessarily slow compared to directly convolving the sky with the healpy smoothing function.
 
-### Latest Updates
+## Table of Contents
+
+1. [Installation](#installation)
+2. [Quick Start](#quick-start)
+3. [Theoretical Background](#theoretical-background)
+4. [Mathematical Conventions](#mathematical-conventions)
+5. [API Reference](#api-reference)
+6. [Examples](#examples)
+7. [Performance Considerations](#performance-considerations)
+
+## Latest Updates
 
 **[5 Oct 2025]**: Major improvements and new features:
 - 🐛 **Bug Fix**: Corrected a critical sign error in coordinate rotation transformations
@@ -21,7 +29,7 @@ Their outputs must be HEALPix maps of the sampe shape, but the shape can be one 
 - 🎲 **Gaussian Random Field Generator**: Added generator for correlated sky realizations from frequency-frequency angular power spectra C_ℓ(ν,ν'), enabling realistic simulation of line intensity mapping signals with spectral correlations (credit: Katrine Alice Glasscock, Philip Bull)
 - 📓 **Example Notebooks**: Added comprehensive Jupyter notebook demonstrating the full map-making workflow ([test/mm_example.ipynb](test/mm_example.ipynb))
 
-### Citation
+## Citation
 
 If you use limTOD in your research, please cite:
 
@@ -46,13 +54,66 @@ If you use limTOD in your research, please cite:
 }
 ```
 
-### 📖 Info
+
+
+## Installation
+
+### Requirements
+
+```
+numpy >= 1.19.0
+healpy >= 1.14.0
+astropy >= 4.0.0
+scipy >= 1.5.0
+tqdm >= 4.60.0
+mpi4py >= 3.0.0 (for parallel processing)
+pygdsm >= 1.2.0 (for Global Sky Model)
+mpmath >= 1.2.0 (for flicker noise modeling)
+```
+
+### Install from source
+
+```bash
+git clone https://github.com/zzhang0123/limTOD.git
+cd limTOD
+pip install -e .
+```
+
+## Quick Start
+
+```python
+import numpy as np
+from tod_simulator import TODSim, example_scan
+
+# Initialize the simulator with MeerKAT coordinates
+simulator = TODSim(
+    ant_latitude_deg=-30.7130,   # MeerKAT latitude
+    ant_longitude_deg=21.4430,   # MeerKAT longitude
+    ant_height_m=1054,           # MeerKAT altitude
+    nside=256                    # HEALPix resolution
+)
+
+# Generate a simple scanning pattern
+time_list, azimuth_list = example_scan()
+
+# Simulate TOD for multiple frequencies
+freq_list = [950, 1000, 1050]  # MHz
+tod_array, sky_tod, gain_noise = simulator.generate_TOD(
+    freq_list=freq_list,
+    time_list=time_list,
+    azimuth_deg_list=azimuth_list,
+    elevation_deg=41.5
+)
+
+print(f"Generated TOD shape: {tod_array.shape}")  # (3, n_time)
+```
+
 - **For detailed coordinate system definitions, see [conventions.pdf](conventions.pdf).**
 - **For working examples of TOD simulation, see [test/TODsim_examples.ipynb](test/TODsim_examples.ipynb)**
 - **For working examples of HighPass+Wiener mapmaking, see map-making workflow ([test/mm_example.ipynb](test/mm_example.ipynb))**
 
 
-### Input Parameters for the TOD simulator:
+### Input Parameters:
 
 #### Telescope Configuration:
 - **ant_latitude_deg** (`float`): Latitude of the antenna/site in degrees.
@@ -86,68 +147,7 @@ If you use limTOD in your research, please cite:
 
 
 
-## Table of Contents
 
-1. [Installation](#installation)
-2. [Quick Start](#quick-start)
-3. [Theoretical Background](#theoretical-background)
-4. [Mathematical Conventions](#mathematical-conventions)
-5. [API Reference](#api-reference)
-6. [Examples](#examples)
-7. [Performance Considerations](#performance-considerations)
-
-
-## Installation
-
-### Requirements
-
-```
-numpy >= 1.19.0
-healpy >= 1.14.0
-astropy >= 4.0.0
-scipy >= 1.5.0
-tqdm >= 4.60.0
-mpi4py >= 3.0.0 (for parallel processing)
-pygdsm >= 1.2.0 (for Global Sky Model)
-mpmath >= 1.2.0 (for flicker noise modeling)
-```
-
-### Install from source
-
-```bash
-git clone https://github.com/zzhang0123/limTOD.git
-cd limTOD
-pip install -e .
-```
-
-## Quick Start
-
-```python
-import numpy as np
-from tod_simulator import limTODsim, example_scan
-
-# Initialize the simulator with MeerKAT coordinates
-simulator = limTODsim(
-    ant_latitude_deg=-30.7130,   # MeerKAT latitude
-    ant_longitude_deg=21.4430,   # MeerKAT longitude
-    ant_height_m=1054,           # MeerKAT altitude
-    nside=256                    # HEALPix resolution
-)
-
-# Generate a simple scanning pattern
-time_list, azimuth_list = example_scan()
-
-# Simulate TOD for multiple frequencies
-freq_list = [950, 1000, 1050]  # MHz
-tod_array, sky_tod, gain_noise = simulator.generate_TOD(
-    freq_list=freq_list,
-    time_list=time_list,
-    azimuth_deg_list=azimuth_list,
-    elevation_deg=41.5
-)
-
-print(f"Generated TOD shape: {tod_array.shape}")  # (3, n_time)
-```
 
 ## Theoretical Background
 
@@ -215,7 +215,7 @@ The package handles coordinate transformations between:
 
 This approach allows accurate simulation of how the telescope beam tracks celestial sources as the Earth rotates and the telescope points to different directions.
 
-## Mathematical Conventions
+### Mathematical Conventions
 
 For detailed mathematical formulations, coordinate system definitions, and algorithmic conventions used in this package, please refer to:
 
@@ -232,12 +232,12 @@ This document contains:
 
 ### Core Classes
 
-#### `limTODsim`
+#### `TODSim`
 
 Main simulator class for generating time-ordered data.
 
 ```python
-class limTODsim:
+class TODSim:
     def __init__(self, 
                  ant_latitude_deg=-30.7130,
                  ant_longitude_deg=21.4430, 
@@ -476,116 +476,6 @@ Generate sky map using Global Sky Model.
 def GDSM_sky_model(*, freq, nside)
 ```
 
-## Examples
-
-### Example 1: Basic TOD Simulation
-
-```python
-import numpy as np
-from tod_simulator import limTODsim, example_scan
-import matplotlib.pyplot as plt
-
-# Initialize simulator
-sim = limTODsim(nside=128)  # Lower resolution for speed
-
-# Generate scanning pattern
-time_list, az_list = example_scan(dt=1.0)
-
-# Single frequency simulation
-tod, sky_tod, gain_noise = sim.generate_TOD(
-    freq_list=[1000],  # 1 GHz
-    time_list=time_list[:100],  # First 100 time points
-    azimuth_deg_list=az_list[:100],
-    elevation_deg=45.0
-)
-
-# Plot results
-fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 8))
-
-ax1.plot(time_list[:100], tod[0])
-ax1.set_ylabel('Total TOD [K]')
-ax1.set_title('Complete TOD with all components')
-
-ax2.plot(time_list[:100], sky_tod[0])
-ax2.set_ylabel('Sky Signal [K]')
-ax2.set_title('Sky component only')
-
-ax3.plot(time_list[:100], gain_noise[0])
-ax3.set_ylabel('Gain Noise')
-ax3.set_xlabel('Time [s]')
-ax3.set_title('Gain noise component')
-
-plt.tight_layout()
-plt.show()
-```
-
-### Example 2: Multi-frequency Simulation
-
-```python
-# Wide frequency range
-frequencies = np.linspace(900, 1100, 21)  # 21 channels
-
-tod_multifreq, sky_multifreq, _ = sim.generate_TOD(
-    freq_list=frequencies,
-    time_list=time_list[:50],
-    azimuth_deg_list=az_list[:50],
-    elevation_deg=60.0,
-    gain_noise_params=[1e-5, 1e-3, 1.8]  # Custom noise parameters
-)
-
-# Plot frequency-time waterfall
-plt.figure(figsize=(10, 6))
-plt.imshow(sky_multifreq, aspect='auto', origin='lower',
-           extent=[0, len(time_list[:50]), frequencies[0], frequencies[-1]])
-plt.colorbar(label='Temperature [K]')
-plt.xlabel('Time sample')
-plt.ylabel('Frequency [MHz]')
-plt.title('Sky TOD - Frequency vs Time')
-plt.show()
-```
-
-### Example 3: Custom Beam and Sky Models
-
-```python
-def custom_beam(*, freq, nside, fwhm0=70):
-    """Custom frequency-dependent beam"""
-    # Beam size scales with frequency
-    fwhm = fwhm0 / freq  # degrees, typical radio telescope scaling
-    return example_beam_map(freq=freq, nside=nside, FWHM_major=fwhm, FWHM_minor=fwhm*0.8)
-
-def point_source_sky(*, freq, nside):
-    """Sky with a single point source"""
-    npix = hp.nside2npix(nside)
-    sky = np.zeros(npix)
-    
-    # Add point source at specific coordinates
-    ra, dec = 180.0, -30.0  # degrees
-    theta = np.pi/2 - np.radians(dec)
-    phi = np.radians(ra)
-    
-    ipix = hp.ang2pix(nside, theta, phi)
-    sky[ipix] = 100.0  # 100 K source
-    
-    return sky
-
-# Use custom models
-sim_custom = limTODsim(
-    beam_func=custom_beam,
-    sky_func=point_source_sky,
-    nside=256
-)
-
-# Simulate with custom models
-tod_custom, _, _ = sim_custom.generate_TOD(
-    freq_list=[1000],
-    time_list=time_list,
-    azimuth_deg_list=az_list,
-    elevation_deg=50.0
-)
-```
-
-
-
 ## Map-Making with HPW_mapmaking
 
 ### Overview
@@ -689,10 +579,10 @@ This notebook demonstrates:
 
 ```python
 import numpy as np
-from limTOD import TODsim, HPW_mapmaking, example_beam_map, GDSM_sky_model
+from limTOD import TODSim, HPW_mapmaking, example_beam_map, GDSM_sky_model
 
 # 1. Simulate TODs (as in previous examples)
-simulator = TODsim(
+simulator = TODSim(
     ant_latitude_deg=-30.7130,  # MeerKAT
     ant_longitude_deg=21.4430,
     ant_height_m=1054,
