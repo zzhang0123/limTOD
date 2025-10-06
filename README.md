@@ -17,7 +17,7 @@ Their outputs must be HEALPix maps of the sampe shape, but the shape can be one 
 - 1D array of length npix for unpolarized (**I**) beam/sky 
 - 2D array of shape (3, npix) for polarized (**I, Q, U**) beam/sky
 - 2D array of shape (4, npix) for polarized (**I, Q, U, V**) beam/sky
-- 🗺️ **Map-Making Pipeline**: Implemented `HPW_mapmaking` class combining high-pass filtering and Wiener filtering for optimal sky reconstruction from TOD
+- 🗺️ **Map-Making Pipeline**: Implemented `HPW_mapmaking` class combining high-pass filtering and Wiener filtering for sky reconstruction from TOD
 - 🎲 **Gaussian Random Field Generator**: Added generator for correlated sky realizations from frequency-frequency angular power spectra C_ℓ(ν,ν'), enabling realistic simulation of line intensity mapping signals with spectral correlations (credit: Katrine Alice Glasscock, Philip Bull)
 - 📓 **Example Notebooks**: Added comprehensive Jupyter notebook demonstrating the full map-making workflow ([test/mm_example.ipynb](test/mm_example.ipynb))
 
