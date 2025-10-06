@@ -106,7 +106,9 @@ def zyz_of_pointing(LST_deg, lat_deg, azimuth_deg, elevation_deg):
     # Convert pointing parameters to "zyzy" angles
     alpha = LST_deg
     beta = 90.0 - lat_deg
-    gamma = -azimuth_deg # Note the sign convention for azimuth: East of North is positive
+    gamma = (
+        -azimuth_deg
+    )  # Note the sign convention for azimuth: East of North is positive
     delta = elevation_deg - 90.0
 
     # Convert "zyzy" angles to effective "zyz" angles
@@ -189,7 +191,7 @@ def _rotate_healpix_map(alm, psi_rad, theta_rad, phi_rad, nside, return_map=True
     # Make a copy of alm since hp.rotate_alm operates in-place
     # If input alm is single array or 3-row array, directly rotate
     alm_rot = np.zeros_like(alm, dtype=alm.dtype)
-    
+
     if alm.ndim == 1 or alm.shape[0] == 3:
         alm_copy = alm.copy()
         hp.rotate_alm(alm_copy, phi_rad, theta_rad, psi_rad)
@@ -310,8 +312,10 @@ def _beam_weighted_sum(beam_map, sky_map, normalize=False):
             else:
                 print("Warning: Beam normalization factor is zero!")
         else:
-            raise ValueError("Input beam_map must be a 1D array or a 2D array with 3 or 4 rows.")
-        
+            raise ValueError(
+                "Input beam_map must be a 1D array or a 2D array with 3 or 4 rows."
+            )
+
     return np.sum(beam_map * sky_map)
 
 
@@ -348,7 +352,9 @@ def generate_TOD_sky(
     array
         The generated Time-Ordered Data (TOD) as a 1D array.
     """
-    assert beam_map.shape == sky_map.shape, "Beam map and sky map must have the same shape."
+    assert (
+        beam_map.shape == sky_map.shape
+    ), "Beam map and sky map must have the same shape."
 
     # Convert beam map to alm coefficients
     if beam_map.ndim == 1 or beam_map.shape[0] == 3:
@@ -358,13 +364,15 @@ def generate_TOD_sky(
         beam_alm_V = hp.map2alm(beam_map[3])
         beam_alm = np.vstack((beam_alm_IQU, beam_alm_V))
     else:
-        raise ValueError("Input beam_map must be a 1D array or a 2D array with 3 or 4 rows.")
-    
+        raise ValueError(
+            "Input beam_map must be a 1D array or a 2D array with 3 or 4 rows."
+        )
+
     if beam_alm.ndim == 1:
         nside = hp.get_nside(beam_map)
     else:
         nside = hp.get_nside(beam_map[0])
-        
+
     tod = []
 
     # for LST_deg, azimuth_deg, elevation_deg in zip(LST_deg_list, azimuth_deg_list, elevation_deg_list):
@@ -411,10 +419,11 @@ def example_beam_map(*, freq, nside, FWHM_major=1.1, FWHM_minor=1.1):
     # hp.mollview(beam_map, title="Elliptical (Asymmetric) Beam Map")
     return beam_map
 
+
 def example_symm_beam_map(*, freq, nside, FWHM=1.1):
     """
     Generate a symmetric Gaussian beam map centered at the pole.
-    
+
     Parameters:
     freq : float
         Frequency (not used in this achromatic model, but kept for API consistency).
@@ -422,7 +431,7 @@ def example_symm_beam_map(*, freq, nside, FWHM=1.1):
         HEALPix nside parameter.
     FWHM : float, optional
         Full Width at Half Maximum of the Gaussian beam in degrees. Default is 1.1.
-    
+
     Returns:
     beam_map : array
         Normalized Gaussian beam map (1D array, sum = 1).
@@ -444,8 +453,7 @@ def example_symm_beam_map(*, freq, nside, FWHM=1.1):
     return beam_map
 
 
-
-class TODsim:
+class TODSim:
     def __init__(
         self,
         ant_latitude_deg=-30.7130,
@@ -642,7 +650,6 @@ class TODsim:
             0, np.sqrt(white_noise_var), size=(nfreq, ntime)
         )
 
-
         sky_TOD, LST_deg_list = self.simulate_sky_TOD(
             freq_list,
             time_list,
@@ -663,12 +670,13 @@ class TODsim:
         return overall_TOD, sky_TOD, gain_noise_TOD
 
 
-
-
-
-
 def truncate_stacked_beam(
-    beam_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, threshold=0.01
+    beam_map,
+    LST_deg_list,
+    lat_deg,
+    azimuth_deg_list,
+    elevation_deg_list,
+    threshold=0.01,
 ):
     """
     Generate the selected pixel indices based on beam sensitivity.
@@ -706,13 +714,15 @@ def truncate_stacked_beam(
         beam_alm_V = hp.map2alm(beam_map[3])
         beam_alm = np.vstack((beam_alm_IQU, beam_alm_V))
     else:
-        raise ValueError("Input beam_map must be a 1D array or a 2D array with 3 or 4 rows.")
-    
+        raise ValueError(
+            "Input beam_map must be a 1D array or a 2D array with 3 or 4 rows."
+        )
+
     if beam_alm.ndim == 1:
         nside = hp.get_nside(beam_map)
     else:
         nside = hp.get_nside(beam_map[0])
-        
+
     # Integrate the beam map as the sum map, select pixels above threshold
 
     print("\nStep 1: Generating the stacked abs(beam) map ... \n")
@@ -727,7 +737,7 @@ def truncate_stacked_beam(
         )
         norm = np.max(np.abs(beam_pointed))
         if norm > 0:
-            beam_pointed = beam_pointed / norm 
+            beam_pointed = beam_pointed / norm
             bool_map = np.logical_or(bool_map, beam_pointed > threshold)
         else:
             print("Warning: Beam has zero maximum value at this pointing!")
@@ -740,10 +750,14 @@ def truncate_stacked_beam(
     return pixel_indices
 
 
-
-
 def generate_sky2sys_projection(
-    beam_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, pixel_indices, normalize=False
+    beam_map,
+    LST_deg_list,
+    lat_deg,
+    azimuth_deg_list,
+    elevation_deg_list,
+    pixel_indices,
+    normalize=False,
 ):
     """
     Generate the sky-to-Tsys projection matrix and the selected pixel indices based on beam sensitivity.
@@ -778,13 +792,15 @@ def generate_sky2sys_projection(
         beam_alm_V = hp.map2alm(beam_map[3])
         beam_alm = np.vstack((beam_alm_IQU, beam_alm_V))
     else:
-        raise ValueError("Input beam_map must be a 1D array or a 2D array with 3 or 4 rows.")
-    
+        raise ValueError(
+            "Input beam_map must be a 1D array or a 2D array with 3 or 4 rows."
+        )
+
     if beam_alm.ndim == 1:
         nside = hp.get_nside(beam_map)
     else:
         nside = hp.get_nside(beam_map[0])
-        
+
     n_data = len(LST_deg_list)
     n_pixels = len(pixel_indices)
     print(f"Number of data points: {n_data}")
@@ -796,7 +812,7 @@ def generate_sky2sys_projection(
         sky2sys = np.zeros((n_data, beam_map.shape[0], n_pixels))
 
     i = 0
-    for LST_deg, azimuth_deg, elevation_deg  in tqdm.tqdm(
+    for LST_deg, azimuth_deg, elevation_deg in tqdm.tqdm(
         zip(LST_deg_list, azimuth_deg_list, elevation_deg_list), total=n_data
     ):
         beam_pointed = pointing_beam_in_eq_sys(
