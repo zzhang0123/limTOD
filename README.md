@@ -1,6 +1,10 @@
 # limTOD: Time-Ordered Data Simulator for single-dish (autocorrelation) line intensity mapping measurements
 
-**limTOD** is a Python package for simulating Time-Ordered Data (TOD) from single-dish/autocorrelation observations using asymetric beam. Although it also supports a symmetric beam, it could be unnecessarily slow compared to directly convolving the sky with the healpy smoothing function.
+**limTOD** is a Python package for simulating Time-Ordered Data (TOD) from single-dish/autocorrelation observations.
+
+The `TODSim` class provide the main simulation functionality, for which it calculate the TOD assuming asymetric beams and flicker (1/f) noise mode with HEALPix sky and beam models. Althoug symmetric beams can be used, the calculation can be unnecessarily slow compared as direct convolution is done through beam-weighted sum as opposed to convolving the sky with the healpy smoothing function.
+
+A simple (but sophisticated) map-making class, `HPW_mapmaking` is also provided for converting the simulated TODs into maps.
 
 � **For the latest updates and release notes, see [CHANGELOG.md](CHANGELOG.md)**
 
@@ -95,7 +99,11 @@ The `pip` command should be run with `-e` flag (or `--editable` ) and `[dev]` va
 pip install -e ".[dev]"
 ```
 
-## Quick Start
+## Simulating TOD with TODSim Class
+
+The `TODSim` class provides the main simulation functionality. It assumes a single-dish telescope with a single-pixel beam (thus multiple instances must be run to simulate from a multi-dish/multi-beam intensity mapping telecope) and return the sky temperature, gain noise and overall TOD. Check the following sections for more details.
+
+### TODSim Quick Start
 
 ```python
 import numpy as np
@@ -163,13 +171,13 @@ print(f"Generated TOD shape: {tod_array.shape}")  # (3, n_time)
 * **sky_TOD** (`ndarray`): Sky signal component only (beam-weighted sum of sky maps, nfreq × ntime)
 * **gain_noise_TOD** (`ndarray`): Gain noise component (nfreq × ntime)
 
-## Examples
+### TOD Simulation Examples
 
 The [TODSim_examples.ipynb](examples/TODSim_examples.ipynb) provides several more examples on the TOD simulation.
 
-## Theoretical Background
+### Theoretical Background
 
-### Time-Ordered Data (TOD) Model
+#### Time-Ordered Data (TOD) Model
 
 The complete TOD model implemented in this package follows the equation:
 
@@ -185,7 +193,7 @@ Where:
 * `Tsys_others(ν,t)`: All the other system temperature components
 * `η(t)`: White noise component
 
-### Sky Signal Computation
+#### Sky Signal Computation
 
 The sky signal is computed as the convolution of the beam pattern with the sky brightness temperature:
 
@@ -199,7 +207,7 @@ This is efficiently computed using HEALPix spherical harmonics:
 2. Rotate beam to pointing direction using Euler angles
 3. Compute beam-weighted sum with sky map
 
-### Coordinate Transformations
+#### Coordinate Transformations
 
 The package handles coordinate transformations between:
 
@@ -208,12 +216,12 @@ The package handles coordinate transformations between:
 
 #### Detailed Workflow
 
-**Step 1: Scan Specifications → LST Sequence**
+Step 1: Scan Specifications → LST Sequence
 
 * Convert UTC timestamps to Local Sidereal Time using telescope location
 * Function: `generate_LSTs_deg()`
 
-**Step 2: Telescope Pointing → ZYZY Angles**  
+Step 2: Telescope Pointing → ZYZY Angles 
 
 * Map telescope parameters to natural rotation sequence:
   + α = LST (Earth's rotation tracking)
@@ -221,29 +229,27 @@ The package handles coordinate transformations between:
   + γ = azimuth (local pointing direction)
   + δ = elevation - 90°  (altitude correction)
 
-**Step 3: ZYZY → ZYZ Conversion**
+Step 3: ZYZY → ZYZ Conversion
 
 * Convert to HEALPix-compatible Euler angles using `zyzy2zyz()`
 * This handles the mathematical transformation: R_zyzy = R_y(δ)R_z(γ)R_y(β)R_z(α) → R_zyz = R_z(φ)R_y(θ)R_z(ψ)
 
-**Step 4: Beam Rotation in Spherical Harmonic Space**
+Step 4: Beam Rotation in Spherical Harmonic Space
 
 * Apply rotation to beam's alm coefficients using `pointing_beam_in_eq_sys()`
 * Efficiently rotates beam pattern without pixel-by-pixel calculations
 * Function: `_rotate_healpix_map()` calls `healpy.rotate_alm()`
 
-**Step 5: Sky Integration**
+Step 5: Sky Integration
 
 * Compute beam-weighted sum: SKY_TOD_SAMPLE = ∫ B_pointed(θ, φ) × T_sky(θ, φ) dΩ
 * Function: `_beam_weighted_sum()`
 
 This approach allows accurate simulation of how the telescope beam tracks celestial sources as the Earth rotates and the telescope points to different directions.
 
-### Mathematical Conventions
+#### Mathematical Conventions
 
-For detailed mathematical formulations, coordinate system definitions, and algorithmic conventions used in this package, please refer to:
-
-**[Mathematical Conventions Document](conventions.pdf)**
+For detailed mathematical formulations, coordinate system definitions, and algorithmic conventions used in this package, please refer to [Mathematical Conventions Document](conventions.pdf).
 
 This document contains:
 
@@ -253,11 +259,11 @@ This document contains:
 * Beam convolution algorithms
 * Noise model specifications
 
-## API Reference
+### API Reference
 
-### Core Classes
+#### Core Classes
 
-#### `TODSim`
+##### `TODSim`
 
 Main simulator class for generating time-ordered data.
 
@@ -281,9 +287,9 @@ class TODSim:
 * `sky_func` (callable): Function returning sky map given (freq, nside) as keyword arguments
 * `nside` (int): HEALPix resolution parameter (must be power of 2)
 
-### Core Functions
+#### Core Functions
 
-#### `generate_TOD()`
+##### `generate_TOD()`
 
 Generate complete time-ordered data including all noise components.
 
@@ -320,7 +326,7 @@ def generate_TOD(self,
 * `sky_TOD` (ndarray): Sky signal component only (beam-weighted sum of sky maps, no gain and no noise. Shape: nfreq × ntime)
 * `gain_noise_TOD` (ndarray): Gain noise component (nfreq × ntime)
 
-#### `simulate_sky_TOD()`
+##### `simulate_sky_TOD()`
 
 Generate sky signal component of TOD.
 
@@ -337,9 +343,9 @@ def simulate_sky_TOD(self,
 
 * `sky_TOD` (ndarray): Sky signal TOD (nfreq × ntime)
 
-### Utility Functions
+#### Utility Functions
 
-#### `example_scan()`
+##### `example_scan()`
 
 Generate a simple raster scanning pattern.
 
@@ -358,7 +364,7 @@ def example_scan(az_s=-60.3, az_e=-42.3, dt=2.0)
 * `time_list` (ndarray): Time offsets in seconds
 * `azimuth_list` (ndarray): Azimuth angles in degrees
 
-#### `generate_LSTs_deg()`
+##### `generate_LSTs_deg()`
 
 Compute Local Sidereal Time for observation times.
 
@@ -462,9 +468,9 @@ def pointing_beam_in_eq_sys(beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_d
 
 This function is central to the TOD simulation as it enables the beam pattern to track celestial sources as the Earth rotates.
 
-#### Internal Helper Functions
+##### Internal Helper Functions
 
-##### `_rotate_healpix_map()`
+###### `_rotate_healpix_map()`
 
 Rotate a HEALPix map using Euler angles in spherical harmonic space.
 
@@ -475,7 +481,7 @@ def _rotate_healpix_map(alm, psi_rad, theta_rad, phi_rad, nside, return_map=True
 **Parameters:**
 
 * `alm` (array): Spherical harmonic coefficients of the map
-* `psi_rad`,    `theta_rad`,  `phi_rad` (float): ZYZ Euler angles in radians
+* `psi_rad`,     `theta_rad`,  `phi_rad` (float): ZYZ Euler angles in radians
 * `nside` (int): HEALPix resolution parameter
 * `return_map` (bool): If True, return rotated map; if False, return rotated alm
 
@@ -485,7 +491,7 @@ def _rotate_healpix_map(alm, psi_rad, theta_rad, phi_rad, nside, return_map=True
 2. Applies rotation using `healpy.rotate_alm()` with ZYZ convention
 3. Converts back to map format if requested
 
-##### `_beam_weighted_sum()`
+###### `_beam_weighted_sum()`
 
 Compute the convolution integral of beam and sky.
 
@@ -504,9 +510,9 @@ def _beam_weighted_sum(beam_map, sky_map)
 
 This implements the discrete version of the beam convolution integral that produces each TOD sample.
 
-#### Beam and Sky Functions
+##### Beam and Sky Functions
 
-##### `example_beam_map()`
+###### `example_beam_map()`
 
 Generate elliptical Gaussian beam pattern.
 
@@ -514,7 +520,7 @@ Generate elliptical Gaussian beam pattern.
 def example_beam_map(*, freq, nside, FWHM_major=1.1, FWHM_minor=1.1)
 ```
 
-##### `GDSM_sky_model()`
+###### `GDSM_sky_model()`
 
 Generate sky map using Global Sky Model.
 
@@ -528,56 +534,7 @@ def GDSM_sky_model(*, freq, nside)
 
 The `HPW_mapmaking` class provides a sophisticated map-making pipeline that combines high-pass filtering and Wiener filtering to reconstruct sky maps from Time-Ordered Data (TOD). This implementation handles 1/f noise through high-pass filtering while optimally recovering sky signals using Wiener filtering with optional priors.
 
-### Theoretical Background
-
-The map-making process follows these key steps:
-
-1. **High-Pass Filtering**: Remove low-frequency drifts and 1/f noise using a Butterworth filter
-2. **Forward Modeling**: Build an operator that maps sky parameters to TOD samples
-3. **Wiener Filtering**: Solve the inverse problem optimally:
-
-```
-   x̂ = (A^T N^{-1} A + S^{-1})^{-1} (A^T N^{-1} d + S^{-1} μ)
-   ```
-
-   where:
-
-* `A` : System operator (beam convolution + instrumental effects)
-* `N` : Noise covariance matrix
-* `S` : Signal prior covariance matrix
-* `d` : Measured TOD data
-* `μ` : Prior mean for sky parameters
-
-### API Reference
-
-#### `HPW_mapmaking` Class
-
-```python
-class HPW_mapmaking:
-    def __init__(self, *,
-                 beam_map,
-                 LST_deg_list_group,
-                 lat_deg,
-                 azimuth_deg_list_group,
-                 elevation_deg_list_group,
-                 threshold=0.01,
-                 Tsys_others_operator=None)
-```
-
-**Parameters** (all keyword-only):
-
-* `beam_map` (array): HEALPix beam pattern. Can be:
-  + 1D array (length npix) for intensity-only (I)
-  + 2D array (3 × npix) for polarization (I, Q, U)
-  + 2D array (4 × npix) for full Stokes (I, Q, U, V)
-* `LST_deg_list_group` (list): LST values in degrees for each TOD or list of LST lists
-* `lat_deg` (float): Observation site latitude in degrees
-* `azimuth_deg_list_group` (list): Azimuth angles in degrees for each TOD
-* `elevation_deg_list_group` (list): Elevation angles in degrees for each TOD
-* `threshold` (float): Fractional beam response threshold (e.g., 0.01 = 1% of peak)
-* `Tsys_others_operator` (array, optional): Operator for other system components (e.g., receiver temperature variations)
-
-#### Calling the Map-Maker
+### HPW_mapmaking Quick Start
 
 ```python
 sky_map, sky_uncertainty = mapmaker(
@@ -627,134 +584,54 @@ This notebook demonstrates:
 * Performing map-making with high-pass + wiener filtering
 * Visualizing reconstructed sky maps using `gnomview_patch`
 
-#### Example 1: Basic Map-Making from Simulated TODs
+### Theoretical Background
+
+The map-making process follows these key steps:
+
+1. **High-Pass Filtering**: Remove low-frequency drifts and 1/f noise using a Butterworth filter
+2. **Forward Modeling**: Build an operator that maps sky parameters to TOD samples
+3. **Wiener Filtering**: Solve the inverse problem optimally:
+
+```
+   x̂ = (A^T N^{-1} A + S^{-1})^{-1} (A^T N^{-1} d + S^{-1} μ)
+   ```
+
+   where:
+
+* `A` : System operator (beam convolution + instrumental effects)
+* `N` : Noise covariance matrix
+* `S` : Signal prior covariance matrix
+* `d` : Measured TOD data
+* `μ` : Prior mean for sky parameters
+
+### API Reference
+
+#### `HPW_mapmaking` Class
 
 ```python
-import numpy as np
-from limTOD import TODSim, HPW_mapmaking, example_beam_map, GDSM_sky_model
-
-# 1. Simulate TODs (as in previous examples)
-simulator = TODSim(
-    ant_latitude_deg=-30.7130,  # MeerKAT
-    ant_longitude_deg=21.4430,
-    ant_height_m=1054,
-    nside=64,
-    beam_func=example_beam_map,
-    sky_func=GDSM_sky_model
-)
-
-# Generate multiple scans
-TOD_group = []
-LST_deg_list_group = []
-azimuth_deg_list_group = []
-elevation_deg_list_group = []
-
-for elevation in [38.5, 41.5, 44.5]:  # Multiple elevations
-    time_list, azimuth_list = example_scan(dt=2.0, n_repeats=7)
-    
-    tod, _, _, LST_list = simulator.generate_TOD(
-        freq_list=[950],  # MHz
-        time_list=time_list,
-        azimuth_deg_list=azimuth_list,
-        elevation_deg=elevation,
-        start_time_utc="2019-04-23 20:41:56.397",
-        return_LSTs=True
-    )
-    
-    TOD_group.append(tod[0])
-    LST_deg_list_group.append(LST_list)
-    azimuth_deg_list_group.append(azimuth_list)
-    elevation_deg_list_group.append(elevation * np.ones_like(tod[0]))
-
-# 2. Initialize map-maker
-beam_map = example_beam_map(freq=950, nside=64)
-
-mapmaker = HPW_mapmaking(
-    beam_map=beam_map,
-    LST_deg_list_group=LST_deg_list_group,
-    lat_deg=simulator.ant_latitude_deg,
-    azimuth_deg_list_group=azimuth_deg_list_group,
-    elevation_deg_list_group=elevation_deg_list_group,
-    threshold=0.05  # Only use pixels with >5% beam response
-)
-
-# 3. Perform map-making
-cutoff_freqs = [0.001] * len(TOD_group)  # 0.001 Hz high-pass filter
-
-sky_map, sky_unc = mapmaker(
-    TOD_group=TOD_group,
-    dtime=2.0,  # seconds
-    cutoff_freq_group=cutoff_freqs
-)
-
-print(f"Reconstructed {len(sky_map)} sky pixels")
-print(f"Mean temperature: {np.mean(sky_map):.2f} K")
-print(f"Mean uncertainty: {np.mean(sky_unc):.2f} K")
+class HPW_mapmaking:
+    def __init__(self, *,
+                 beam_map,
+                 LST_deg_list_group,
+                 lat_deg,
+                 azimuth_deg_list_group,
+                 elevation_deg_list_group,
+                 threshold=0.01,
+                 Tsys_others_operator=None)
 ```
 
-#### Example 2: Map-Making with Priors
+**Parameters** (all keyword-only):
 
-```python
-# Use a previously reconstructed map as a prior
-prior_map = ... # e.g., from previous observation or simulation
-
-# Set prior with moderate confidence (inverse variance)
-prior_inv_variance = 1.0 / (10.0**2)  # σ_prior = 10 K
-
-sky_map_with_prior, sky_unc_with_prior = mapmaker(
-    TOD_group=TOD_group,
-    dtime=2.0,
-    cutoff_freq_group=cutoff_freqs,
-    Tsky_prior_mean=prior_map,
-    Tsky_prior_inv_cov_diag=prior_inv_variance * np.ones_like(prior_map)
-)
-```
-
-#### Example 3: Joint Estimation of Sky and Systematics
-
-```python
-# Build operator for receiver temperature variations
-# E.g., using Legendre polynomials
-from numpy.polynomial.legendre import legval
-
-n_time = len(TOD_group[0])
-n_legendre = 5
-t_normalized = np.linspace(-1, 1, n_time)
-
-Trec_operator = np.zeros((n_time, n_legendre))
-for i in range(n_legendre):
-    coeffs = np.zeros(n_legendre)
-    coeffs[i] = 1.0
-    Trec_operator[:, i] = legval(t_normalized, coeffs)
-
-# Initialize with systematics operator
-mapmaker_with_sys = HPW_mapmaking(
-    beam_map=beam_map,
-    LST_deg_list_group=LST_deg_list_group,
-    lat_deg=simulator.ant_latitude_deg,
-    azimuth_deg_list_group=azimuth_deg_list_group,
-    elevation_deg_list_group=elevation_deg_list_group,
-    threshold=0.05,
-    Tsys_others_operator=Trec_operator  # Add systematics operator
-)
-
-# Prior for receiver temperature coefficients
-Trec_prior_mean = [300.0, 0.0, 0.0, 0.0, 0.0]  # ~300 K baseline
-Trec_prior_inv_cov = np.diag([1e-6, 1e-2, 1e-2, 1e-2, 1e-2])  # Tight on mean, loose on variations
-
-# Perform joint estimation
-sky_map, sky_unc, Trec_est, Trec_unc = mapmaker_with_sys(
-    TOD_group=TOD_group,
-    dtime=2.0,
-    cutoff_freq_group=cutoff_freqs,
-    Tsys_other_prior_mean_group=[Trec_prior_mean] * len(TOD_group),
-    Tsys_other_prior_inv_cov_group=[Trec_prior_inv_cov] * len(TOD_group)
-)
-
-print("Receiver temperature coefficients:")
-for i, (est, unc) in enumerate(zip(Trec_est[0], Trec_unc[0])):
-    print(f"  Coeff {i}: {est:.3f} ± {unc:.3f}")
-```
+* `beam_map` (array): HEALPix beam pattern. Can be:
+  + 1D array (length npix) for intensity-only (I)
+  + 2D array (3 × npix) for polarization (I, Q, U)
+  + 2D array (4 × npix) for full Stokes (I, Q, U, V)
+* `LST_deg_list_group` (list): LST values in degrees for each TOD or list of LST lists
+* `lat_deg` (float): Observation site latitude in degrees
+* `azimuth_deg_list_group` (list): Azimuth angles in degrees for each TOD
+* `elevation_deg_list_group` (list): Elevation angles in degrees for each TOD
+* `threshold` (float): Fractional beam response threshold (e.g., 0.01 = 1% of peak)
+* `Tsys_others_operator` (array, optional): Operator for other system components (e.g., receiver temperature variations)
 
 ## Performance Considerations
 
