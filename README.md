@@ -51,7 +51,15 @@ If you use limTOD in your research, please cite:
 
 ## Installation
 
-Currently, the package must be installed from source.
+You will need Python version 3.8 or higher and `pip` to install the package.
+
+For a quick installation, run the following command
+
+```bash
+pip install git+https://github.com/zzhang0123/limTOD.git
+```
+
+or installed from source, 
 
 ```bash
 git clone https://github.com/zzhang0123/limTOD.git
@@ -59,11 +67,29 @@ cd limTOD
 python -m pip install .
 ```
 
-It is recommended that this is done inside a Python virtual environment.
-For example, to create a virtual environment named `limtod` in the `~/venv` directory with the [virtualenv](https://virtualenv.pypa.io/en/latest/index.html) tool, 
+Additionally, to run the example notebooks, do
+
+```bash
+python -m pip install jupyter matplotlib ipykernel
+python -m ipykernel install --name "limtod" --user
+```
+
+This will install `jupyter` and `matplotlib` for the notebook, as well as installing the currently used Python executable as a selectable kernel named "limtod" for the notebook.
+
+### Virtual Environment
+
+It is recommended that the above installation is done inside a Python virtual environment.
+
+For example, run the following command to create a virtual environment named `limtod` in the `~/venv` directory with the [virtualenv](https://virtualenv.pypa.io/en/latest/index.html) tool, 
 
 ```bash
 virtualenv ~/venv/limtod
+```
+
+or equivalently with the Python3 built-in `venv` tool, 
+
+```bash
+venv ~/venv/limtod
 ```
 
 The virtual environment can then be activated by, 
@@ -72,9 +98,7 @@ The virtual environment can then be activated by,
 source ~/venv/limtod/bin/activate
 ```
 
-then, one can proceed to install from source as above.
-
-Additionally, to run the example notebooks (see)
+then, one can proceed to install from git or from source as above.
 
 ### Required Dependencies
 
@@ -481,7 +505,7 @@ def _rotate_healpix_map(alm, psi_rad, theta_rad, phi_rad, nside, return_map=True
 **Parameters:**
 
 * `alm` (array): Spherical harmonic coefficients of the map
-* `psi_rad`,     `theta_rad`,  `phi_rad` (float): ZYZ Euler angles in radians
+* `psi_rad`,      `theta_rad`,  `phi_rad` (float): ZYZ Euler angles in radians
 * `nside` (int): HEALPix resolution parameter
 * `return_map` (bool): If True, return rotated map; if False, return rotated alm
 
