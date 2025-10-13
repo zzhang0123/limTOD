@@ -8,7 +8,7 @@ __email__ = "zheng.zhang@manchester.ac.uk"
 __license__ = "MIT"
 
 from .simulator import (
-    TODsim,
+    TODSim,
     example_scan,
     generate_LSTs_deg,
     zyzy2zyz,
@@ -33,7 +33,7 @@ from .HPW_filter import (
 )
 
 __all__ = [
-    "TODsim",
+    "TODSim",
     "example_scan",
     "generate_LSTs_deg",
     "zyzy2zyz",
