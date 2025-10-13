@@ -159,8 +159,8 @@ print(f"Generated TOD shape: {tod_array.shape}")  # (3, n_time)
 ```
 
 * **For detailed coordinate system definitions, see [conventions.pdf](conventions.pdf).**
-* **For working examples of TOD simulation, see [test/TODsim_examples.ipynb](test/TODsim_examples.ipynb)**
-* **For working examples of HighPass+Wiener mapmaking, see map-making workflow ([test/mm_example.ipynb](test/mm_example.ipynb))**
+* **For working examples of TOD simulation, see [examples/TODsim_examples.ipynb](examples/TODsim_examples.ipynb)**
+* **For working examples of HighPass+Wiener mapmaking, see map-making workflow ([examples/mm_example.ipynb](examples/mm_example.ipynb))**
 
 ### Input Parameters
 
@@ -601,7 +601,7 @@ sky_map, sky_uncertainty = mapmaker(
 
 ### Map-Making Examples
 
-📓 **For a complete working example, see [test/mm_example.ipynb](test/mm_example.ipynb)**
+📓 **For a complete working example, see [examples/mm_example.ipynb](examples/mm_example.ipynb)**
 
 This notebook demonstrates:
 
