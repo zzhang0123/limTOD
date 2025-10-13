@@ -26,22 +26,24 @@ Their outputs must be HEALPix maps of the sampe shape, but the shape can be one 
 If you use limTOD in your research, please cite:
 
 ```bibtex
-@software{zheng_zhang_2025_17159124,
-  author       = {Zheng Zhang},
-  title        = {zzhang0123/limTOD: limTOD: Time-Ordered Data
-                   Simulator for line intensity mapping experiments
+@software{zheng_zhang_2025_17183891,
+  author       = {Zheng Zhang and
+                  Piyanat (Boom) Kittiwisit and
+                  Bull, Philip},
+  title        = {zzhang0123/limTOD: TOD simulator with full Stokes
+                   support plus HPW map-maker
                   },
-  month        = sep,
+  month        = oct,
   year         = 2025,
   publisher    = {Zenodo},
-  version      = {v1.0.0},
-  doi          = {10.5281/zenodo.17159124},
-  url          = {https://doi.org/10.5281/zenodo.17159124},
-  swhid        = {swh:1:dir:6ce550d9495bcca3c7ad611986cdcfbdcf46a2de
+  version      = {v1.1.0},
+  doi          = {10.5281/zenodo.17183891},
+  url          = {https://doi.org/10.5281/zenodo.17183891},
+  swhid        = {swh:1:dir:2a16c169a363077998eedb66a5fb71a5dd585066
                    ;origin=https://doi.org/10.5281/zenodo.17159123;vi
-                   sit=swh:1:snp:c55636bc6c217da228dfcef2497edd037de3
-                   fb30;anchor=swh:1:rel:d71baa2ce452220ee21a2ca8b114
-                   ca9d3b280b86;path=zzhang0123-limTOD-c2c3492
+                   sit=swh:1:snp:e0f18353409f945404908227c70444eb5807
+                   a22c;anchor=swh:1:rel:aa6bf0751a1a91a8e179047b6440
+                   bb6138db4315;path=zzhang0123-limTOD-476640d
                   },
 }
 ```

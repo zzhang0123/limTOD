@@ -2,7 +2,7 @@
 limTOD: Time-Ordered Data Simulator for MeerKLASS
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __author__ = "Zheng Zhang"
 __email__ = "zheng.zhang@manchester.ac.uk"
 __license__ = "MIT"
