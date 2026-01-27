@@ -235,9 +235,30 @@ def _normalize_map(input_map):
     """
     return input_map / np.sum(input_map)
 
+def _truncate_map(input_map, frac_thres=1e-10):
+    """
+    Truncate a Healpix map by setting all pixels with values below a certain fraction of the maximum pixel value to zero.
+
+    Parameters:
+    input_map : array
+        The Healpix map to be truncated.
+    frac_thres : float, optional
+        The fractional threshold value for beam truncation.
+        If specified, set all pixels with values below this fraction of the maximum pixel value to zero. Default is 0.0.
+
+    Returns:
+    array
+        The truncated Healpix map.
+    """
+    result = input_map.copy()
+    if frac_thres > 0.0:
+        max_val = np.max(input_map)
+        threshold = frac_thres * max_val
+        result[result < threshold] = 0.0  
+    return result
 
 def pointing_beam_in_eq_sys(
-    beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside
+    beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside, normalize=True, truncate_frac_thres=1e-10
 ):
     """
     Point the beam in the equatorial coordinate system.
@@ -258,6 +279,12 @@ def pointing_beam_in_eq_sys(
         The elevation of the pointing in degrees.
     nside : int
         The nside parameter of the Healpix map.
+    normalize : bool, optional
+        If True, normalize the pointed beam map to have a sum of 1.
+        For Stokes Q, U, V parameters, they will be scaled by the same factor as Stokes I. Default is False.
+    truncate_frac_thres : float, optional
+        The fractional threshold value for (rotated-)beam truncation.
+        If specified, set all pixels with values below this fraction of the maximum pixel value to zero before normalization. Default is 1e-10.
 
     Returns:
     array
@@ -270,6 +297,22 @@ def pointing_beam_in_eq_sys(
         elevation_deg=elevation_deg,
     )
     beam_pointed = _rotate_healpix_map(beam_alm, psi_rad, theta_rad, phi_rad, nside)
+    beam_pointed = _truncate_map(beam_pointed, frac_thres=truncate_frac_thres)
+    if normalize:
+        if beam_pointed.ndim == 1:
+            beam_pointed = _normalize_map(beam_pointed)
+        elif beam_pointed.shape[0] in [3, 4]:
+            norm_factor = np.sum(beam_pointed[0])
+            beam_pointed[0] = _normalize_map(beam_pointed[0])
+            # Scale other Stokes parameters by the same factor
+            if norm_factor > 0:
+                beam_pointed[1:] = beam_pointed[1:] / norm_factor
+            else:
+                print("Warning: Beam normalization factor is zero!")
+        else:
+            raise ValueError(
+                "Pointed beam map must be a 1D array or a 2D array with 3 or 4 rows."
+            )
     return beam_pointed
 
 
@@ -320,7 +363,9 @@ def _beam_weighted_sum(beam_map, sky_map, normalize=False):
 
 
 def generate_TOD_sky(
-    beam_map, sky_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list
+    beam_map, sky_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, nside_hires=None,
+    normalize_beam=False,
+    truncate_frac_thres=1e-10
 ):
     """
     Generate Time-Ordered Data (TOD) by simulating observations of a sky map with a given beam pattern.
@@ -347,31 +392,40 @@ def generate_TOD_sky(
         List of azimuth values in degrees for each observation.
     elevation_deg_list : array
         List of elevation values in degrees for each observation.
+    nside_hires : int, optional
+        If provided, upgrade the beam map to this nside before processing.
+        This can help improve accuracy when the beam is narrow. Default is None.
+    normalize_beam : bool, optional
+        If True, normalize the beam map to have a sum of 1 before computing the weighted sum.
+        Default is False.
+    truncate_frac_thres : float, optional
+        The fractional threshold value for beam truncation. 
+        If specified, set all pixels with values below this fraction of the maximum pixel value to zero before normalization. Default is 1e-10.
 
     Returns:
     array
         The generated Time-Ordered Data (TOD) as a 1D array.
     """
-    assert (
-        beam_map.shape == sky_map.shape
-    ), "Beam map and sky map must have the same shape."
+    
+    nside_beam = hp.get_nside(beam_map) if beam_map.ndim == 1 else hp.get_nside(beam_map[0])
+    if nside_hires is not None and nside_hires != nside_beam:
+        beam_map_hires = hp.ud_grade(beam_map, nside_hires)
+    else:
+        beam_map_hires = beam_map
+    nside_sky = hp.get_nside(sky_map) if sky_map.ndim == 1 else hp.get_nside(sky_map[0])
+
 
     # Convert beam map to alm coefficients
-    if beam_map.ndim == 1 or beam_map.shape[0] == 3:
-        beam_alm = hp.map2alm(beam_map)
-    elif beam_map.shape[0] == 4:
-        beam_alm_IQU = hp.map2alm(beam_map[:3])
-        beam_alm_V = hp.map2alm(beam_map[3])
+    if beam_map_hires.ndim == 1 or beam_map_hires.shape[0] == 3:
+        beam_alm = hp.map2alm(beam_map_hires)
+    elif beam_map_hires.shape[0] == 4:
+        beam_alm_IQU = hp.map2alm(beam_map_hires[:3])
+        beam_alm_V = hp.map2alm(beam_map_hires[3])
         beam_alm = np.vstack((beam_alm_IQU, beam_alm_V))
     else:
         raise ValueError(
             "Input beam_map must be a 1D array or a 2D array with 3 or 4 rows."
         )
-
-    if beam_alm.ndim == 1:
-        nside = hp.get_nside(beam_map)
-    else:
-        nside = hp.get_nside(beam_map[0])
 
     tod = []
 
@@ -380,7 +434,7 @@ def generate_TOD_sky(
         zip(LST_deg_list, azimuth_deg_list, elevation_deg_list), total=len(LST_deg_list)
     ):
         beam_pointed = pointing_beam_in_eq_sys(
-            beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside=nside
+            beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside=nside_sky, normalize=normalize_beam, truncate_frac_thres=truncate_frac_thres
         )
         sample = _beam_weighted_sum(beam_pointed, sky_map)
         tod.append(sample)
@@ -461,7 +515,8 @@ class TODSim:
         ant_height_m=1054,
         beam_func=example_beam_map,
         sky_func=sky_model.GDSM_sky_model,
-        nside=256,
+        beam_nside=256,
+        sky_nside=256,
     ):
         """
         Initialize the limTODsim class.
@@ -484,13 +539,19 @@ class TODSim:
                 a single array is considered I,
                 array with 3 rows:[I,Q,U]
                 array with 4 rows:[I,Q,U,V]
-        nside : int, optional
-            The nside parameter for Healpix maps.
+        beam_nside : int, optional
+            The nside parameter for the beam Healpix maps.
+            Note: beam_nside and sky_nside can be different. 
+            beam_nside is used when generating the beam map, it should be large enough to resolve the beam features.
+        sky_nside : int, optional
+            The nside parameter for the sky Healpix maps.
+            It decides how the sky map is parametrized.
         """
         self.ant_latitude_deg = ant_latitude_deg
         self.ant_longitude_deg = ant_longitude_deg
         self.ant_height_m = ant_height_m
-        self.nside = nside
+        self.beam_nside = beam_nside
+        self.sky_nside = sky_nside
         self.beam_func = beam_func
         self.sky_func = sky_func
 
@@ -502,6 +563,9 @@ class TODSim:
         elevation_deg,
         start_time_utc="2019-04-23 20:41:56.397",
         return_LSTs=False,
+        nside_hires=None,
+        normalize_beam=False,
+        truncate_frac_thres=1e-10
     ):
         """
         Simulate sky TOD (beam-weighted sum of sky map) for a list of frequencies and time offsets.
@@ -518,6 +582,24 @@ class TODSim:
             If list: List of elevation values in degrees for each observation.
         start_time_utc : str
             Start time in UTC (e.g. "2019-04-23 20:41:56.397").
+        nside_hires : int, optional
+            The nside parameter for high-resolution Healpix maps used in the simulation.
+        normalize_beam : bool, optional
+            If True, normalize the beam map to have a sum of 1 before computing the weighted sum.
+            Default is False.
+        truncate_frac_thres : float, optional
+            The fractional threshold value for beam truncation. 
+            If specified, set all pixels with values below this fraction of the maximum pixel value to zero before normalization. Default is 1e-10.
+        return_LSTs : bool, optional
+            If True, return the LST values along with the TODs. Default is False.
+
+        Returns:
+        TOD_array : array
+            The simulated sky TOD array with shape (nfreq, ntime).
+            Each element represents the simulated TOD sample.
+
+        LST_deg_list : array, optional
+            If return_LSTs is True, also return the array of LST values in degrees.
         """
         # the beam-weighted sum of the sky map at each pointing.
 
@@ -536,8 +618,8 @@ class TODSim:
         )
 
         def single_freq_sky_TOD(freq):
-            beam_map = self.beam_func(freq=freq, nside=self.nside)
-            sky_map = self.sky_func(freq=freq, nside=self.nside)
+            beam_map = self.beam_func(freq=freq, nside=self.beam_nside)
+            sky_map = self.sky_func(freq=freq, nside=self.sky_nside)
 
             tod = generate_TOD_sky(
                 beam_map,
@@ -546,6 +628,9 @@ class TODSim:
                 self.ant_latitude_deg,
                 azimuth_deg_list,
                 elevation_deg_list,
+                nside_hires=nside_hires,
+                normalize_beam=normalize_beam,
+                truncate_frac_thres=truncate_frac_thres
             )
 
             return tod
@@ -571,6 +656,9 @@ class TODSim:
         gain_noise_params=[1.335e-5, 1.099e-3, 2],
         white_noise_var=None,
         return_LSTs=False,
+        nside_hires=None,
+        normalize_beam=False,
+        truncate_frac_thres=1e-10
     ):
         """
         Generate overall TOD including sky signal and other components.
@@ -600,6 +688,17 @@ class TODSim:
             List of parameters [f0, fc, alpha] for generating gain noise if gain_noise_TOD is None. Default is [1.4e-5, 1e-3, 2].
         white_noise_var : float, optional
             Variance of white noise to be added. Default is None (uses default value of 2.5e-6).
+        return_LSTs : bool, optional
+            If True, return the LST values along with the TODs. Default is False.
+        nside_hires : int, optional
+            If provided, upgrade the beam map to this nside before processing.
+            This can help improve accuracy when the beam is narrow. Default is None.
+        normalize_beam : bool, optional
+            If True, normalize the beam map to have a sum of 1 before computing the weighted sum.
+            Default is False.
+        truncate_frac_thres : float, optional
+            The fractional threshold value for beam truncation. 
+            If specified, set all pixels with values below this fraction of the maximum pixel value to zero before normalization. Default is 1e-10.
 
         Returns:
         overall_TOD : array
@@ -657,6 +756,9 @@ class TODSim:
             elevation_deg,
             start_time_utc=start_time_utc,
             return_LSTs=True,
+            nside_hires=nside_hires,
+            normalize_beam=normalize_beam,
+            truncate_frac_thres=truncate_frac_thres
         )
 
         overall_TOD = (
@@ -676,7 +778,9 @@ def truncate_stacked_beam(
     lat_deg,
     azimuth_deg_list,
     elevation_deg_list,
-    threshold=0.01,
+    threshold=0.0111,
+    nside_hires=None,
+    nside_target=None,
 ):
     """
     Generate the selected pixel indices based on beam sensitivity.
@@ -698,42 +802,55 @@ def truncate_stacked_beam(
     elevation_deg_list : array
         List of elevation values in degrees for each observation.
     threshold : float
-        The threshold to cut off the fractional beam response np.abs(beam[pixel])/beam_max, default is 0.01.
+        The threshold to cut off the fractional beam response np.abs(beam[pixel])/beam_max, default is 0.0111.
         e.g., if threshold=0.01, only pixels with beam response larger than 1% of the maximum will be considered.
+        Note that this is the threshold for singling out pixels.
+    nside_hires : int, optional
+        If provided, upgrade the beam map to this nside before processing.
+        This can help improve accuracy when the beam is narrow. Default is None.
+    nside_target : int, optional
+        The target nside for the output beam map. This should match the convention used in pixel_indices.   
 
     Returns:
     pixel_indices : array
         The selected pixel indices based on the beam sensitivity.
     """
 
+    nside_beam = hp.get_nside(beam_map) if beam_map.ndim == 1 else hp.get_nside(beam_map[0])
+    if nside_hires is not None and nside_hires != nside_beam:
+        beam_map_hires = hp.ud_grade(beam_map, nside_hires)
+    else:
+        beam_map_hires = beam_map
+
+    if nside_target is None:
+        nside_target = nside_beam
+        print("nside_target is not provided, using beam map nside as target nside.")
+
+
     # Convert beam map to alm coefficients
-    if beam_map.ndim == 1 or beam_map.shape[0] == 3:
-        beam_alm = hp.map2alm(beam_map)
-    elif beam_map.shape[0] == 4:
-        beam_alm_IQU = hp.map2alm(beam_map[:3])
-        beam_alm_V = hp.map2alm(beam_map[3])
+    if beam_map_hires.ndim == 1 or beam_map_hires.shape[0] == 3:
+        beam_alm = hp.map2alm(beam_map_hires)
+    elif beam_map_hires.shape[0] == 4:
+        beam_alm_IQU = hp.map2alm(beam_map_hires[:3])
+        beam_alm_V = hp.map2alm(beam_map_hires[3])
         beam_alm = np.vstack((beam_alm_IQU, beam_alm_V))
     else:
         raise ValueError(
             "Input beam_map must be a 1D array or a 2D array with 3 or 4 rows."
         )
 
-    if beam_alm.ndim == 1:
-        nside = hp.get_nside(beam_map)
-    else:
-        nside = hp.get_nside(beam_map[0])
 
     # Integrate the beam map as the sum map, select pixels above threshold
 
     print("\nStep 1: Generating the stacked abs(beam) map ... \n")
     # Generate a initial boolean map with all pixels zero
-    bool_map = np.zeros_like(beam_map, dtype=bool)
+    bool_map = np.zeros_like(hp.nside2npix(nside_target), dtype=bool)
 
     for LST_deg, azimuth_deg, elevation_deg in tqdm.tqdm(
         zip(LST_deg_list, azimuth_deg_list, elevation_deg_list), total=len(LST_deg_list)
     ):
         beam_pointed = pointing_beam_in_eq_sys(
-            beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside=nside
+            beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside=nside_target
         )
         norm = np.max(np.abs(beam_pointed))
         if norm > 0:
@@ -757,7 +874,10 @@ def generate_sky2sys_projection(
     azimuth_deg_list,
     elevation_deg_list,
     pixel_indices,
-    normalize=False,
+    normalize_beam=False,
+    nside_hires=None,
+    nside_target=None,
+    truncate_frac_thres=1e-10
 ):
     """
     Generate the sky-to-Tsys projection matrix and the selected pixel indices based on beam sensitivity.
@@ -778,28 +898,43 @@ def generate_sky2sys_projection(
         List of azimuth values in degrees for each observation.
     elevation_deg_list : array
         List of elevation values in degrees for each observation.
+    pixel_indices : array
+        The selected pixel indices based on the beam sensitivity.
+    normalize_beam : bool, optional
+        If True, normalize the beam map to have a sum of 1 before processing.
+        Default is False.
+    truncate_frac_thres : float, optional
+        The fractional threshold value for beam truncation. 
+        If specified, set all pixels with values below this fraction of the maximum pixel value to zero before normalization. Default is 1e-10.
+    nside_hires : int, optional
+        If provided, upgrade the beam map to this nside before processing.
+        This can help improve accuracy when the beam is narrow. Default is None.
+    nside_target : int, optional
+        The target nside for the output beam map. This should match the convention used in pixel_indices.
 
     Returns:
     array
         The generated Time-Ordered Data (TOD) as a 1D array.
     """
+    nside_beam = hp.get_nside(beam_map) if beam_map.ndim == 1 else hp.get_nside(beam_map[0])
+    if nside_hires is not None and nside_hires != nside_beam:
+        beam_map_hires = hp.ud_grade(beam_map, nside_hires)
+    else:
+        beam_map_hires = beam_map
+    if nside_target is None:
+        nside_target = nside_beam
 
     # Convert beam map to alm coefficients
-    if beam_map.ndim == 1 or beam_map.shape[0] == 3:
-        beam_alm = hp.map2alm(beam_map)
-    elif beam_map.shape[0] == 4:
-        beam_alm_IQU = hp.map2alm(beam_map[:3])
-        beam_alm_V = hp.map2alm(beam_map[3])
+    if beam_map_hires.ndim == 1 or beam_map_hires.shape[0] == 3:
+        beam_alm = hp.map2alm(beam_map_hires)
+    elif beam_map_hires.shape[0] == 4:
+        beam_alm_IQU = hp.map2alm(beam_map_hires[:3])
+        beam_alm_V = hp.map2alm(beam_map_hires[3])
         beam_alm = np.vstack((beam_alm_IQU, beam_alm_V))
     else:
         raise ValueError(
             "Input beam_map must be a 1D array or a 2D array with 3 or 4 rows."
         )
-
-    if beam_alm.ndim == 1:
-        nside = hp.get_nside(beam_map)
-    else:
-        nside = hp.get_nside(beam_map[0])
 
     n_data = len(LST_deg_list)
     n_pixels = len(pixel_indices)
@@ -816,29 +951,37 @@ def generate_sky2sys_projection(
         zip(LST_deg_list, azimuth_deg_list, elevation_deg_list), total=n_data
     ):
         beam_pointed = pointing_beam_in_eq_sys(
-            beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside=nside
+            beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside=nside_target, normalize=normalize_beam,
+            truncate_frac_thres=truncate_frac_thres
         )
+
         if beam_map.ndim == 1:
-            if normalize:
-                norm = np.sum(beam_pointed[pixel_indices])
-                if norm > 0:
-                    beam_pointed = beam_pointed / norm
-                    sky2sys[i, :] = beam_pointed[pixel_indices]
-                else:
-                    print("Warning: Beam normalization factor is zero!")
-            else:
-                sky2sys[i, :] = beam_pointed[pixel_indices]
+            sky2sys[i, :] = beam_pointed[pixel_indices]
         else:
-            if normalize:
-                norm = np.sum(beam_pointed[0, pixel_indices])
-                if norm > 0:
-                    beam_pointed = beam_pointed / norm
-                    sky2sys[i, :, :] = beam_pointed[:, pixel_indices]
-                else:
-                    print("Warning: Beam normalization factor is zero!")
-            else:
-                sky2sys[i, :, :] = beam_pointed[:, pixel_indices]
+            sky2sys[i, :, :] = beam_pointed[:, pixel_indices]
         i += 1
+        
+        # if beam_map.ndim == 1:
+        #     if normalize_beam:
+        #         norm = np.sum(beam_pointed[pixel_indices])
+        #         if norm > 0:
+        #             beam_pointed = beam_pointed / norm
+        #             sky2sys[i, :] = beam_pointed[pixel_indices]
+        #         else:
+        #             print("Warning: Beam normalization factor is zero!")
+        #     else:
+        #         sky2sys[i, :] = beam_pointed[pixel_indices]
+        # else:
+        #     if normalize_beam:
+        #         norm = np.sum(beam_pointed[0, pixel_indices])
+        #         if norm > 0:
+        #             beam_pointed = beam_pointed / norm
+        #             sky2sys[i, :, :] = beam_pointed[:, pixel_indices]
+        #         else:
+        #             print("Warning: Beam normalization factor is zero!")
+        #     else:
+        #         sky2sys[i, :, :] = beam_pointed[:, pixel_indices]
+        # i += 1
 
     result = sky2sys.reshape(i, -1)  # shape: ntime x (npol * npix)
 

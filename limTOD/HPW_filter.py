@@ -1,5 +1,6 @@
-from scipy import signal
 import numpy as np
+from scipy import signal
+from scipy.linalg import solve, LinAlgError
 from limTOD.simulator import truncate_stacked_beam, generate_sky2sys_projection
 
 
@@ -59,7 +60,6 @@ def HP_filter_TOD(n_samples, dtime, cutoff_freq=0.001, filter_order=4):
     return H_exact
 
 
-
 def wiener_filter_map(TOD, operator, noise_variance=None, prior_inv_cov=None, guess=None,
                       regularization=1e-12, return_full_cov=False, rolling_variance=True):
     """
@@ -87,10 +87,7 @@ def wiener_filter_map(TOD, operator, noise_variance=None, prior_inv_cov=None, gu
         Reconstructed sky map
     uncertainty : array, shape (n_pixels,)
         Per-pixel uncertainty (diagonal of covariance matrix)
-    """
-    import numpy as np
-    from scipy.sparse import diags
-    from scipy.linalg import solve, LinAlgError
+    """    
     
     # Convert inputs to numpy arrays
     TOD = np.asarray(TOD)
@@ -129,9 +126,6 @@ def wiener_filter_map(TOD, operator, noise_variance=None, prior_inv_cov=None, gu
             noise_variance = np.var(residual)
             print(f"Estimated noise variance: {noise_variance:.6f}")
 
-
-    
-    
 
     # Create noise inverse covariance matrix (assume diagonal)
     if np.isscalar(noise_variance):
@@ -242,6 +236,9 @@ class HPW_mapmaking:
         elevation_deg_list_group, 
         threshold=0.01,
         Tsys_others_operator_group=None,
+        nside_hires=None,
+        nside_target=None,
+        beam_truncate_frac_thres=None
     ):
         """
         Initialize the HPW_mapmaking class.
@@ -277,11 +274,30 @@ class HPW_mapmaking:
         threshold : float
             The threshold to cut off the fractional beam response np.abs(beam[pixel])/beam_max, default is 0.01.
             e.g., if threshold=0.01, only pixels with beam response larger than 1% of the maximum will be considered.
+            Note that this is the threshold for singling out pixels.
 
         Tsys_others_operator_group : an array or a list of arrays, optional
             The operator for other system temperature components (e.g., Trec and Tdiode) mapping to TOD.
 
+        nside_hires : int, optional
+            If provided, upgrade the beam map to this nside before processing.
+            This can help improve accuracy when the beam is narrow.
+
+        beam_truncate_frac_thres : float, optional
+            The fractional threshold value for beam truncation. 
+            If specified, set all pixels with values below this fraction of the maximum pixel value to zero. 
+            If None, use the other key word "threshold" as the value.
+
+        Note the difference between "threshold" and "beam_truncate_frac_thres":
+            "threshold" is used to determine which pixels to include in the mapmaking process based on their beam response.
+            "beam_truncate_frac_thres" is used to truncate the beam map itself before processing.
+        
         """
+        self.nside_hires = nside_hires
+        self.nside_target = nside_target
+
+        if beam_truncate_frac_thres is None:
+            beam_truncate_frac_thres = threshold
 
         # If LST_deg_list_group[0] is a list, flatten it.
         if isinstance(LST_deg_list_group[0], (list, np.ndarray)):
@@ -312,7 +328,9 @@ class HPW_mapmaking:
             self.n_params_others = 0
 
         self.pixel_indices = truncate_stacked_beam(
-            beam_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, threshold=threshold
+            beam_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, threshold=threshold, 
+            nside_hires=self.nside_hires,
+            nside_target=self.nside_target
         )
 
         self.num_pixels = len(self.pixel_indices)
@@ -329,7 +347,11 @@ class HPW_mapmaking:
                 elevation_deg_list_i = elevation_deg_list_group[i]
 
                 sky_operator_i = generate_sky2sys_projection(
-                    beam_map, LST_deg_list_i, lat_deg, azimuth_deg_list_i, elevation_deg_list_i, self.pixel_indices, normalize=True
+                    beam_map, LST_deg_list_i, lat_deg, azimuth_deg_list_i, elevation_deg_list_i, self.pixel_indices, 
+                    nside_hires=self.nside_hires,
+                    nside_target=self.nside_target,
+                    normalize_beam=False,
+                    truncate_frac_thres=beam_truncate_frac_thres
                 )
                 if Tsys_others_operator_group is not None:
                     other_operators = [np.zeros_like(item) for item in Tsys_others_operator_group]
@@ -348,7 +370,11 @@ class HPW_mapmaking:
 
         else:
             sky_operators = generate_sky2sys_projection(
-                beam_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, self.pixel_indices, normalize=True
+                beam_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, self.pixel_indices, 
+                normalize_beam=False,
+                nside_hires=self.nside_hires,
+                nside_target=self.nside_target,
+                truncate_frac_thres=beam_truncate_frac_thres
             )
             if Tsys_others_operator_group is not None:
                 self.Tsys_operators = np.concatenate([sky_operators, Tsys_others_operator_group], axis=1)
