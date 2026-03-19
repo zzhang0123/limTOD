@@ -844,7 +844,7 @@ def truncate_stacked_beam(
 
     print("\nStep 1: Generating the stacked abs(beam) map ... \n")
     # Generate a initial boolean map with all pixels zero
-    bool_map = np.zeros_like(hp.nside2npix(nside_target), dtype=bool)
+    bool_map = np.zeros(hp.nside2npix(nside_target), dtype=bool)
 
     for LST_deg, azimuth_deg, elevation_deg in tqdm.tqdm(
         zip(LST_deg_list, azimuth_deg_list, elevation_deg_list), total=len(LST_deg_list)

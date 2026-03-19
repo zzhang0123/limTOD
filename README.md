@@ -29,25 +29,14 @@ A simple (but sophisticated) map-making class, `HPW_mapmaking` is also provided 
 If you use limTOD in your research, please cite:
 
 ```bibtex
-@software{zheng_zhang_2025_17183891,
-  author       = {Zheng Zhang and
-                  Piyanat (Boom) Kittiwisit and
-                  Bull, Philip},
-  title        = {zzhang0123/limTOD: TOD simulator with full Stokes
-                   support plus HPW map-maker
-                  },
-  month        = oct,
-  year         = 2025,
-  publisher    = {Zenodo},
-  version      = {v1.1.0},
-  doi          = {10.5281/zenodo.17183891},
-  url          = {https://doi.org/10.5281/zenodo.17183891},
-  swhid        = {swh:1:dir:2a16c169a363077998eedb66a5fb71a5dd585066
-                   ;origin=https://doi.org/10.5281/zenodo.17159123;vi
-                   sit=swh:1:snp:e0f18353409f945404908227c70444eb5807
-                   a22c;anchor=swh:1:rel:aa6bf0751a1a91a8e179047b6440
-                   bb6138db4315;path=zzhang0123-limTOD-476640d
-                  },
+@misc{zhang2026jointbayesiancalibrationmapmaking,
+      title={Joint Bayesian calibration and map-making for intensity mapping experiments}, 
+      author={Zheng Zhang and Philip Bull and Mario G. Santos and Ainulnabilah Nasirudin},
+      year={2026},
+      eprint={2509.10992},
+      archivePrefix={arXiv},
+      primaryClass={astro-ph.IM},
+      url={https://arxiv.org/abs/2509.10992}, 
 }
 ```
 
@@ -91,7 +80,7 @@ virtualenv ~/venv/limtod
 or equivalently with the Python3 built-in `venv` tool, 
 
 ```bash
-venv ~/venv/limtod
+python -m venv ~/venv/limtod
 ```
 
 The virtual environment can then be activated by, 
@@ -133,14 +122,15 @@ The `TODSim` class provides the main simulation functionality. It assumes a sing
 
 ```python
 import numpy as np
-from tod_simulator import TODSim, example_scan
+from limTOD import TODSim, example_scan
 
 # Initialize the simulator with MeerKAT coordinates
 simulator = TODSim(
     ant_latitude_deg=-30.7130,   # MeerKAT latitude
     ant_longitude_deg=21.4430,   # MeerKAT longitude
     ant_height_m=1054,           # MeerKAT altitude
-    nside=256                    # HEALPix resolution
+    beam_nside=256,              # HEALPix resolution for beam
+    sky_nside=256                # HEALPix resolution for sky
 )
 
 # Generate a simple scanning pattern
@@ -171,7 +161,8 @@ print(f"Generated TOD shape: {tod_array.shape}")  # (3, n_time)
 * **ant_height_m** (`float`): Height of the antenna/site in meters.
 * **beam_func** (`function`): Function that takes _keyword-only_ inputs, two of which must be `freq` (for frequency) and `nside` and returns the HEALPix beam map of shape (npix, ). Optional keywords can be passed to the function for customisation.
 * **sky_func** (`function`): Function that takes _keyword-only_ inputs, two of which must be `freq` (for frequency) and `nside` and returns the HEALPix sky map of shape (npix, ). Optional keywords can be passed to the function for customisation.
-* **nside** (`int`, optional): The nside parameter for Healpix maps.
+* **beam_nside** (`int`, optional): The nside parameter for the beam Healpix maps. Should be large enough to resolve beam features.
+* **sky_nside** (`int`, optional): The nside parameter for the sky Healpix maps. Decides how the sky map is parametrized.
 
 #### Observation Parameters
 
@@ -188,14 +179,19 @@ print(f"Generated TOD shape: {tod_array.shape}")  # (3, n_time)
 * **Tsys_others_TOD** (`array`, optional): Array of the remaining system temperature TOD (shape: nfreq x ntime). Default is None (no other components).
 * **background_gain_TOD** (`array`, optional): Array of background gain TOD (shape: nfreq x ntime). Default is None (unity gain).
 * **gain_noise_TOD** (`array`, optional): Array of gain noise TOD (shape: nfreq x ntime). Default is None (no gain noise).
-* **gain_noise_params** (`list`, optional): List of parameters [f0, fc, alpha] for generating gain noise if gain_noise_TOD is None. Default is [1.4e-5, 1e-3, 2].
+* **gain_noise_params** (`list`, optional): List of parameters [f0, fc, alpha] for generating gain noise if gain_noise_TOD is None. Default is [1.335e-5, 1.099e-3, 2].
 * **white_noise_var** (`float`, optional): Variance of white noise to be added. Default is None (uses default value of 2.5e-6).
+* **return_LSTs** (`bool`, optional): If True, return the LST values along with the TODs. Default is False.
+* **nside_hires** (`int`, optional): If provided, upgrade the beam map to this nside before processing. Useful for narrow beams. Default is None.
+* **normalize_beam** (`bool`, optional): If True, normalize the beam map to have a sum of 1 before computing the weighted sum. Default is False.
+* **truncate_frac_thres** (`float`, optional): Fractional threshold for beam truncation. Pixels below this fraction of the peak are set to zero. Default is 1e-10.
 
 ### Output Parameters
 
 * **overall_TOD** (`ndarray`): Complete TOD with all components (nfreq × ntime)
 * **sky_TOD** (`ndarray`): Sky signal component only (beam-weighted sum of sky maps, nfreq × ntime)
 * **gain_noise_TOD** (`ndarray`): Gain noise component (nfreq × ntime)
+* **LST_deg_list** (`ndarray`, optional): LST values in degrees, only returned if `return_LSTs=True`
 
 ### TOD Simulation Examples
 
@@ -295,23 +291,25 @@ Main simulator class for generating time-ordered data.
 
 ```python
 class TODSim:
-    def __init__(self, 
+    def __init__(self,
                  ant_latitude_deg=-30.7130,
-                 ant_longitude_deg=21.4430, 
+                 ant_longitude_deg=21.4430,
                  ant_height_m=1054,
                  beam_func=example_beam_map,
                  sky_func=GDSM_sky_model,
-                 nside=256)
+                 beam_nside=256,
+                 sky_nside=256)
 ```
 
 **Parameters:**
 
 * `ant_latitude_deg` (float): Antenna latitude in degrees
-* `ant_longitude_deg` (float): Antenna longitude in degrees  
+* `ant_longitude_deg` (float): Antenna longitude in degrees
 * `ant_height_m` (float): Antenna height above sea level in meters
 * `beam_func` (callable): Function returning beam map given (freq, nside) as keyword arguments
 * `sky_func` (callable): Function returning sky map given (freq, nside) as keyword arguments
-* `nside` (int): HEALPix resolution parameter (must be power of 2)
+* `beam_nside` (int): HEALPix resolution parameter for beam maps. Should be large enough to resolve beam features.
+* `sky_nside` (int): HEALPix resolution parameter for sky maps. Decides how the sky map is parametrized.
 
 #### Core Functions
 
@@ -322,15 +320,19 @@ Generate complete time-ordered data including all noise components.
 ```python
 def generate_TOD(self,
                 freq_list,
-                time_list, 
+                time_list,
                 azimuth_deg_list,
                 elevation_deg=41.5,
                 start_time_utc="2019-04-23 20:41:56.397",
                 Tsys_others_TOD=None,
                 background_gain_TOD=None,
                 gain_noise_TOD=None,
-                gain_noise_params=[1.4e-5, 1e-3, 2],
-                white_noise_var=None)
+                gain_noise_params=[1.335e-5, 1.099e-3, 2],
+                white_noise_var=None,
+                return_LSTs=False,
+                nside_hires=None,
+                normalize_beam=False,
+                truncate_frac_thres=1e-10)
 ```
 
 **Parameters:**
@@ -345,12 +347,17 @@ def generate_TOD(self,
 * `gain_noise_TOD` (array_like, optional): Pre-computed gain noise
 * `gain_noise_params` (list): [f0, fc, alpha] for 1/f noise generation, if gain_noise_TOD is not provided
 * `white_noise_var` (float, optional): White noise variance
+* `return_LSTs` (bool, optional): If True, return LST values along with the TODs. Default is False.
+* `nside_hires` (int, optional): Upgrade beam map to this nside before processing. Useful for narrow beams. Default is None.
+* `normalize_beam` (bool, optional): If True, normalize the beam map before computing. Default is False.
+* `truncate_frac_thres` (float, optional): Fractional threshold for beam truncation. Default is 1e-10.
 
 **Returns:**
 
 * `overall_TOD` (ndarray): Complete TOD with all components (nfreq × ntime)
 * `sky_TOD` (ndarray): Sky signal component only (beam-weighted sum of sky maps, no gain and no noise. Shape: nfreq × ntime)
 * `gain_noise_TOD` (ndarray): Gain noise component (nfreq × ntime)
+* `LST_deg_list` (ndarray, optional): LST values in degrees, only returned if `return_LSTs=True`
 
 ##### `simulate_sky_TOD()`
 
@@ -362,12 +369,25 @@ def simulate_sky_TOD(self,
                     time_list,
                     azimuth_deg_list,
                     elevation_deg,
-                    start_time_utc="2019-04-23 20:41:56.397")
+                    start_time_utc="2019-04-23 20:41:56.397",
+                    return_LSTs=False,
+                    nside_hires=None,
+                    normalize_beam=False,
+                    truncate_frac_thres=1e-10)
 ```
+
+**Parameters:**
+
+* `freq_list`, `time_list`, `azimuth_deg_list`, `elevation_deg`, `start_time_utc`: Same as `generate_TOD()`
+* `return_LSTs` (bool, optional): If True, return LST values along with the TODs. Default is False.
+* `nside_hires` (int, optional): Upgrade beam map to this nside before processing. Useful for narrow beams. Default is None.
+* `normalize_beam` (bool, optional): If True, normalize the beam map before computing. Default is False.
+* `truncate_frac_thres` (float, optional): Fractional threshold for beam truncation. Default is 1e-10.
 
 **Returns:**
 
 * `sky_TOD` (ndarray): Sky signal TOD (nfreq × ntime)
+* `LST_deg_list` (ndarray, optional): LST values in degrees, only returned if `return_LSTs=True`
 
 #### Utility Functions
 
@@ -376,14 +396,15 @@ def simulate_sky_TOD(self,
 Generate a simple raster scanning pattern.
 
 ```python
-def example_scan(az_s=-60.3, az_e=-42.3, dt=2.0)
+def example_scan(az_s=-60.3, az_e=-42.3, dt=2.0, n_repeats=5)
 ```
 
 **Parameters:**
 
 * `az_s` (float): Starting azimuth in degrees
-* `az_e` (float): Ending azimuth in degrees  
+* `az_e` (float): Ending azimuth in degrees
 * `dt` (float): Time step in seconds
+* `n_repeats` (int): Number of scan repetitions. Default is 5.
 
 **Returns:**
 
@@ -461,8 +482,6 @@ def zyz_of_pointing(LST_deg, lat_deg, azimuth_deg, elevation_deg)
 2. Transform to ZYZ using `zyzy2zyz()`
 
 This maps the natural telescope coordinate system to the mathematical framework required for spherical harmonic rotations.
-def zyz_of_pointing(LST_deg, lat_deg, azimuth_deg, elevation_deg)
-
 ```
 
 ##### `pointing_beam_in_eq_sys()`
@@ -470,17 +489,20 @@ def zyz_of_pointing(LST_deg, lat_deg, azimuth_deg, elevation_deg)
 Point a beam pattern to specific telescope coordinates in the equatorial system.
 
 ```python
-def pointing_beam_in_eq_sys(beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside)
+def pointing_beam_in_eq_sys(beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside,
+                            normalize=True, truncate_frac_thres=1e-10)
 ```
 
 **Parameters:**
 
 * `beam_alm` (array): Spherical harmonic coefficients of the beam in its native orientation
-* `LST_deg` (float): Local Sidereal Time in degrees  
+* `LST_deg` (float): Local Sidereal Time in degrees
 * `lat_deg` (float): Latitude of the observation site in degrees
 * `azimuth_deg` (float): Azimuth of the pointing in degrees
 * `elevation_deg` (float): Elevation of the pointing in degrees
 * `nside` (int): HEALPix resolution parameter
+* `normalize` (bool, optional): If True, normalize the pointed beam map to sum to 1. For Stokes Q, U, V, they are scaled by the same factor as Stokes I. Default is True.
+* `truncate_frac_thres` (float, optional): Fractional threshold for beam truncation. Pixels below this fraction of the peak are set to zero before normalization. Default is 1e-10.
 
 **Returns:**
 
@@ -522,13 +544,14 @@ def _rotate_healpix_map(alm, psi_rad, theta_rad, phi_rad, nside, return_map=True
 Compute the convolution integral of beam and sky.
 
 ```python
-def _beam_weighted_sum(beam_map, sky_map)
+def _beam_weighted_sum(beam_map, sky_map, normalize=False)
 ```
 
 **Parameters:**
 
-* `beam_map` (array): HEALPix beam pattern (will be normalized)
+* `beam_map` (array): HEALPix beam pattern (should be pre-normalized unless `normalize=True`)
 * `sky_map` (array): HEALPix sky brightness temperature map
+* `normalize` (bool, optional): If True, normalize the beam map before computing. Default is False.
 
 **Returns:**
 
@@ -564,9 +587,9 @@ The `HPW_mapmaking` class provides a sophisticated map-making pipeline that comb
 
 ```python
 sky_map, sky_uncertainty = mapmaker(
-    TOD_group,
-    dtime,
-    cutoff_freq_group,
+    TOD_group=TOD_group,
+    dtime=dtime,
+    cutoff_freq_group=cutoff_freq_group,
     gain_group=None,
     known_injection_group=None,
     Tsky_prior_mean=None,
@@ -574,7 +597,8 @@ sky_map, sky_uncertainty = mapmaker(
     Tsys_other_prior_mean_group=None,
     Tsys_other_prior_inv_cov_group=None,
     regularization=1e-12,
-    return_full_cov=False
+    return_full_cov=False,
+    filter_order=4
 )
 ```
 
@@ -591,6 +615,7 @@ sky_map, sky_uncertainty = mapmaker(
 * `Tsys_other_prior_inv_cov_group` (list, optional): Prior inverse covariances for other system parameters
 * `regularization` (float): Regularization parameter for numerical stability
 * `return_full_cov` (bool): If True, return full posterior covariance matrix
+* `filter_order` (int): Order of the Butterworth high-pass filter. Default is 4.
 
 **Returns:**
 
@@ -643,7 +668,10 @@ class HPW_mapmaking:
                  azimuth_deg_list_group,
                  elevation_deg_list_group,
                  threshold=0.01,
-                 Tsys_others_operator=None)
+                 Tsys_others_operator_group=None,
+                 nside_hires=None,
+                 nside_target=None,
+                 beam_truncate_frac_thres=None)
 ```
 
 **Parameters** (all keyword-only):
@@ -656,8 +684,11 @@ class HPW_mapmaking:
 * `lat_deg` (float): Observation site latitude in degrees
 * `azimuth_deg_list_group` (list): Azimuth angles in degrees for each TOD
 * `elevation_deg_list_group` (list): Elevation angles in degrees for each TOD
-* `threshold` (float): Fractional beam response threshold (e.g., 0.01 = 1% of peak)
-* `Tsys_others_operator` (array, optional): Operator for other system components (e.g., receiver temperature variations)
+* `threshold` (float): Fractional beam response threshold for pixel selection (e.g., 0.01 = 1% of peak)
+* `Tsys_others_operator_group` (list, optional): List of operators for other system temperature components (e.g., receiver temperature variations)
+* `nside_hires` (int, optional): If provided, upgrade the beam map to this nside before processing. Useful for narrow beams.
+* `nside_target` (int, optional): Target nside for the output beam map. Should match the convention used in pixel indices.
+* `beam_truncate_frac_thres` (float, optional): Fractional threshold for beam truncation. If None, uses `threshold` value. Note the difference: `threshold` selects which pixels to include in map-making, while `beam_truncate_frac_thres` truncates the beam map itself.
 
 ## Performance Considerations
 
