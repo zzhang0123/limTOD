@@ -196,6 +196,9 @@ figures/
 # Log files
 *.log
 
+# Claude Code
+CLAUDE.md
+
 # Configuration files that might contain secrets
 config.ini
 secrets.yaml
