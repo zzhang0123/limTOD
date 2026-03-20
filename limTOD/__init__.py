@@ -1,5 +1,5 @@
 """
-limTOD: Time-Ordered Data Simulator for MeerKLASS
+limTOD: Time-Ordered Data Simulator
 """
 
 __version__ = "1.1.0"
@@ -11,7 +11,7 @@ from .simulator import (
     TODSim,
     example_scan,
     generate_LSTs_deg,
-    zyzy2zyz,
+    zyzyz2zyz,
     zyz_of_pointing,
     generate_TOD_sky,
     pointing_beam_in_eq_sys,
@@ -36,7 +36,7 @@ __all__ = [
     "TODSim",
     "example_scan",
     "generate_LSTs_deg",
-    "zyzy2zyz",
+    "zyzyz2zyz",
     "zyz_of_pointing",
     "generate_TOD_sky",
     "pointing_beam_in_eq_sys",

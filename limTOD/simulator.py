@@ -26,8 +26,8 @@ FrequencyList = ArrayLike
 AngleList = ArrayLike
 
 # Enhanced constants with better documentation
-DEFAULT_MEERKAT_LATITUDE = -30.7130  # degrees (MeerKAT coordinates)
-DEFAULT_MEERKAT_LONGITUDE = 21.4430  # degrees
+DEFAULT_MEERKAT_LATITUDE = -30.7130  # degrees, South is negative (EarthLocation convention: N+, S-)
+DEFAULT_MEERKAT_LONGITUDE = 21.4430  # degrees, East is positive (EarthLocation convention: E+, W-)
 DEFAULT_MEERKAT_HEIGHT = 1054  # meters above sea level
 DEFAULT_START_TIME_UTC = "2019-04-23 20:41:56.397"
 DEFAULT_WHITE_NOISE_VAR = 2.5e-6  # Typical thermal noise variance
