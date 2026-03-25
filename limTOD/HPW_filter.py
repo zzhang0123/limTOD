@@ -234,6 +234,7 @@ class HPW_mapmaking:
         lat_deg, 
         azimuth_deg_list_group, 
         elevation_deg_list_group, 
+        selfrot_deg_list_group=None,
         threshold=0.01,
         Tsys_others_operator_group=None,
         nside_hires=None,
@@ -307,11 +308,19 @@ class HPW_mapmaking:
             LST_deg_list = np.concatenate(LST_deg_list_group)
             azimuth_deg_list = np.concatenate(azimuth_deg_list_group)
             elevation_deg_list = np.concatenate(elevation_deg_list_group)
+            if selfrot_deg_list_group is not None:
+                selfrot_deg_list = np.concatenate(selfrot_deg_list_group) 
+            else:
+                selfrot_deg_list = np.zeros_like(LST_deg_list)
         else:
             self.num_tods = 1
             LST_deg_list = LST_deg_list_group
             azimuth_deg_list = azimuth_deg_list_group
             elevation_deg_list = elevation_deg_list_group
+            if selfrot_deg_list_group is not None:
+                selfrot_deg_list = selfrot_deg_list_group
+            else:
+                selfrot_deg_list = np.zeros_like(LST_deg_list)
 
         if beam_map.ndim == 1:
             self.npol = 1
@@ -327,8 +336,12 @@ class HPW_mapmaking:
             self.Tsys_others = False
             self.n_params_others = 0
 
+        horizontal_mask = None # Not used in current implementation, but can be added as a feature later if needed.
+
         self.pixel_indices = truncate_stacked_beam(
-            beam_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, threshold=threshold, 
+            beam_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, selfrot_deg_list,
+            horizontal_mask=horizontal_mask,
+            threshold=threshold, 
             nside_hires=self.nside_hires,
             nside_target=self.nside_target
         )
@@ -346,11 +359,15 @@ class HPW_mapmaking:
                 azimuth_deg_list_i = azimuth_deg_list_group[i]
                 elevation_deg_list_i = elevation_deg_list_group[i]
 
+                selfrot_deg_list = np.zeros_like(LST_deg_list_i) if selfrot_deg_list_group is None else selfrot_deg_list_group[i]
+
                 sky_operator_i = generate_sky2sys_projection(
-                    beam_map, LST_deg_list_i, lat_deg, azimuth_deg_list_i, elevation_deg_list_i, self.pixel_indices, 
+                    beam_map, LST_deg_list_i, lat_deg, azimuth_deg_list_i, elevation_deg_list_i, selfrot_deg_list,
+                    self.pixel_indices, 
                     nside_hires=self.nside_hires,
                     nside_target=self.nside_target,
                     normalize_beam=False,
+                    horizontal_mask=horizontal_mask,
                     truncate_frac_thres=beam_truncate_frac_thres
                 )
                 if Tsys_others_operator_group is not None:
@@ -360,17 +377,13 @@ class HPW_mapmaking:
                 else:
                     Tsys_operator_i = sky_operator_i
 
-                # # Debug: print the shape of each Tsys_operator_i
-                # print(f"Tsys_operator for TOD {i} shape: {Tsys_operator_i.shape}")
-                # # Debug: check the rank of each Tsys_operator_i
-                # rank = np.linalg.matrix_rank(Tsys_operator_i)
-                # print(f"Rank of Tsys_operator for TOD {i}: {rank}")
-
                 self.Tsys_operators.append(Tsys_operator_i)
 
         else:
             sky_operators = generate_sky2sys_projection(
-                beam_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, self.pixel_indices, 
+                beam_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, selfrot_deg_list,
+                self.pixel_indices, 
+                horizontal_mask=horizontal_mask,
                 normalize_beam=False,
                 nside_hires=self.nside_hires,
                 nside_target=self.nside_target,
