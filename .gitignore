@@ -1,3 +1,5 @@
+examples/mm_example_copy.ipynb
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
