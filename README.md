@@ -47,14 +47,12 @@ You will need Python version 3.8 or higher and `pip` to install the package.
 For a quick installation, run the following command
 
 ```bash
-pip install git+https://github.com/zzhang0123/limTOD.git
+pip install git+xxxxx
 ```
 
 or installed from source, 
 
 ```bash
-git clone https://github.com/zzhang0123/limTOD.git
-cd limTOD
 python -m pip install .
 ```
 
@@ -66,30 +64,6 @@ python -m ipykernel install --name "limtod" --user
 ```
 
 This will install `jupyter` and `matplotlib` for the notebook, as well as installing the currently used Python executable as a selectable kernel named "limtod" for the notebook.
-
-### Virtual Environment
-
-It is recommended that the above installation is done inside a Python virtual environment.
-
-For example, run the following command to create a virtual environment named `limtod` in the `~/venv` directory with the [virtualenv](https://virtualenv.pypa.io/en/latest/index.html) tool, 
-
-```bash
-virtualenv ~/venv/limtod
-```
-
-or equivalently with the Python3 built-in `venv` tool, 
-
-```bash
-python -m venv ~/venv/limtod
-```
-
-The virtual environment can then be activated by, 
-
-```bash
-source ~/venv/limtod/bin/activate
-```
-
-then, one can proceed to install from git or from source as above.
 
 ### Required Dependencies
 
@@ -161,6 +135,8 @@ print(f"Generated TOD shape: {tod_array.shape}")  # (3, n_time)
 * **ant_height_m** (`float`): Height of the antenna/site in meters.
 * **beam_func** (`function`): Function that takes _keyword-only_ inputs, two of which must be `freq` (for frequency) and `nside` and returns the HEALPix beam map of shape (npix, ). Optional keywords can be passed to the function for customisation.
 * **sky_func** (`function`): Function that takes _keyword-only_ inputs, two of which must be `freq` (for frequency) and `nside` and returns the HEALPix sky map of shape (npix, ). Optional keywords can be passed to the function for customisation.
+* **beam_nside** (`int`, optional): The nside parameter for beam Healpix maps. Should be large enough to resolve beam features.
+* **sky_nside** (`int`, optional): The nside parameter for sky Healpix maps.
 * **beam_nside** (`int`, optional): The nside parameter for the beam Healpix maps. Should be large enough to resolve beam features.
 * **sky_nside** (`int`, optional): The nside parameter for the sky Healpix maps. Decides how the sky map is parametrized.
 
@@ -172,7 +148,9 @@ print(f"Generated TOD shape: {tod_array.shape}")  # (3, n_time)
 * **elevation_deg** (`list` or `float`):
   + If float: Elevation value in degrees universal for all observations.
   + If list: List of elevation values in degrees for each observation.
+* **selfrot_deg_list** (`list` or `array`, optional): List of antenna self-rotation angles in degrees for each observation. Default is None (zero self-rotation).
 * **start_time_utc** (`str`): Start time in UTC (e.g. "2019-04-23 20:41:56.397").
+* **horizontal_mask** (`array`, optional): A HEALPix map (1D array) representing a binary mask in the local horizontal coordinate system. 1 = unmasked, 0 = masked. Default is None (no mask).
 
 #### Noise and Calibration Parameters (Optional)
 
@@ -234,7 +212,7 @@ This is efficiently computed using HEALPix spherical harmonics:
 The package handles coordinate transformations between:
 
 1. **Local Telescope frame** (time, Azimuth, Elevation) → **Equatorial frame** (RA, Dec)
-2. Representations of the transformation: **ZYZY Euler angles** → **ZYZ Euler angles** for HEALPix rotations
+2. Representations of the transformation: **ZYZYZ Euler angles** → **ZYZ Euler angles** for HEALPix rotations
 
 #### Detailed Workflow
 
@@ -243,24 +221,34 @@ Step 1: Scan Specifications → LST Sequence
 * Convert UTC timestamps to Local Sidereal Time using telescope location
 * Function: `generate_LSTs_deg()`
 
-Step 2: Telescope Pointing → ZYZY Angles 
+Step 2: Telescope Pointing → ZYZYZ Angles 
 
 * Map telescope parameters to natural rotation sequence:
-  + α = LST (Earth's rotation tracking)
-  + β = 90° - latitude (site location correction)
-  + γ = azimuth (local pointing direction)
-  + δ = elevation - 90°  (altitude correction)
+  + $\alpha$ = LST (Earth's rotation tracking)
+  + $\beta$ = 90° - latitude (site location correction)
+  + $\gamma$ = azimuth (local pointing direction)
+  + $\delta$ = elevation - 90°  (altitude correction)
+  + $\chi$ = antenna self-rotation around beam centre
 
-Step 3: ZYZY → ZYZ Conversion
+Step 3: ZYZYZ → ZYZ Conversion
 
-* Convert to HEALPix-compatible Euler angles using `zyzy2zyz()`
-* This handles the mathematical transformation: R_zyzy = R_y(δ)R_z(γ)R_y(β)R_z(α) → R_zyz = R_z(φ)R_y(θ)R_z(ψ)
+* Convert to HEALPix-compatible Euler angles using `zyzyz2zyz()`
+* This handles the mathematical transformation: $R_{zyzyz} = R_z(\chi)R_y(\delta)R_z(\gamma)R_y(\beta)R_z(\alpha)$ → $R_{zyz} = R_z(\varphi)R_y(\theta)R_z(\psi)$
 
 Step 4: Beam Rotation in Spherical Harmonic Space
 
 * Apply rotation to beam's alm coefficients using `pointing_beam_in_eq_sys()`
 * Efficiently rotates beam pattern without pixel-by-pixel calculations
 * Function: `_rotate_healpix_map()` calls `healpy.rotate_alm()`
+
+Step 4.5: horizontal mask
+
+* Optionally apply a HEALPix pixel mask (in horizontal coordinates) to perform horizontal truncation.
+* This is a simplified version of generic pointing rotation:
+$R_{zyzyz} = R_z(0)R_y(0)R_z(0)R_y(\beta)R_z(\alpha)$ → $R_{zyz} = R_z(\varphi')R_y(\theta')R_z(\psi')$,
+which yields $\psi' = \alpha$, $\theta' = \beta$, and $\varphi'=0$.
+
+
 
 Step 5: Sky Integration
 
@@ -322,6 +310,7 @@ def generate_TOD(self,
                 freq_list,
                 time_list,
                 azimuth_deg_list,
+                selfrot_deg_list=None,
                 elevation_deg=41.5,
                 start_time_utc="2019-04-23 20:41:56.397",
                 Tsys_others_TOD=None,
@@ -329,9 +318,7 @@ def generate_TOD(self,
                 gain_noise_TOD=None,
                 gain_noise_params=[1.335e-5, 1.099e-3, 2],
                 white_noise_var=None,
-                return_LSTs=False,
-                nside_hires=None,
-                normalize_beam=False,
+                horizontal_mask=None,
                 truncate_frac_thres=1e-10)
 ```
 
@@ -340,6 +327,7 @@ def generate_TOD(self,
 * `freq_list` (array_like): Observation frequencies in MHz
 * `time_list` (array_like): Time offsets from start time in seconds
 * `azimuth_deg_list` (array_like): Time-ordered azimuth angles in degrees
+* `selfrot_deg_list` (array_like, optional): Antenna self-rotation angles in degrees for each observation. Default is None (zero self-rotation).
 * `elevation_deg` (float or array_like): Elevation angle(s) in degrees
 * `start_time_utc` (str): UTC start time in ISO format
 * `Tsys_others_TOD` (array_like, optional): All the other system temperature components
@@ -347,6 +335,7 @@ def generate_TOD(self,
 * `gain_noise_TOD` (array_like, optional): Pre-computed gain noise
 * `gain_noise_params` (list): [f0, fc, alpha] for 1/f noise generation, if gain_noise_TOD is not provided
 * `white_noise_var` (float, optional): White noise variance
+* `horizontal_mask` (array, optional): Binary HEALPix mask in horizontal coordinates (1 = unmasked, 0 = masked). Default is None.
 * `return_LSTs` (bool, optional): If True, return LST values along with the TODs. Default is False.
 * `nside_hires` (int, optional): Upgrade beam map to this nside before processing. Useful for narrow beams. Default is None.
 * `normalize_beam` (bool, optional): If True, normalize the beam map before computing. Default is False.
@@ -369,6 +358,9 @@ def simulate_sky_TOD(self,
                     time_list,
                     azimuth_deg_list,
                     elevation_deg,
+                    selfrot_deg_list=None,
+                    start_time_utc="2019-04-23 20:41:56.397",
+                    horizontal_mask=None,
                     start_time_utc="2019-04-23 20:41:56.397",
                     return_LSTs=False,
                     nside_hires=None,
@@ -426,20 +418,21 @@ def generate_LSTs_deg(ant_latitude_deg, ant_longitude_deg, ant_height_m,
 
 #### Coordinate Transformation Functions
 
-##### `zyzy2zyz()`
+##### `zyzyz2zyz()`
 
-Convert ZYZY Euler angles to ZYZ convention for HEALPix rotations.
+Convert ZYZYZ Euler angles to ZYZ convention for HEALPix rotations.
 
 ```python
-def zyzy2zyz(alpha, beta, gamma, delta, output_degrees=False)
+def zyzyz2zyz(alpha, beta, gamma, delta, chi, output_degrees=False)
 ```
 
 **Parameters:**
 
 * `alpha` (float): First Z rotation angle in degrees
-* `beta` (float): First Y rotation angle in degrees  
+* `beta` (float): First Y rotation angle in degrees
 * `gamma` (float): Second Z rotation angle in degrees
 * `delta` (float): Second Y rotation angle in degrees
+* `chi` (float): Third Z rotation angle in degrees (antenna self-rotation)
 * `output_degrees` (bool): If True, return angles in degrees; otherwise radians
 
 **Returns:**
@@ -448,17 +441,17 @@ def zyzy2zyz(alpha, beta, gamma, delta, output_degrees=False)
 
 **Mathematical Background:**
 
-* **ZYZY rotation**: R = R_y(δ) × R_z(γ) × R_y(β) × R_z(α)
+* **ZYZYZ rotation**: R = R_z(χ) × R_y(δ) × R_z(γ) × R_y(β) × R_z(α)
 * **ZYZ rotation**: R = R_z(φ) × R_y(θ) × R_z(ψ)
 
-This conversion is necessary because telescope pointing naturally follows ZYZY rotations (combining Earth rotation and local pointing), while HEALPix requires ZYZ convention.
+This conversion is necessary because telescope pointing naturally follows ZYZYZ rotations (combining Earth rotation, local pointing, and antenna self-rotation), while HEALPix requires ZYZ convention.
 
 ##### `zyz_of_pointing()`
 
 Generate ZYZ Euler angles from telescope pointing parameters.
 
 ```python
-def zyz_of_pointing(LST_deg, lat_deg, azimuth_deg, elevation_deg)
+def zyz_of_pointing(LST_deg, lat_deg, azimuth_deg, elevation_deg, selfrot_deg)
 ```
 
 **Parameters:**
@@ -467,6 +460,7 @@ def zyz_of_pointing(LST_deg, lat_deg, azimuth_deg, elevation_deg)
 * `lat_deg` (float): Telescope latitude in degrees
 * `azimuth_deg` (float): Pointing azimuth in degrees
 * `elevation_deg` (float): Pointing elevation in degrees
+* `selfrot_deg` (float): Antenna self-rotation angle in degrees
 
 **Returns:**
 
@@ -474,12 +468,13 @@ def zyz_of_pointing(LST_deg, lat_deg, azimuth_deg, elevation_deg)
 
 **Algorithm:**
 
-1. Convert pointing parameters to ZYZY angles:
+1. Convert pointing parameters to ZYZYZ angles:
    * α = LST (Earth rotation)
    * β = 90° - lat (latitude correction)
-   * γ = azimuth (local pointing direction)
-   * δ = 90° - elevation (elevation correction)
-2. Transform to ZYZ using `zyzy2zyz()`
+   * γ = -azimuth (local pointing direction)
+   * δ = elevation - 90° (altitude correction)
+   * χ = selfrot (antenna self-rotation)
+2. Transform to ZYZ using `zyzyz2zyz()`
 
 This maps the natural telescope coordinate system to the mathematical framework required for spherical harmonic rotations.
 ```
@@ -489,8 +484,9 @@ This maps the natural telescope coordinate system to the mathematical framework 
 Point a beam pattern to specific telescope coordinates in the equatorial system.
 
 ```python
-def pointing_beam_in_eq_sys(beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside,
-                            normalize=True, truncate_frac_thres=1e-10)
+def pointing_beam_in_eq_sys(beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg,
+                            selfrot_deg, nside, normalize=True,
+                            horizontal_mask=None, truncate_frac_thres=1e-10)
 ```
 
 **Parameters:**
@@ -500,9 +496,11 @@ def pointing_beam_in_eq_sys(beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_d
 * `lat_deg` (float): Latitude of the observation site in degrees
 * `azimuth_deg` (float): Azimuth of the pointing in degrees
 * `elevation_deg` (float): Elevation of the pointing in degrees
+* `selfrot_deg` (float): Antenna self-rotation angle in degrees
 * `nside` (int): HEALPix resolution parameter
-* `normalize` (bool, optional): If True, normalize the pointed beam map to sum to 1. For Stokes Q, U, V, they are scaled by the same factor as Stokes I. Default is True.
-* `truncate_frac_thres` (float, optional): Fractional threshold for beam truncation. Pixels below this fraction of the peak are set to zero before normalization. Default is 1e-10.
+* `normalize` (bool, optional): If True, normalize the beam to sum to 1. Default is True.
+* `horizontal_mask` (array, optional): Binary HEALPix mask in horizontal coordinates. Default is None.
+* `truncate_frac_thres` (float, optional): Fractional threshold for beam truncation. Default is 1e-10.
 
 **Returns:**
 
@@ -667,6 +665,7 @@ class HPW_mapmaking:
                  lat_deg,
                  azimuth_deg_list_group,
                  elevation_deg_list_group,
+                 selfrot_deg_list_group=None,
                  threshold=0.01,
                  Tsys_others_operator_group=None,
                  nside_hires=None,
@@ -684,11 +683,12 @@ class HPW_mapmaking:
 * `lat_deg` (float): Observation site latitude in degrees
 * `azimuth_deg_list_group` (list): Azimuth angles in degrees for each TOD
 * `elevation_deg_list_group` (list): Elevation angles in degrees for each TOD
-* `threshold` (float): Fractional beam response threshold for pixel selection (e.g., 0.01 = 1% of peak)
-* `Tsys_others_operator_group` (list, optional): List of operators for other system temperature components (e.g., receiver temperature variations)
-* `nside_hires` (int, optional): If provided, upgrade the beam map to this nside before processing. Useful for narrow beams.
-* `nside_target` (int, optional): Target nside for the output beam map. Should match the convention used in pixel indices.
-* `beam_truncate_frac_thres` (float, optional): Fractional threshold for beam truncation. If None, uses `threshold` value. Note the difference: `threshold` selects which pixels to include in map-making, while `beam_truncate_frac_thres` truncates the beam map itself.
+* `selfrot_deg_list_group` (list, optional): Self-rotation angles in degrees for each TOD. Default is None (zero self-rotation).
+* `threshold` (float): Fractional beam response threshold (e.g., 0.01 = 1% of peak)
+* `Tsys_others_operator_group` (list, optional): Operator(s) for other system temperature components
+* `nside_hires` (int, optional): High-resolution nside for beam processing
+* `nside_target` (int, optional): Target nside for output maps
+* `beam_truncate_frac_thres` (float, optional): Beam truncation threshold. If None, uses `threshold`.
 
 ## Performance Considerations
 

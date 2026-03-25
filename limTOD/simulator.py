@@ -26,8 +26,8 @@ FrequencyList = ArrayLike
 AngleList = ArrayLike
 
 # Enhanced constants with better documentation
-DEFAULT_MEERKAT_LATITUDE = -30.7130  # degrees (MeerKAT coordinates)
-DEFAULT_MEERKAT_LONGITUDE = 21.4430  # degrees
+DEFAULT_MEERKAT_LATITUDE = -30.7130  # degrees, South is negative (EarthLocation convention: N+, S-)
+DEFAULT_MEERKAT_LONGITUDE = 21.4430  # degrees, East is positive (EarthLocation convention: E+, W-)
 DEFAULT_MEERKAT_HEIGHT = 1054  # meters above sea level
 DEFAULT_START_TIME_UTC = "2019-04-23 20:41:56.397"
 DEFAULT_WHITE_NOISE_VAR = 2.5e-6  # Typical thermal noise variance
@@ -46,13 +46,13 @@ def example_scan(az_s=-60.3, az_e=-42.3, dt=2.0, n_repeats=5):
     return t_list, azimuths
 
 
-def zyzy2zyz(alpha, beta, gamma, delta, output_degrees=False):
+def zyzyz2zyz(alpha, beta, gamma, delta, chi, output_degrees=False):
     """
-    Convert "zyzy" angles to effective "zyz" angles.
+    Convert "zyzyz" angles to effective "zyz" angles.
     Input angles are in degrees.
     Output angles are in degrees if output_degrees=True, else in radians.
 
-    "zyzy"-rotation: R = R_y(delta) * R_z(gamma) * R_y(beta) * R_z(alpha)
+    "zyzyz"-rotation: R = R_z(chi) R_y(delta) * R_z(gamma) * R_y(beta) * R_z(alpha)
     "zyz"-rotation: R = R_z(phi) * R_y(theta) * R_z(psi)
 
     Parameters:
@@ -64,6 +64,8 @@ def zyzy2zyz(alpha, beta, gamma, delta, output_degrees=False):
         Second "z" rotation angle in degrees.
     delta : float
         Second "y" rotation angle in degrees.
+    chi: float
+        Third "z" rotation angle in degrees.
     output_degrees : bool, optional
         If True, output angles are in degrees. Default is False (radians).
 
@@ -72,7 +74,8 @@ def zyzy2zyz(alpha, beta, gamma, delta, output_degrees=False):
         A tuple containing the (psi, theta, phi) angles.
     """
     r = (
-        R.from_euler("y", delta, degrees=True)
+        R.from_euler("z", chi, degrees=True)
+        * R.from_euler("y", delta, degrees=True)
         * R.from_euler("z", gamma, degrees=True)
         * R.from_euler("y", beta, degrees=True)
         * R.from_euler("z", alpha, degrees=True)
@@ -81,7 +84,7 @@ def zyzy2zyz(alpha, beta, gamma, delta, output_degrees=False):
     return psi, theta, phi
 
 
-def zyz_of_pointing(LST_deg, lat_deg, azimuth_deg, elevation_deg):
+def zyz_of_pointing(LST_deg, lat_deg, azimuth_deg, elevation_deg, selfrot_deg):
     """
     This function generates the effective "zyz"-rotation angles (psi, theta, phi)
     from the pointing parameters: LST, latitude, azimuth, and elevation.
@@ -97,22 +100,25 @@ def zyz_of_pointing(LST_deg, lat_deg, azimuth_deg, elevation_deg):
         The pointing's azimuth in degrees.
     elevation_deg : float
         The pointing's elevation in degrees.
+    selfrot_deg: float
+        The antenna's self-rotation (with respect to the beam centre) in degrees.
 
     Returns:
     tuple
         A tuple containing the (psi, theta, phi) angles in radians.
     """
 
-    # Convert pointing parameters to "zyzy" angles
+    # Convert pointing parameters to "zyzyz" angles
     alpha = LST_deg
     beta = 90.0 - lat_deg
     gamma = (
         -azimuth_deg
     )  # Note the sign convention for azimuth: East of North is positive
     delta = elevation_deg - 90.0
+    chi = selfrot_deg
 
-    # Convert "zyzy" angles to effective "zyz" angles
-    return zyzy2zyz(alpha, beta, gamma, delta)
+    # Convert "zyzyz" angles to effective "zyz" angles
+    return zyzyz2zyz(alpha, beta, gamma, delta, chi)
 
 
 def generate_LSTs_deg(
@@ -220,7 +226,6 @@ def _rotate_healpix_map(alm, psi_rad, theta_rad, phi_rad, nside, return_map=True
         return map_pointed
     return alm_rot
 
-
 def _normalize_map(input_map):
     """
     Normalize a Healpix map to have a sum value of 1.
@@ -252,13 +257,29 @@ def _truncate_map(input_map, frac_thres=1e-10):
     """
     result = input_map.copy()
     if frac_thres > 0.0:
-        max_val = np.max(input_map)
-        threshold = frac_thres * max_val
-        result[result < threshold] = 0.0  
+        if result.ndim == 1:
+            max_val = np.max(result)
+            threshold = frac_thres * max_val
+            result[result < threshold] = 0.0
+        else:
+            # Use Stokes I (first row) to determine the pixel mask
+            max_val = np.max(result[0])
+            threshold = frac_thres * max_val
+            mask = result[0] < threshold
+            result[:, mask] = 0.0
     return result
 
 def pointing_beam_in_eq_sys(
-    beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside, normalize=True, truncate_frac_thres=1e-10
+    beam_alm, 
+    LST_deg, 
+    lat_deg, 
+    azimuth_deg, 
+    elevation_deg, 
+    selfrot_deg,
+    nside, 
+    normalize=True, 
+    horizontal_mask=None,
+    truncate_frac_thres=1e-10
 ):
     """
     Point the beam in the equatorial coordinate system.
@@ -281,7 +302,11 @@ def pointing_beam_in_eq_sys(
         The nside parameter of the Healpix map.
     normalize : bool, optional
         If True, normalize the pointed beam map to have a sum of 1.
-        For Stokes Q, U, V parameters, they will be scaled by the same factor as Stokes I. Default is False.
+        For Stokes Q, U, V parameters, they will be scaled by the same factor as Stokes I. Default is True.
+    horizontal_mask : array, optional
+        A Healpix map (1D array) representing a horizontal mask in the local horizontal coordinate system.
+            If provided, the mask will be rotated to the equatorial coordinate system and applied to the pointed beam map before normalization. Default is None (no mask).
+            1 indicates unmasked pixels, 0 indicates masked pixels. 
     truncate_frac_thres : float, optional
         The fractional threshold value for (rotated-)beam truncation.
         If specified, set all pixels with values below this fraction of the maximum pixel value to zero before normalization. Default is 1e-10.
@@ -295,9 +320,24 @@ def pointing_beam_in_eq_sys(
         lat_deg=lat_deg,
         azimuth_deg=azimuth_deg,
         elevation_deg=elevation_deg,
+        selfrot_deg=selfrot_deg
     )
     beam_pointed = _rotate_healpix_map(beam_alm, psi_rad, theta_rad, phi_rad, nside)
-    beam_pointed = _truncate_map(beam_pointed, frac_thres=truncate_frac_thres)
+
+    if horizontal_mask is not None:
+        mask_psi_rad, mask_theta_rad, mask_phi_rad = zyz_of_pointing(
+            LST_deg=LST_deg,
+            lat_deg=lat_deg,
+            azimuth_deg=0,
+            elevation_deg=0,
+            selfrot_deg=0
+        )
+        mask_alm = hp.map2alm(horizontal_mask)
+        mask_pointed = _rotate_healpix_map(mask_alm, mask_psi_rad, mask_theta_rad, mask_phi_rad, nside)
+        mask_pointed = np.where(mask_pointed >= 0.5, 1.0, 0.0)
+        beam_pointed = beam_pointed * mask_pointed[np.newaxis, :] if beam_pointed.ndim == 2 else beam_pointed * mask_pointed
+    else:
+        beam_pointed = _truncate_map(beam_pointed, frac_thres=truncate_frac_thres)
     if normalize:
         if beam_pointed.ndim == 1:
             beam_pointed = _normalize_map(beam_pointed)
@@ -363,8 +403,10 @@ def _beam_weighted_sum(beam_map, sky_map, normalize=False):
 
 
 def generate_TOD_sky(
-    beam_map, sky_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, nside_hires=None,
+    beam_map, sky_map, 
+    LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, selfrot_deg_list, nside_hires=None,
     normalize_beam=False,
+    horizontal_mask=None,
     truncate_frac_thres=1e-10
 ):
     """
@@ -392,15 +434,22 @@ def generate_TOD_sky(
         List of azimuth values in degrees for each observation.
     elevation_deg_list : array
         List of elevation values in degrees for each observation.
+    selfrot_deg_list : array
+        List of self-rotation values in degrees for each observation.
     nside_hires : int, optional
         If provided, upgrade the beam map to this nside before processing.
         This can help improve accuracy when the beam is narrow. Default is None.
     normalize_beam : bool, optional
         If True, normalize the beam map to have a sum of 1 before computing the weighted sum.
         Default is False.
+    horizontal_mask : array, optional
+        A Healpix map (1D array) representing a horizontal mask in the local horizontal coordinate system.
+            If provided, the mask will be rotated to the equatorial coordinate system and applied to the pointed beam map before normalization. Default is None (no mask).
+            1 indicates unmasked pixels, 0 indicates masked pixels.
     truncate_frac_thres : float, optional
         The fractional threshold value for beam truncation. 
-        If specified, set all pixels with values below this fraction of the maximum pixel value to zero before normalization. Default is 1e-10.
+        It is ignored if horizontal_mask is provided.
+        If specified, and horizontal_mask is provided, set all pixels with values below this fraction of the maximum pixel value to zero before normalization. Default is 1e-10.
 
     Returns:
     array
@@ -429,12 +478,16 @@ def generate_TOD_sky(
 
     tod = []
 
-    # for LST_deg, azimuth_deg, elevation_deg in zip(LST_deg_list, azimuth_deg_list, elevation_deg_list):
-    for LST_deg, azimuth_deg, elevation_deg in tqdm.tqdm(
-        zip(LST_deg_list, azimuth_deg_list, elevation_deg_list), total=len(LST_deg_list)
+        
+
+    for LST_deg, azimuth_deg, elevation_deg, selfrot_deg in tqdm.tqdm(
+        zip(LST_deg_list, azimuth_deg_list, elevation_deg_list, selfrot_deg_list), total=len(LST_deg_list)
     ):
         beam_pointed = pointing_beam_in_eq_sys(
-            beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside=nside_sky, normalize=normalize_beam, truncate_frac_thres=truncate_frac_thres
+            beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, selfrot_deg,
+            nside=nside_sky, normalize=normalize_beam, 
+            horizontal_mask=horizontal_mask,
+            truncate_frac_thres=truncate_frac_thres
         )
         sample = _beam_weighted_sum(beam_pointed, sky_map)
         tod.append(sample)
@@ -561,10 +614,12 @@ class TODSim:
         time_list,
         azimuth_deg_list,
         elevation_deg,
+        selfrot_deg_list=None,
         start_time_utc="2019-04-23 20:41:56.397",
         return_LSTs=False,
         nside_hires=None,
         normalize_beam=False,
+        horizontal_mask=None,
         truncate_frac_thres=1e-10
     ):
         """
@@ -609,6 +664,9 @@ class TODSim:
         else:
             elevation_deg_list = elevation_deg
 
+        if selfrot_deg_list is None:
+            selfrot_deg_list = np.zeros(ntime)
+
         LST_deg_list = generate_LSTs_deg(
             self.ant_latitude_deg,
             self.ant_longitude_deg,
@@ -628,8 +686,10 @@ class TODSim:
                 self.ant_latitude_deg,
                 azimuth_deg_list,
                 elevation_deg_list,
+                selfrot_deg_list,
                 nside_hires=nside_hires,
                 normalize_beam=normalize_beam,
+                horizontal_mask=horizontal_mask,
                 truncate_frac_thres=truncate_frac_thres
             )
 
@@ -648,6 +708,7 @@ class TODSim:
         freq_list,
         time_list,
         azimuth_deg_list,
+        selfrot_deg_list=None,
         elevation_deg=41.5,
         start_time_utc="2019-04-23 20:41:56.397",
         Tsys_others_TOD=None,
@@ -658,6 +719,7 @@ class TODSim:
         return_LSTs=False,
         nside_hires=None,
         normalize_beam=False,
+        horizontal_mask=None,
         truncate_frac_thres=1e-10
     ):
         """
@@ -754,10 +816,12 @@ class TODSim:
             time_list,
             azimuth_deg_list,
             elevation_deg,
+            selfrot_deg_list=selfrot_deg_list,
             start_time_utc=start_time_utc,
             return_LSTs=True,
             nside_hires=nside_hires,
             normalize_beam=normalize_beam,
+            horizontal_mask=horizontal_mask,
             truncate_frac_thres=truncate_frac_thres
         )
 
@@ -778,6 +842,8 @@ def truncate_stacked_beam(
     lat_deg,
     azimuth_deg_list,
     elevation_deg_list,
+    selfrot_deg_list,
+    horizontal_mask=None,
     threshold=0.0111,
     nside_hires=None,
     nside_target=None,
@@ -801,6 +867,11 @@ def truncate_stacked_beam(
         List of azimuth values in degrees for each observation.
     elevation_deg_list : array
         List of elevation values in degrees for each observation.
+    selfrot_deg_list : array
+        List of self-rotation values in degrees for each observation.
+    horizontal_mask : array, optional
+        A Healpix map (1D array) representing a horizontal mask in the local horizontal coordinate system. If provided, the mask will be rotated to the equatorial coordinate system and applied to the pointed beam map before normalization. Default is None (no mask).
+        1 indicates unmasked pixels, 0 indicates masked pixels.
     threshold : float
         The threshold to cut off the fractional beam response np.abs(beam[pixel])/beam_max, default is 0.0111.
         e.g., if threshold=0.01, only pixels with beam response larger than 1% of the maximum will be considered.
@@ -846,11 +917,13 @@ def truncate_stacked_beam(
     # Generate a initial boolean map with all pixels zero
     bool_map = np.zeros(hp.nside2npix(nside_target), dtype=bool)
 
-    for LST_deg, azimuth_deg, elevation_deg in tqdm.tqdm(
-        zip(LST_deg_list, azimuth_deg_list, elevation_deg_list), total=len(LST_deg_list)
+    for LST_deg, azimuth_deg, elevation_deg, selfrot_deg in tqdm.tqdm(
+        zip(LST_deg_list, azimuth_deg_list, elevation_deg_list, selfrot_deg_list), total=len(LST_deg_list)
     ):
         beam_pointed = pointing_beam_in_eq_sys(
-            beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside=nside_target
+            beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, selfrot_deg,
+            horizontal_mask=horizontal_mask,
+            nside=nside_target
         )
         norm = np.max(np.abs(beam_pointed))
         if norm > 0:
@@ -873,7 +946,9 @@ def generate_sky2sys_projection(
     lat_deg,
     azimuth_deg_list,
     elevation_deg_list,
+    selfrot_deg_list,
     pixel_indices,
+    horizontal_mask=None,
     normalize_beam=False,
     nside_hires=None,
     nside_target=None,
@@ -898,8 +973,14 @@ def generate_sky2sys_projection(
         List of azimuth values in degrees for each observation.
     elevation_deg_list : array
         List of elevation values in degrees for each observation.
+    selfrot_deg_list : array
+        List of self-rotation values in degrees for each observation.
     pixel_indices : array
         The selected pixel indices based on the beam sensitivity.
+    horizontal_mask : array, optional
+        A Healpix map (1D array) representing a horizontal mask in the local horizontal coordinate
+        system. If provided, the mask will be rotated to the equatorial coordinate system and applied to the pointed beam map before normalization. Default is None (no mask).
+        1 indicates unmasked pixels, 0 indicates masked pixels.
     normalize_beam : bool, optional
         If True, normalize the beam map to have a sum of 1 before processing.
         Default is False.
@@ -947,11 +1028,13 @@ def generate_sky2sys_projection(
         sky2sys = np.zeros((n_data, beam_map.shape[0], n_pixels))
 
     i = 0
-    for LST_deg, azimuth_deg, elevation_deg in tqdm.tqdm(
-        zip(LST_deg_list, azimuth_deg_list, elevation_deg_list), total=n_data
+    for LST_deg, azimuth_deg, elevation_deg, selfrot_deg in tqdm.tqdm(
+        zip(LST_deg_list, azimuth_deg_list, elevation_deg_list, selfrot_deg_list), total=n_data
     ):
         beam_pointed = pointing_beam_in_eq_sys(
-            beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, nside=nside_target, normalize=normalize_beam,
+            beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, selfrot_deg,
+            horizontal_mask=horizontal_mask,
+            nside=nside_target, normalize=normalize_beam,
             truncate_frac_thres=truncate_frac_thres
         )
 
@@ -960,34 +1043,7 @@ def generate_sky2sys_projection(
         else:
             sky2sys[i, :, :] = beam_pointed[:, pixel_indices]
         i += 1
-        
-        # if beam_map.ndim == 1:
-        #     if normalize_beam:
-        #         norm = np.sum(beam_pointed[pixel_indices])
-        #         if norm > 0:
-        #             beam_pointed = beam_pointed / norm
-        #             sky2sys[i, :] = beam_pointed[pixel_indices]
-        #         else:
-        #             print("Warning: Beam normalization factor is zero!")
-        #     else:
-        #         sky2sys[i, :] = beam_pointed[pixel_indices]
-        # else:
-        #     if normalize_beam:
-        #         norm = np.sum(beam_pointed[0, pixel_indices])
-        #         if norm > 0:
-        #             beam_pointed = beam_pointed / norm
-        #             sky2sys[i, :, :] = beam_pointed[:, pixel_indices]
-        #         else:
-        #             print("Warning: Beam normalization factor is zero!")
-        #     else:
-        #         sky2sys[i, :, :] = beam_pointed[:, pixel_indices]
-        # i += 1
 
     result = sky2sys.reshape(i, -1)  # shape: ntime x (npol * npix)
 
-    # # Debugging: print the shape of the result matrix
-    # print(f"Sky-to-Tsys projection matrix shape: {result.shape}")
-    # # Check the rank of the result matrix
-    # rank = np.linalg.matrix_rank(result)
-    # print(f"Rank of the projection matrix: {rank}")
     return result
