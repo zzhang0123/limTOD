@@ -44,16 +44,10 @@ If you use limTOD in your research, please cite:
 
 You will need Python version 3.8 or higher and `pip` to install the package.
 
-For a quick installation, run the following command
+For a quick installation from source, 
 
 ```bash
-pip install git+xxxxx
-```
-
-or installed from source, 
-
-```bash
-python -m pip install .
+pip install -e .
 ```
 
 Additionally, to run the example notebooks, do
