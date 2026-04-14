@@ -89,6 +89,22 @@ def bin_cls(ell: np.ndarray, cl: np.ndarray,
     return centres, binned
 
 
+def knox_sigma(cl_binned: np.ndarray, ell_centre: np.ndarray,
+               edges: np.ndarray, f_sky: float) -> np.ndarray:
+    """Knox-formula 1σ cosmic-variance error per Cℓ bin.
+
+        σ(Cℓ_bin) = Cℓ × sqrt( 2 / ((2ℓ+1) Δℓ f_sky) )
+
+    Bin-averaged across the (2ℓ+1) modes in the bin × the bin width.
+    This is the expected scatter *if the patch were an independent
+    realisation* — a useful reference for what Cℓ differences are
+    statistically significant given how small the patch is.
+    """
+    dell = np.diff(edges).astype(np.float64)
+    n_modes = (2.0 * ell_centre + 1.0) * dell * f_sky
+    return cl_binned * np.sqrt(2.0 / np.maximum(n_modes, 1e-12))
+
+
 def _run_and_compute(use_hp_filter: bool, sky_truth_full: np.ndarray):
     """Map-make all 3 scenarios and return results + common mask."""
     results = []
@@ -153,10 +169,21 @@ def _plot_and_dump(results, sky_truth_full, hp_tag, title_suffix):
         cl_rec = masked_cls(sky_est_full, mask, LMAX)
         l_centre, cl_truth_b = bin_cls(ell, cl_truth, bin_edges)
         _, cl_rec_b = bin_cls(ell, cl_rec, bin_edges)
+        sig_truth = knox_sigma(cl_truth_b, l_centre, bin_edges, f_sky)
+        sig_rec = knox_sigma(cl_rec_b, l_centre, bin_edges, f_sky)
+        # Transfer-function 1σ: propagate both independent errors.
+        transfer = cl_rec_b / cl_truth_b
+        sig_T = transfer * np.sqrt(
+            (sig_rec / np.maximum(cl_rec_b, 1e-30)) ** 2
+            + (sig_truth / np.maximum(cl_truth_b, 1e-30)) ** 2
+        )
         r["l_centre"] = l_centre
         r["cl_truth_binned"] = cl_truth_b
         r["cl_rec_binned"] = cl_rec_b
-        r["transfer_binned"] = cl_rec_b / cl_truth_b
+        r["sig_truth"] = sig_truth
+        r["sig_rec"] = sig_rec
+        r["transfer_binned"] = transfer
+        r["sig_transfer"] = sig_T
         r["f_sky"] = f_sky
         print(f"[pk] ({hp_tag}) {r['label']}: f_sky={f_sky:.4f}, "
               f"n_pix={len(r['pixel_indices'])}")
@@ -184,13 +211,23 @@ def _plot_and_dump(results, sky_truth_full, hp_tag, title_suffix):
         ax_cl.axvspan(ell_beam, LMAX + 1, **subbeam_kw)
         ax_T.axvspan(ell_beam, LMAX + 1, **subbeam_kw)
 
-        # Cℓ panel — wide transparent truth + sharp recovery
-        ax_cl.loglog(r["l_centre"], r["cl_truth_binned"], color="black",
+        # Cℓ panel — truth as a thick transparent band, recovery as a
+        # sharp line with a ±1σ Knox band (shaded, not error bars, to
+        # keep the central curves readable).
+        lc = r["l_centre"]
+        ax_cl.loglog(lc, r["cl_truth_binned"], color="black",
                      lw=8, alpha=0.22, label="GDSM truth",
                      solid_capstyle="round", zorder=1)
-        ax_cl.loglog(r["l_centre"], r["cl_rec_binned"], color=r["colour"],
-                     label="recovered", marker="o", ms=6,
-                     mec="white", mew=0.8)
+        ax_cl.fill_between(
+            lc,
+            np.maximum(r["cl_rec_binned"] - r["sig_rec"], 1e-40),
+            r["cl_rec_binned"] + r["sig_rec"],
+            color=r["colour"], alpha=0.20, zorder=2,
+            label=r"recovered $\pm1\sigma$ (Knox)",
+        )
+        ax_cl.loglog(lc, r["cl_rec_binned"], color=r["colour"],
+                     marker="o", ms=6, mec="white", mew=0.8, lw=2,
+                     zorder=3)
         ax_cl.axvline(ell_beam, color="0.35", ls="--", lw=1.2)
         ax_cl.set_title(r["label"], pad=8)
         ax_cl.set_ylim(cl_ymin, cl_ymax)
@@ -199,10 +236,17 @@ def _plot_and_dump(results, sky_truth_full, hp_tag, title_suffix):
         ax_cl.legend(loc="lower left", frameon=True, framealpha=0.9,
                      fancybox=False, edgecolor="0.7", fontsize=10)
 
-        # Transfer panel
-        ax_T.semilogx(r["l_centre"], r["transfer_binned"],
+        # Transfer panel — ±1σ as a shaded band (Knox, propagated)
+        ax_T.fill_between(
+            lc,
+            r["transfer_binned"] - r["sig_transfer"],
+            r["transfer_binned"] + r["sig_transfer"],
+            color=r["colour"], alpha=0.20, zorder=2,
+        )
+        ax_T.semilogx(lc, r["transfer_binned"],
                       color=r["colour"], marker="o", ms=6,
-                      mec="white", mew=0.8, label=r"$T_\ell$")
+                      mec="white", mew=0.8, lw=2,
+                      label=r"$T_\ell \pm 1\sigma$", zorder=3)
         ax_T.axhline(1.0, color="k", ls="-", lw=1.0, alpha=0.6)
         ax_T.axvline(ell_beam, color="0.35", ls="--", lw=1.2,
                      label=r"$\ell_{\rm beam}\approx %.0f$" % ell_beam)
@@ -235,6 +279,9 @@ def _plot_and_dump(results, sky_truth_full, hp_tag, title_suffix):
         **{f"cl_truth_{r['kind']}{r['suffix']}": r["cl_truth_binned"] for r in results},
         **{f"cl_rec_{r['kind']}{r['suffix']}": r["cl_rec_binned"] for r in results},
         **{f"transfer_{r['kind']}{r['suffix']}": r["transfer_binned"] for r in results},
+        **{f"sig_truth_{r['kind']}{r['suffix']}": r["sig_truth"] for r in results},
+        **{f"sig_rec_{r['kind']}{r['suffix']}": r["sig_rec"] for r in results},
+        **{f"sig_transfer_{r['kind']}{r['suffix']}": r["sig_transfer"] for r in results},
         **{f"f_sky_{r['kind']}{r['suffix']}": r["f_sky"] for r in results},
     )
     print(f"[pk] wrote {out_base}.{{png,pdf,npz}}")
