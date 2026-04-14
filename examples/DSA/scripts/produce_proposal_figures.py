@@ -95,8 +95,8 @@ def figure_crosscorr() -> None:
 
     ell_beam = 180.0 / DSA_BEAM_FWHM_DEG
     fig, (ax_cl, ax_r) = plt.subplots(
-        2, 1, figsize=(7.0, 7.0), constrained_layout=True, sharex=True,
-        gridspec_kw={"height_ratios": [1.3, 1.0]},
+        2, 1, figsize=(7.0, 5.8), constrained_layout=True, sharex=True,
+        gridspec_kw={"height_ratios": [4.0, 1.0]},
     )
     subbeam_kw = dict(color="lightgrey", alpha=0.35, zorder=0)
     ax_cl.axvspan(ell_beam, LMAX + 1, **subbeam_kw)
@@ -133,49 +133,12 @@ def figure_crosscorr() -> None:
     ax_r.set_ylim(-0.15, 1.1)
     ax_r.set_xlim(results[0]["lc"][0] * 0.9, results[0]["lc"][-1] * 1.1)
     ax_r.set_xlabel(r"multipole $\ell$")
-    ax_r.set_ylabel(
-        r"correlation  $r_\ell = C_\ell^{\rm rec\times truth}"
-        r"\,/\,\sqrt{C_\ell^{\rm rec} C_\ell^{\rm truth}}$")
+    ax_r.set_ylabel(r"$r_\ell$")
     ax_r.legend(loc="lower left", frameon=True, framealpha=0.9,
                 fancybox=False, edgecolor="0.7", fontsize=10)
 
     out_base = os.path.join(DSA_DIR, "figures",
                             "azimuth_vs_stare_crosscorr")
-    fig.savefig(out_base + ".png", dpi=220, bbox_inches="tight")
-    fig.savefig(out_base + ".pdf", bbox_inches="tight")
-    plt.close(fig)
-    print(f"[prop] wrote {out_base}.{{png,pdf}}")
-
-    # Standalone correlation-coefficient figure (single panel, large)
-    fig, ax = plt.subplots(figsize=(7.5, 5.0), constrained_layout=True)
-    ax.axvspan(ell_beam, LMAX + 1, **subbeam_kw)
-    for r in results:
-        ax.semilogx(r["lc"], r["r_ell"], color=r["colour"],
-                    marker="o", ms=7, mec="white", mew=0.9, lw=2.3,
-                    label=r["label"], zorder=3)
-    ax.axhline(1.0, color="k", ls="-", lw=1.0, alpha=0.6)
-    ax.axhline(0.0, color="k", ls=":", lw=0.8, alpha=0.4)
-    ax.axvline(ell_beam, color="0.35", ls="--", lw=1.2,
-               label=r"$\ell_{\rm beam}\approx %.0f$" % ell_beam)
-    ax.set_xlim(results[0]["lc"][0] * 0.9, results[0]["lc"][-1] * 1.1)
-    ax.set_ylim(-0.15, 1.1)
-    ax.set_xlabel(r"multipole $\ell$")
-    ax.set_ylabel(
-        r"cross-correlation ratio  "
-        r"$r_\ell = C_\ell^{\rm rec\times truth}\,/\,"
-        r"\sqrt{C_\ell^{\rm rec} C_\ell^{\rm truth}}$")
-    ax.set_title(
-        "Azimuth-scan vs stop-and-stare — phase coherence with truth",
-        pad=10,
-    )
-    ax.text(0.98, 0.05, "sub-beam →",
-            transform=ax.transAxes, ha="right", va="bottom",
-            color="0.35", fontsize=12, style="italic")
-    ax.legend(loc="lower left", frameon=True, framealpha=0.9,
-              fancybox=False, edgecolor="0.7", fontsize=11)
-
-    out_base = os.path.join(DSA_DIR, "figures",
-                            "azimuth_vs_stare_r_ell")
     fig.savefig(out_base + ".png", dpi=220, bbox_inches="tight")
     fig.savefig(out_base + ".pdf", bbox_inches="tight")
     plt.close(fig)

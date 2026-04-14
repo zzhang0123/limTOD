@@ -4,6 +4,53 @@ Simulated comparison of two survey strategies for single-dish 21cm observations
 with the Deep Synoptic Array (DSA), located at
 (lat = 39.5540°, lon = -114.4240°, h = 1746.51 m).
 
+## Headline result
+
+Using the simple high-pass + Wiener-filter map-maker (Zhang et al. 2026,
+[arXiv:2509.10992][zhang26]) at `nside=64` with the limTOD reference
+1/f noise level (`GAIN_F0=1.335×10⁻⁵`, `WHITE_VAR=10⁻⁷`), HP filter
+cutoff at 30 mHz, smoothed-truth strong prior, and rolling-window
+auto-noise — both the DSA azimuth scan and stop-and-stare strategies
+recover the GDSM truth on the observed patch:
+
+![Azimuth-scan recovery (truth, recovered, residual)](figures/azimuth_true_rec_residual.png)
+
+The recovered map (middle) tracks the truth (left) with `RMS ≈ 35 mK`
+on the residual (right). For comparison, stop-and-stare achieves
+`RMS ≈ 29 mK` on its own (slightly smaller) patch.
+
+### How well do the recovered modes match truth as a function of scale?
+
+Pixel RMS is a single number; it cannot tell us *which angular scales*
+each strategy reconstructs faithfully. We compute the angular cross-
+spectrum `Cℓ^{rec × truth}` between recovered map and truth (each on
+its own sensitivity mask, `f_sky` ≈ 0.008–0.013), and the dimensionless
+**cross-correlation ratio**
+
+`rℓ = Cℓ^{rec × truth} / √( Cℓ^{rec} · Cℓ^{truth} )` ∈ [−1, +1] .
+
+`rℓ` is the scale-dependent analogue of a Pearson correlation: it
+asks whether the recovered Fourier modes are *phase-aligned* with
+truth, independent of amplitude. `rℓ = 1` means perfect alignment at
+that scale; `rℓ = 0` means the recovery at that scale is uncorrelated
+with truth (pure noise/prior artefact); intermediate values indicate
+SNR-limited recovery. Crucially `rℓ` separates two failure modes the
+amplitude transfer function `Tℓ = Cℓ^rec / Cℓ^truth` cannot:
+*"recovery is amplitude-correct but uncorrelated"* (`Tℓ ≈ 1`, `rℓ ≈ 0`)
+vs *"recovery is amplitude-low but phase-perfect"* (`Tℓ ≈ 0.5`,
+`rℓ ≈ 1`). For a derivation, see the discussion under
+**Cross-correlation with truth** below.
+
+![Azimuth-scan vs stop-and-stare cross-correlation](figures/azimuth_vs_stare_crosscorr.png)
+
+Top: each scenario's `Cℓ^{truth}` (transparent band) and
+`|Cℓ^{rec × truth}|` (sharp line) on the same colour-coded axes;
+bottom: `rℓ`. Both scenarios maintain `rℓ ≈ 0.99` up to the beam
+scale (`ℓ_beam ≈ 40`) — the recovered maps are genuinely correlated
+with truth, not just prior artefacts. At sub-beam scales they
+gracefully decline to `rℓ ≈ 0.55–0.8` as the operator's information
+content per mode drops.
+
 ## Motivation
 
 There is a tension between DSA's planned continuum survey (stop-and-stare
