@@ -406,6 +406,7 @@ class HPW_mapmaking:
         Tsky_prior_inv_cov_diag=None,
         Tsys_other_prior_mean_group=None,
         Tsys_other_prior_inv_cov_group=None,
+        noise_variance=None,
         regularization=1e-12,
         return_full_cov=False,
         filter_order=4,
@@ -442,6 +443,19 @@ class HPW_mapmaking:
         Tsys_other_prior_mean_group : a list of prior means for other system temperature components, each element corresponding to each TOD in TOD_group.
             e.g. [Tsys_other_prior_mean_1, Tsys_other_prior_mean_2, ...]
             If None, assumed to be zero.
+
+        noise_variance : float, 1D array, or list of (float | 1D array), optional
+            Per-sample noise variance. Three forms accepted:
+              * None (default): auto-estimate from the residual TOD - operator @ pinv(operator) @ TOD
+                via a 100-sample rolling window. NOTE: this estimate can be heavily biased
+                low when the operator does not span the projectable signal subspace —
+                it conflates un-projectable signal with noise, which mis-weights data
+                in the Wiener filter. Provide an explicit value when possible.
+              * scalar: uniform variance applied to every concatenated sample.
+              * 1D array of length sum(len(TOD_i)): per-sample variances over the
+                concatenated TOD ordering.
+              * list of length num_tods, each entry a scalar or 1D array of length
+                len(TOD_i): per-TOD variance, concatenated internally.
 
         Tsys_other_prior_inv_cov_group : a list of prior inverse covariances for other system temperature components, each element corresponding to each TOD in TOD_group.
             e.g. [Tsys_other_prior_inv_cov_1, Tsys_other_prior_inv_cov_2, ...]
@@ -544,12 +558,33 @@ class HPW_mapmaking:
                     raise ValueError("Each element in Tsys_other_prior_inv_cov_group must be a 1D or 2D array.")
 
     
+        # Normalise per-TOD noise_variance into the form wiener_filter_map expects.
+        # Accepts: None / scalar / 1D array / list-of-(scalar|1D-array).
+        nv = noise_variance
+        if isinstance(nv, (list, tuple)):
+            assert len(nv) == self.num_tods, (
+                f"noise_variance list length {len(nv)} != num_tods {self.num_tods}"
+            )
+            tod_lengths = [len(TOD_group[i]) for i in range(self.num_tods)] \
+                if self.num_tods > 1 else [len(HP_cal_TOD_overall)]
+            pieces = []
+            for i, nv_i in enumerate(nv):
+                if np.isscalar(nv_i):
+                    pieces.append(np.full(tod_lengths[i], float(nv_i)))
+                else:
+                    nv_i = np.asarray(nv_i, dtype=float)
+                    assert nv_i.shape == (tod_lengths[i],), (
+                        f"noise_variance[{i}] shape {nv_i.shape} != ({tod_lengths[i]},)"
+                    )
+                    pieces.append(nv_i)
+            nv = np.concatenate(pieces)
+
         # Apply Wiener filter with the overall operator
         estmation, uncertainty = wiener_filter_map(
-            HP_cal_TOD_overall, 
-            HP_Tsys_operator_overall, 
-            noise_variance=None, # estimated from TOD, rather than provided
-            prior_inv_cov=Tsys_prior_inv_cov, 
+            HP_cal_TOD_overall,
+            HP_Tsys_operator_overall,
+            noise_variance=nv,  # explicit if provided, else auto-estimated inside
+            prior_inv_cov=Tsys_prior_inv_cov,
             guess=Tsys_prior_mean,
             regularization=regularization,
             return_full_cov=return_full_cov,
