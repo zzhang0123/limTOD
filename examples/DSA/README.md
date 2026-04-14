@@ -162,7 +162,9 @@ observes*.
 
 Top row: `Cℓ` of truth (wide grey band) overlaid with each scenario's
 recovery. Bottom row: transfer function `Tℓ = Cℓ^rec / Cℓ^truth`
-(1 = perfect).
+(1 = perfect). Coloured shaded bands are **Knox ±1σ cosmic-variance
+errors** for this patch's `f_sky` — they widen at low ℓ (few sky modes
+sampled on a small patch) and tighten at high ℓ.
 
 | ℓ range | scale       | MeerKLASS baseline | Stop-and-stare   | MeerKLASS cascade |
 |---|---|---:|---:|---:|
