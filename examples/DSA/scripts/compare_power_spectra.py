@@ -212,22 +212,16 @@ def _plot_and_dump(results, sky_truth_full, hp_tag, title_suffix):
         ax_T.axvspan(ell_beam, LMAX + 1, **subbeam_kw)
 
         # Cℓ panel — truth as a thick transparent band, recovery as a
-        # sharp line with a ±1σ Knox band (shaded, not error bars, to
-        # keep the central curves readable).
+        # sharp line. (Error bands removed: Knox cosmic-variance bands
+        # dominate visually on a small f_sky patch and obscure the
+        # comparison between configurations.)
         lc = r["l_centre"]
         ax_cl.loglog(lc, r["cl_truth_binned"], color="black",
                      lw=8, alpha=0.22, label="GDSM truth",
                      solid_capstyle="round", zorder=1)
-        ax_cl.fill_between(
-            lc,
-            np.maximum(r["cl_rec_binned"] - r["sig_rec"], 1e-40),
-            r["cl_rec_binned"] + r["sig_rec"],
-            color=r["colour"], alpha=0.20, zorder=2,
-            label=r"recovered $\pm1\sigma$ (Knox)",
-        )
         ax_cl.loglog(lc, r["cl_rec_binned"], color=r["colour"],
                      marker="o", ms=6, mec="white", mew=0.8, lw=2,
-                     zorder=3)
+                     label="recovered", zorder=3)
         ax_cl.axvline(ell_beam, color="0.35", ls="--", lw=1.2)
         ax_cl.set_title(r["label"], pad=8)
         ax_cl.set_ylim(cl_ymin, cl_ymax)
@@ -236,17 +230,11 @@ def _plot_and_dump(results, sky_truth_full, hp_tag, title_suffix):
         ax_cl.legend(loc="lower left", frameon=True, framealpha=0.9,
                      fancybox=False, edgecolor="0.7", fontsize=10)
 
-        # Transfer panel — ±1σ as a shaded band (Knox, propagated)
-        ax_T.fill_between(
-            lc,
-            r["transfer_binned"] - r["sig_transfer"],
-            r["transfer_binned"] + r["sig_transfer"],
-            color=r["colour"], alpha=0.20, zorder=2,
-        )
+        # Transfer panel — central curve only
         ax_T.semilogx(lc, r["transfer_binned"],
                       color=r["colour"], marker="o", ms=6,
                       mec="white", mew=0.8, lw=2,
-                      label=r"$T_\ell \pm 1\sigma$", zorder=3)
+                      label=r"$T_\ell$", zorder=3)
         ax_T.axhline(1.0, color="k", ls="-", lw=1.0, alpha=0.6)
         ax_T.axvline(ell_beam, color="0.35", ls="--", lw=1.2,
                      label=r"$\ell_{\rm beam}\approx %.0f$" % ell_beam)
