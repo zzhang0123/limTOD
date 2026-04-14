@@ -1,6 +1,6 @@
 """Two proposal-quality figures focused on MeerKLASS vs stop-and-stare.
 
-1. meerklass_vs_stare_crosscorr.{png,pdf}
+1. azimuth_vs_stare_crosscorr.{png,pdf}
    Two scenarios overlaid on the same axes:
      - MeerKLASS baseline (single elevation, n_repeats=13)
      - Stop-and-stare (9-pointing hex grid)
@@ -9,7 +9,7 @@
    Bottom: correlation coefficient rℓ = Cℓ^cross/√(Cℓ^rec Cℓ^truth).
    Each scenario uses its OWN sensitivity mask.
 
-2. meerklass_true_rec_residual.{png,pdf}
+2. azimuth_true_rec_residual.{png,pdf}
    The three panels for MeerKLASS baseline ns=64 HP: GDSM truth,
    recovered map, residual = recovered − truth. (Essentially a
    re-export of the existing compare_focus_meerklass_baseline__
@@ -52,8 +52,8 @@ PRIOR_KWARGS = dict(
 # Two scenarios we want to overlay
 CASES = [
     # (kind, tod-suffix, label, colour)
-    ("meerklass",       "_baseline", "MeerKLASS (azimuth scan)", "tab:blue"),
-    ("steer_and_stare", "_baseline", "Stop-and-stare",           "tab:green"),
+    ("meerklass",       "_baseline", "Azimuth-scan",   "tab:blue"),
+    ("steer_and_stare", "_baseline", "Stop-and-stare", "tab:green"),
 ]
 
 
@@ -102,12 +102,14 @@ def figure_crosscorr() -> None:
     ax_cl.axvspan(ell_beam, LMAX + 1, **subbeam_kw)
     ax_r.axvspan(ell_beam, LMAX + 1, **subbeam_kw)
 
-    # Top — truth band (from first scenario's patch is fine, they are very
-    # similar) plus each scenario's |Cℓ^{rec × truth}|.
-    ax_cl.loglog(results[0]["lc"], results[0]["cl_truth"],
-                 color="black", lw=8, alpha=0.22, label="GDSM truth",
-                 solid_capstyle="round", zorder=1)
+    # Top — each scenario gets its OWN truth band (different mask/f_sky
+    # → different Cℓ^truth). Truth as a thick semi-transparent line in
+    # the scenario's colour; cross-spectrum as a sharp solid line with
+    # markers in the same colour.
     for r in results:
+        ax_cl.loglog(r["lc"], r["cl_truth"], color=r["colour"],
+                     lw=8, alpha=0.22, solid_capstyle="round", zorder=1,
+                     label=fr"$C_\ell^{{\rm truth}}$ — {r['label']}")
         ax_cl.loglog(r["lc"], np.abs(r["cl_cross"]), color=r["colour"],
                      marker="o", ms=6, mec="white", mew=0.8, lw=2,
                      label=fr"$|C_\ell^{{\rm rec\times truth}}|$ — {r['label']}",
@@ -115,7 +117,7 @@ def figure_crosscorr() -> None:
     ax_cl.axvline(ell_beam, color="0.35", ls="--", lw=1.2,
                   label=r"$\ell_{\rm beam}\approx %.0f$" % ell_beam)
     ax_cl.set_ylabel(r"$C_\ell$  [K$^2$]")
-    ax_cl.set_title("MeerKLASS vs stop-and-stare: cross-correlation with truth",
+    ax_cl.set_title("Azimuth-scan vs stop-and-stare: cross-correlation with truth",
                     pad=10)
     ax_cl.legend(loc="lower left", frameon=True, framealpha=0.9,
                  fancybox=False, edgecolor="0.7", fontsize=10)
@@ -138,7 +140,7 @@ def figure_crosscorr() -> None:
                 fancybox=False, edgecolor="0.7", fontsize=10)
 
     out_base = os.path.join(DSA_DIR, "figures",
-                            "meerklass_vs_stare_crosscorr")
+                            "azimuth_vs_stare_crosscorr")
     fig.savefig(out_base + ".png", dpi=220, bbox_inches="tight")
     fig.savefig(out_base + ".pdf", bbox_inches="tight")
     plt.close(fig)
@@ -176,11 +178,11 @@ def figure_meerklass_maps() -> None:
         unit="K", cmap="RdBu_r", vmin=-bmag, vmax=+bmag,
     )
     fig.suptitle(
-        "MeerKLASS azimuth scan  •  ns=64  •  HP + Wiener  •  strong prior",
+        "Azimuth-scan  •  ns=64  •  HP + Wiener  •  strong prior",
         fontsize=13, y=1.05,
     )
     out_base = os.path.join(DSA_DIR, "figures",
-                            "meerklass_true_rec_residual")
+                            "azimuth_true_rec_residual")
     fig.savefig(out_base + ".png", dpi=220, bbox_inches="tight")
     fig.savefig(out_base + ".pdf", bbox_inches="tight")
     plt.close(fig)
