@@ -80,15 +80,28 @@ Both notebooks follow the pattern of [mm_example.ipynb](../mm_example.ipynb):
 3. **TOD generation** via `TODSim.generate_TOD(...)`:
    beam-rotated sky convolution + default 1/f gain noise +
    white noise variance = 2.5 × 10⁻⁶ (fractional).
-4. **Map-making** via `HPW_mapmaking` (high-pass + Wiener filter):
-   `cutoff_freq = 0.001 Hz`, `threshold = 0.05`,
-   `beam_truncate_frac_thres = 1e-3`, `filter_order = 4`.
+4. **Map-making** via `HPW_mapmaking` — a **deliberately simple
+   high-pass + Wiener-filter pipeline** (not joint Gibbs sampling):
+   the TOD is Butterworth high-pass-filtered (order 4, cutoff 0.001 Hz)
+   to knock down 1/f drift, then a per-pixel Wiener filter solves
+   `(AᵀN⁻¹A + S⁻¹ + λI)·x = AᵀN⁻¹·d + S⁻¹·μ` with configurable prior
+   and noise covariance. This is the "first-pass" map-maker described
+   in Zhang et al. 2026 ([arXiv:2509.10992][zhang26]) §II; it is *not*
+   the full joint Bayesian calibration + map-making solver proposed
+   there, only the fast linear stage. All the scan-strategy differences
+   we report below are therefore conservative — a full joint solver
+   would recover more structure, especially on sub-beam scales.
+
+[zhang26]: https://arxiv.org/abs/2509.10992
 
 ## Focused comparison (ns=64, HP filter on)
 
-Three configurations × two prior treatments (six panels total). Same
-patch, same noise budget (`WHITE_VAR=1e-7`, `GAIN_F0=1.335e-7`),
-proportional noise variance fed to the Wiener filter:
+Three configurations × two prior treatments (six panels total). All
+recoveries use the same **simple high-pass + Wiener-filter map-maker**
+(Zhang et al. 2026, [arXiv:2509.10992][zhang26], §II — *not* the full
+joint Bayesian solver), same patch, same noise budget
+(`WHITE_VAR=1e-7`, `GAIN_F0=1.335e-7`), proportional noise variance
+fed to the Wiener filter:
 
 - **MeerKLASS baseline** — single elevation 55°, n_repeats=13 (2 TODs).
 - **Stop-and-stare** — 9 fixed pointings on a hex grid (9 TODs).
@@ -133,6 +146,50 @@ genuinely recovers from the data. Look at the recovered maps below
 ![MeerKLASS baseline (single el)](figures/compare_focus_meerklass_baseline__autonoise_ns64_hp.png)
 ![Stop-and-stare](figures/compare_focus_steer_and_stare_baseline__autonoise_ns64_hp.png)
 ![MeerKLASS cascade (5 el)](figures/compare_focus_meerklass_cascade__autonoise_ns64_hp.png)
+
+#### Scale-dependent recovery (angular power spectra)
+
+Pixel RMS hides *which angular scales* each strategy reconstructs. We
+therefore compute the HEALPix angular power spectrum `Cℓ` of (a) the
+GDSM truth and (b) each recovered map, both restricted to the **common
+observed patch** (intersection of the three sensitivity masks;
+`f_sky ≈ 0.005`), with leading-order mask correction `/f_sky`. The DSA
+beam FWHM = 4.5° corresponds to `ℓ_beam ≈ 180°/FWHM ≈ 40` — scales to
+the right of the dashed line (shaded band) are **sub-beam**.
+
+![Angular power spectra of the three recoveries](figures/power_spectra_comparison.png)
+
+Top: `Cℓ` of truth overlaid with each scenario's recovery.
+Bottom: transfer function `Tℓ = Cℓ^rec / Cℓ^truth` (1 = perfect).
+
+| ℓ range | scale       | MeerKLASS baseline | Stop-and-stare      | MeerKLASS cascade |
+|---|---|---:|---:|---:|
+| 2–20    | super-beam  | **≈ 1.00**         | ≈ 1.20              | ≈ 1.45             |
+| 20–45   | beam region | 1.1–1.3            | 1.4 → 0.7           | 1.5–1.9            |
+| 45–192  | sub-beam    | 0.5–1.6            | **≈ 0.4 (flat)**    | 1.5–3.5            |
+
+Three take-aways from the transfer function:
+
+1. **Large scales: baseline meerklass is the most faithful.** Its `Tℓ`
+   hugs ~1 from ℓ = 2 up to the beam scale. Stop-and-stare over-shoots
+   by ~20% (prior-smoothed leakage), cascade by ~50% (data–prior cross-
+   leakage the strong prior doesn't fully suppress).
+2. **At the beam scale (ℓ ≈ 40), stop-and-stare collapses.** `Tℓ` falls
+   to ≈ 0.4 and stays there for all sub-beam multipoles — the operator
+   has no access to sub-beam modes and the prior (beam-smoothed) can't
+   supply them either. So *stop-and-stare does **not** recover large
+   scales better; it recovers only the beam envelope.*
+3. **Sub-beam: only cascade has signal.** Cascade's `Tℓ` stays 1.5–3.5
+   above `ℓ_beam`. It does over-shoot (some noise/prior leakage mixed
+   in), but it is the only configuration that *injects* genuine power
+   on sub-beam scales — the regime that matters for 21cm IM
+   foreground/signal separation.
+
+Reproduce with
+`conda run -n TOD python scripts/compare_power_spectra.py`; raw binned
+Cℓ arrays dumped to `figures/power_spectra_comparison.npz`.
+
+#### Structural narrative (from the maps above)
 
 **Structural recovery (visual): cascade > baseline > stop-and-stare.**
 
