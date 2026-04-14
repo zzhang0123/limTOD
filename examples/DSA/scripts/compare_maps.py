@@ -210,29 +210,23 @@ def save_three_panel(
     plot_patch(
         map_vec=sky_truth, nside=mm.nside_target,
         pixel_indices=mm.pixel_indices, ax=axes[0],
-        title=f"Input GDSM (nside={nside_target})",
+        title="",
         unit="K", cmap=cmap_truth, vmin=lo, vmax=hi,
     )
     plot_patch(
         map_vec=sky_est, nside=mm.nside_target,
         pixel_indices=mm.pixel_indices, ax=axes[1],
-        title=f"Recovered map  [RMS = {rms_K:.3f} K, {wall_s:.1f}s]",
+        title="",
         unit="K", cmap=cmap_truth, vmin=lo, vmax=hi,
     )
     plot_patch(
         map_vec=bias, nside=mm.nside_target,
         pixel_indices=mm.pixel_indices, ax=axes[2],
-        title="Bias = recovered − truth",
+        title="",
         unit="K", cmap=cmap_bias, vmin=-bmag, vmax=+bmag,
     )
 
     hp_tag = "hp" if use_hp_filter else "noHP"
-    pretty = kind.replace("_", " ").title()
-    label = "prior + HP filter" if use_hp_filter else "prior, no HP filter"
-    fig.suptitle(
-        f"{pretty}  •  nside_target={nside_target}  •  {label}",
-        fontsize=13, y=1.02,
-    )
 
     base = os.path.join(
         DSA_DIR, "figures",
