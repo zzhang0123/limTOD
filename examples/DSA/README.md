@@ -143,52 +143,45 @@ Both notebooks follow the pattern of [mm_example.ipynb](../mm_example.ipynb):
 
 ## Focused comparison (ns=64, HP filter on)
 
-Three configurations × two prior treatments (six panels total). All
-recoveries use the same **simple high-pass + Wiener-filter map-maker**
-(Zhang et al. 2026, [arXiv:2509.10992][zhang26], §II — *not* the full
-joint Bayesian solver), same patch, same noise budget
-(`WHITE_VAR=1e-7`, `GAIN_F0=1.335e-7`), proportional noise variance
-fed to the Wiener filter:
+Three configurations, all using the same **simple high-pass +
+Wiener-filter map-maker** (Zhang et al. 2026, [arXiv:2509.10992][zhang26],
+§II — *not* the full joint Bayesian solver), same patch, same noise
+budget (`WHITE_VAR=1e-7`, `GAIN_F0=1.335e-7`), and the same prior
+treatment:
 
 - **MeerKLASS baseline** — single elevation 55°, n_repeats=13 (2 TODs).
 - **Stop-and-stare** — 9 fixed pointings on a hex grid (9 TODs).
 - **MeerKLASS cascade** — 5 elevations × n_repeats=3 (10 TODs).
 
-Two prior treatments:
-- **No prior** — uninformative (zero mean, zero inv-cov). Recovery from
-  data alone, only the tiny Tikhonov term `1e-12 · I` regularises the
-  inverse. *Honest test of what the operator can resolve.*
-- **Strong prior** — `prior_mean = beam-smoothed sky_truth`,
-  `prior_sigma = 1·std(sky_truth)`. Mimics knowing the low-resolution
-  sky from a previous external survey; the prior does **not** encode
-  sub-beam structure (only the smoothed component). The 1-σ tightness
-  pulls each pixel toward its smoothed prior at the sky-variance scale.
+The prior is a beam-smoothed copy of the truth (`prior_mean = smooth(sky)`,
+`prior_sigma = 1·std(sky_truth)`) — it mimics knowing the low-resolution
+sky from a previous external survey but encodes no sub-beam structure.
+The Wiener filter's noise variance is set automatically per-segment
+from the rolling-window residual `TOD − op @ pinv(op) @ TOD`
+(100-sample window); we refer to this combination below as the
+**auto-noise** setup.
 
-| Configuration       | no prior  | strong prior, known σ² | strong prior, **auto σ²** |
-|---|---:|---:|---:|
-| MeerKLASS baseline  | 30.76 K   | 57 mK                  | **39 mK**                 |
-| Stop-and-stare      | 140 125 K | **29 mK**              | **29 mK**                 |
-| MeerKLASS cascade   |  4.84 K   | 115 mK                 | **57 mK**                 |
+| Configuration       | RMS (auto-σ²) |
+|---|---:|
+| MeerKLASS baseline  | **35 mK** |
+| Stop-and-stare      | **29 mK** |
+| MeerKLASS cascade   | **47 mK** |
 
-The third column uses the Wiener filter's built-in rolling-window noise
-estimator (residual = `TOD − op @ pinv(op) @ TOD`, 100-sample window).
-For stop-and-stare the operator is non-degenerate, so the residual
-captures only the true white noise and auto ≡ known. For meerklass,
+For stop-and-stare the operator is non-degenerate, so the rolling
+residual captures only the true white noise. For meerklass,
 **the residual also includes un-projectable sub-beam structure**, which
 inflates the per-sample noise estimate — the Wiener filter then
 down-weights those samples relative to the prior, acting as adaptive
-regularisation against degenerate modes. Net result: auto-noise *beats*
-the analytically-known noise for meerklass, because the analytical
-noise model has no information about which time samples carry
-ill-conditioned data.
+regularisation against degenerate modes. The net effect is that
+auto-noise outperforms a fixed-σ² Wiener filter for the cross-linked
+configurations.
 
 **Don't read the bias RMS as the headline.** The RMS measures pixel-wise
 distance to truth, but with a strong prior pulling un-resolved pixels
 toward the smoothed mean, low RMS can simply mean *"the prior wasn't
 overruled"*. The more interesting question for an intensity-mapping
 survey is how much **independent sub-beam structure** each strategy
-genuinely recovers from the data. Look at the recovered maps below
-(`auto-σ²` panels):
+genuinely recovers from the data. Look at the recovered maps below:
 
 ![MeerKLASS baseline (single el)](figures/compare_focus_meerklass_baseline__autonoise_ns64_hp.png)
 ![Stop-and-stare](figures/compare_focus_steer_and_stare_baseline__autonoise_ns64_hp.png)

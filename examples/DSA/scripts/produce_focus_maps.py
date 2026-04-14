@@ -1,20 +1,17 @@
-"""Produce the 6 focused ns=64 HP-filter map figures used in README.
+"""Produce the focused ns=64 HP-filter map figures used in README.
 
-Three configurations × two prior modes:
+Three configurations, all with the same prior treatment ("autonoise"):
+beam-smoothed truth as prior mean, prior_sigma = 1·std(sky_truth), and
+per-segment noise variance estimated automatically by the Wiener filter
+from the rolling residual.
 
-| Config                                    | no_prior          | mild prior              |
-|---|---|---|
-| MeerKLASS baseline (single el, n_repeats=13) | focus_*_noprior   | focus_*_mildprior       |
-| Stop-and-stare (9 pointings)              | focus_*_noprior   | focus_*_mildprior       |
-| MeerKLASS cascade (5 el × n_repeats=3)    | focus_*_noprior   | focus_*_mildprior       |
+| Config                                       | output                                              |
+|---|---|
+| MeerKLASS baseline (single el, n_repeats=13) | compare_focus_meerklass_baseline__autonoise_ns64_hp |
+| Stop-and-stare (9 pointings)                 | compare_focus_steer_and_stare_baseline__autonoise_  |
+| MeerKLASS cascade (5 el × n_repeats=3)       | compare_focus_meerklass_cascade__autonoise_ns64_hp  |
 
-"Mild prior" = beam-smoothed sky as prior mean (mimics knowing the low-res
-sky from a previous survey), prior_sigma = 3×std(sky_truth). This is an
-honest external prior — it does not encode the full truth.
-
-"No prior" = uninformative (zero mean, zero inverse covariance).
-
-Output: figures/focus_<kind><suffix>_ns64_hp_{noprior,mildprior}.png/pdf
+Output: figures/compare_focus_<kind><suffix>__autonoise_ns64_hp.{png,pdf}
 """
 
 from __future__ import annotations
@@ -44,11 +41,9 @@ CASES = (
 )
 
 PRIOR_MODES = (
-    ("noprior",     {"no_prior": True, "auto_noise": False}),
-    ("strongprior", {"no_prior": False,
-                     "prior_mean_mode": "smoothed",
-                     "prior_sigma_factor": 1.0,
-                     "auto_noise": False}),
+    # Only the auto-noise variant is kept; previous prior comparisons
+    # have been removed so the focused panels match the headline
+    # result in the README.
     ("autonoise",   {"no_prior": False,
                      "prior_mean_mode": "smoothed",
                      "prior_sigma_factor": 1.0,
