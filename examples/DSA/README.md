@@ -150,54 +150,61 @@ genuinely recovers from the data. Look at the recovered maps below
 #### Scale-dependent recovery (angular power spectra)
 
 Pixel RMS hides *which angular scales* each strategy reconstructs. We
-therefore compute the HEALPix angular power spectrum `Cℓ` of (a) the
-GDSM truth and (b) each recovered map, both restricted to the **common
-observed patch** (intersection of the three sensitivity masks;
-`f_sky ≈ 0.005`), with leading-order mask correction `/f_sky`. The DSA
-beam FWHM = 4.5° corresponds to `ℓ_beam ≈ 180°/FWHM ≈ 40` — scales to
-the right of the dashed line (shaded band) are **sub-beam**.
+compute the HEALPix angular power spectrum `Cℓ` of (a) the GDSM truth
+restricted to each survey's own sensitivity mask and (b) its recovered
+map on the same mask (leading-order mask correction `/f_sky`). The DSA
+beam FWHM = 4.5° gives `ℓ_beam ≈ 180°/FWHM ≈ 40` — scales to the right
+of the dashed line (shaded band) are **sub-beam**. Each column below
+is one survey compared against the piece of sky *it actually
+observes*.
 
-![Angular power spectra of the three recoveries (HP filter on)](figures/power_spectra_comparison_hp.png)
+![Angular power spectra per survey, HP filter on](figures/power_spectra_comparison_hp.png)
 
-Top: `Cℓ` of truth overlaid with each scenario's recovery.
-Bottom: transfer function `Tℓ = Cℓ^rec / Cℓ^truth` (1 = perfect).
+Top row: `Cℓ` of truth (wide grey band) overlaid with each scenario's
+recovery. Bottom row: transfer function `Tℓ = Cℓ^rec / Cℓ^truth`
+(1 = perfect).
 
-| ℓ range | scale       | MeerKLASS baseline | Stop-and-stare      | MeerKLASS cascade |
+| ℓ range | scale       | MeerKLASS baseline | Stop-and-stare   | MeerKLASS cascade |
 |---|---|---:|---:|---:|
-| 2–20    | super-beam  | **≈ 1.00**         | ≈ 1.20              | ≈ 1.45             |
-| 20–45   | beam region | 1.1–1.3            | 1.4 → 0.7           | 1.5–1.9            |
-| 45–192  | sub-beam    | 0.5–1.6            | **≈ 0.4 (flat)**    | 1.5–3.5            |
+| 2–20    | super-beam  | ≈ 1.00             | ≈ 1.20           | ≈ 1.05             |
+| 20–45   | beam region | 0.9–1.0            | 0.95–1.1         | ≈ 1.00             |
+| 45–192  | sub-beam    | **0.5**            | **≈ 0.4 (flat)** | **≈ 1.0**          |
 
-Three take-aways from the transfer function:
+Three take-aways from the per-survey transfer functions:
 
-1. **Large scales: baseline meerklass is the most faithful.** Its `Tℓ`
-   hugs ~1 from ℓ = 2 up to the beam scale. Stop-and-stare over-shoots
-   by ~20% (prior-smoothed leakage), cascade by ~50% (data–prior cross-
-   leakage the strong prior doesn't fully suppress).
-2. **At the beam scale (ℓ ≈ 40), stop-and-stare collapses.** `Tℓ` falls
-   to ≈ 0.4 and stays there for all sub-beam multipoles — the operator
-   has no access to sub-beam modes and the prior (beam-smoothed) can't
-   supply them either. So *stop-and-stare does **not** recover large
-   scales better; it recovers only the beam envelope.*
-3. **Sub-beam: only cascade has signal.** Cascade's `Tℓ` stays 1.5–3.5
-   above `ℓ_beam`. It does over-shoot (some noise/prior leakage mixed
-   in), but it is the only configuration that *injects* genuine power
-   on sub-beam scales — the regime that matters for 21cm IM
-   foreground/signal separation.
+1. **Large scales (ℓ < ℓ_beam): all three reach `Tℓ ≈ 1`.** Differences
+   are at the 10–20% level (stop-and-stare over-shoots slightly). At
+   scales the beam smoothly spans, every strategy gets the answer.
+2. **At the beam scale (ℓ ≈ 40), stop-and-stare drops to 0.4 and
+   stays there.** Baseline meerklass also rolls off to ~0.5 by
+   ℓ = 160. Neither strategy can deconvolve sub-beam modes — in the
+   stare case because each pointing is a single beam orientation;
+   in the single-el baseline case because the parallactic-angle
+   rotation within one scan is tiny.
+3. **MeerKLASS cascade holds `Tℓ ≈ 1` all the way to `ℓ = 200`.**
+   Five elevations × two scans give ~10 independent beam orientations
+   per pixel in the overlap region — enough to break the sub-beam
+   degeneracy. **Cascade is the only configuration with real
+   sub-beam recovery** over its own observed patch.
 
-**The HP filter is carrying non-trivial work.** The same recoveries
-with the HP filter *switched off* look very different:
+Why the common-patch version (earlier commit) under-sold cascade:
+the intersection of the three masks is dominated by the narrow Dec
+strip baseline and stare both see; cascade's richest per-pixel
+orientation diversity is at the *edges* of its patch, which the
+intersection throws away. Comparing each survey on its own mask
+restores the right attribution.
 
-![Power spectra without HP filter](figures/power_spectra_comparison_noHP.png)
+**HP filter carries most of the load for stop-and-stare and cascade.**
+Without HP:
 
-Baseline meerklass stays near `Tℓ ≈ 1` across all scales — its
-cross-linked operator is already reasonably conditioned against 1/f
-drift. Stop-and-stare and cascade both over-predict `Cℓ` by factors
-of 3–50× without HP filtering, because their operators are more
-degenerate and therefore *more leveraged by 1/f drift that gets
-projected onto the sky modes they do resolve*. The HP filter
-(Butterworth, `cutoff_freq = 0.001 Hz`, order 4) is doing most of the
-heavy lifting for these two configurations.
+![Power spectra per survey, no HP filter](figures/power_spectra_comparison_noHP.png)
+
+Baseline meerklass survives (`Tℓ ≈ 1` at low ℓ, same roll-off at sub-
+beam) — its two long scans at one elevation average 1/f drift out
+geometrically. Stop-and-stare's stares and cascade's short repeats
+pick up 1/f drift directly on the modes they resolve: `Tℓ` blows up
+by 2–50× without HP filtering. In a realistic pipeline you cannot
+turn HP off for stare or cascade, whereas baseline tolerates it.
 
 Reproduce with
 `conda run -n TOD python scripts/compare_power_spectra.py`; raw binned
