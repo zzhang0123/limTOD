@@ -19,7 +19,8 @@ def get_filtfilt_matrix(n_samples, b, a):
     
     return H
 
-def HP_filter_TOD(n_samples, dtime, cutoff_freq=0.001, filter_order=4):
+def HP_filter_TOD(n_samples, dtime, cutoff_freq=0.001, filter_order=4,
+                  preserve_dc=False):
     """
     Apply high-pass Butterworth filter to the TOD.
     Parameters:
@@ -33,6 +34,15 @@ def HP_filter_TOD(n_samples, dtime, cutoff_freq=0.001, filter_order=4):
     filter_order : int, default=4
         Order of the Butterworth filter (typical range: 2-8)
         Higher order = sharper cutoff but more edge effects
+    preserve_dc : bool, default=False
+        If True, add back the DC projection so the filter has unit gain
+        at ℓ=0 while still rejecting drifts between DC and the cutoff.
+        Constructed as H' = H (I - P) + P with P = J/n (the DC
+        projection). Useful only when the per-chunk mean is dominated
+        by sky (low-noise regime). In the realistic 1/f regime the
+        chunk mean is dominated by drift realisation, so preserve_dc
+        would let drift DC leak into the recovered map — keep the
+        default False unless you've verified this for your noise model.
 
     Returns:
     --------
@@ -57,6 +67,12 @@ def HP_filter_TOD(n_samples, dtime, cutoff_freq=0.001, filter_order=4):
     b, a = signal.butter(filter_order, normalized_cutoff, btype='high', analog=False)
 
     H_exact = get_filtfilt_matrix(n_samples, b, a) # Exact matrix representation of filtfilt operation
+    if preserve_dc:
+        # H' x = H (I - P) x + P x = H (x - mean(x) 1) + mean(x) 1.
+        # Constants pass through unchanged; everything faster than the
+        # Butterworth cutoff is still attenuated.
+        P = np.ones((n_samples, n_samples)) / n_samples
+        H_exact = H_exact @ (np.eye(n_samples) - P) + P
     return H_exact
 
 
@@ -410,6 +426,7 @@ class HPW_mapmaking:
         regularization=1e-12,
         return_full_cov=False,
         filter_order=4,
+        preserve_dc=False,
     ):
         """
         TOD_group : a TOD array or a list of TOD arrays at the same frequency channel.
@@ -485,7 +502,7 @@ class HPW_mapmaking:
         if self.num_tods > 1:
 
             for i in range(self.num_tods):
-                hp_filter_mat = HP_filter_TOD(len(TOD_group[i]), dtime, cutoff_freq=cutoff_freq_group[i], filter_order=filter_order)
+                hp_filter_mat = HP_filter_TOD(len(TOD_group[i]), dtime, cutoff_freq=cutoff_freq_group[i], filter_order=filter_order, preserve_dc=preserve_dc)
                 self.HP_exact.append(hp_filter_mat)
                 calibrated_TOD_i = np.asarray(TOD_group[i]) / gain_group[i] 
                 if known_injection_group is not None:
@@ -508,7 +525,7 @@ class HPW_mapmaking:
             if known_injection_group is not None:
                 known_injection = known_injection_group if isinstance(known_injection_group, np.ndarray) and known_injection_group.ndim == 1 else known_injection_group[0]
                 calibrated_TOD -= known_injection
-            hp_filter_mat = HP_filter_TOD(len(TOD), dtime, cutoff_freq=cutoff_freq, filter_order=filter_order)
+            hp_filter_mat = HP_filter_TOD(len(TOD), dtime, cutoff_freq=cutoff_freq, filter_order=filter_order, preserve_dc=preserve_dc)
             HP_cal_TOD_overall = hp_filter_mat @ calibrated_TOD
             HP_Tsys_operator_overall = hp_filter_mat @ self.Tsys_operators
 
