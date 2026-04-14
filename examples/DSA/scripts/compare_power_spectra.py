@@ -89,6 +89,27 @@ def bin_cls(ell: np.ndarray, cl: np.ndarray,
     return centres, binned
 
 
+def _run_and_compute(use_hp_filter: bool, sky_truth_full: np.ndarray):
+    """Map-make all 3 scenarios and return results + common mask."""
+    results = []
+    for kind, suffix, label, colour in CASES:
+        TOD_group = load_tods(kind, suffix=suffix)
+        mm = load_ops(kind, NSIDE, suffix=suffix)
+        sky_est, sky_truth_patch, rms = run_mapmaking(
+            mm, TOD_group, use_hp_filter=use_hp_filter,
+            white_var=DEFAULT_WHITE_VAR, **PRIOR_KWARGS,
+        )
+        results.append({
+            "kind": kind, "suffix": suffix, "label": label, "colour": colour,
+            "sky_est": sky_est, "sky_truth_patch": sky_truth_patch,
+            "pixel_indices": np.asarray(mm.pixel_indices),
+            "rms_K": float(rms),
+        })
+        tag = "HP" if use_hp_filter else "noHP"
+        print(f"[pk] ({tag}) {label}: {len(sky_est)} pixels, RMS = {rms:.3f} K")
+    return results
+
+
 def main() -> None:
     mpl.rcParams.update({
         "font.family": "serif",
@@ -105,24 +126,19 @@ def main() -> None:
 
     sky_truth_full = GDSM_sky_model(freq=FREQ_MHZ, nside=NSIDE)
 
-    # --- 1. Run map-making for each scenario and collect results ---
-    results = []
-    for kind, suffix, label, colour in CASES:
-        TOD_group = load_tods(kind, suffix=suffix)
-        mm = load_ops(kind, NSIDE, suffix=suffix)
-        sky_est, sky_truth_patch, rms = run_mapmaking(
-            mm, TOD_group, use_hp_filter=True,
-            white_var=DEFAULT_WHITE_VAR, **PRIOR_KWARGS,
-        )
-        results.append({
-            "kind": kind, "suffix": suffix, "label": label, "colour": colour,
-            "sky_est": sky_est, "sky_truth_patch": sky_truth_patch,
-            "pixel_indices": np.asarray(mm.pixel_indices),
-            "rms_K": float(rms),
-        })
-        print(f"[pk] {label}: {len(sky_est)} pixels, RMS = {rms:.3f} K")
+    for use_hp_filter in (True, False):
+        hp_tag = "hp" if use_hp_filter else "noHP"
+        title_suffix = "HP filter on" if use_hp_filter else "no HP filter"
+        print(f"\n=== Running with {title_suffix} ===")
+        results = _run_and_compute(use_hp_filter, sky_truth_full)
+        _plot_and_dump(results, sky_truth_full, hp_tag, title_suffix)
+
+
+def _plot_and_dump(results, sky_truth_full, hp_tag, title_suffix):
 
     # --- 2. Common mask = intersection of all three sensitivity patches ---
+
+    # (continues from old main with `results` already computed)
     common_pix = reduce(np.intersect1d, [r["pixel_indices"] for r in results])
     mask = np.zeros(hp.nside2npix(NSIDE), dtype=np.float64)
     mask[common_pix] = 1.0
@@ -172,8 +188,10 @@ def main() -> None:
     ax_cl.axvline(ell_beam, color="0.35", ls="--", lw=1.2,
                   label=r"$\ell_{\rm beam}\approx %.0f$" % ell_beam)
     ax_cl.set_ylabel(r"$C_\ell$  [K$^2$]")
-    ax_cl.set_title("Angular power spectra on the common observed patch",
-                    pad=10)
+    ax_cl.set_title(
+        f"Angular power spectra on the common observed patch  ({title_suffix})",
+        pad=10,
+    )
     ax_cl.legend(loc="lower left", frameon=True, framealpha=0.9,
                  fancybox=False, edgecolor="0.7")
     ax_cl.text(0.98, 0.96, "sub-beam →",
@@ -194,7 +212,7 @@ def main() -> None:
     ax_T.legend(loc="lower left", frameon=True, framealpha=0.9,
                 fancybox=False, edgecolor="0.7")
 
-    out_base = os.path.join(DSA_DIR, "figures", "power_spectra_comparison")
+    out_base = os.path.join(DSA_DIR, "figures", f"power_spectra_comparison_{hp_tag}")
     fig.savefig(out_base + ".png", dpi=220, bbox_inches="tight")
     fig.savefig(out_base + ".pdf", bbox_inches="tight")
     plt.close(fig)

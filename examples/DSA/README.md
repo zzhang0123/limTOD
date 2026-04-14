@@ -157,7 +157,7 @@ observed patch** (intersection of the three sensitivity masks;
 beam FWHM = 4.5° corresponds to `ℓ_beam ≈ 180°/FWHM ≈ 40` — scales to
 the right of the dashed line (shaded band) are **sub-beam**.
 
-![Angular power spectra of the three recoveries](figures/power_spectra_comparison.png)
+![Angular power spectra of the three recoveries (HP filter on)](figures/power_spectra_comparison_hp.png)
 
 Top: `Cℓ` of truth overlaid with each scenario's recovery.
 Bottom: transfer function `Tℓ = Cℓ^rec / Cℓ^truth` (1 = perfect).
@@ -185,9 +185,23 @@ Three take-aways from the transfer function:
    on sub-beam scales — the regime that matters for 21cm IM
    foreground/signal separation.
 
+**The HP filter is carrying non-trivial work.** The same recoveries
+with the HP filter *switched off* look very different:
+
+![Power spectra without HP filter](figures/power_spectra_comparison_noHP.png)
+
+Baseline meerklass stays near `Tℓ ≈ 1` across all scales — its
+cross-linked operator is already reasonably conditioned against 1/f
+drift. Stop-and-stare and cascade both over-predict `Cℓ` by factors
+of 3–50× without HP filtering, because their operators are more
+degenerate and therefore *more leveraged by 1/f drift that gets
+projected onto the sky modes they do resolve*. The HP filter
+(Butterworth, `cutoff_freq = 0.001 Hz`, order 4) is doing most of the
+heavy lifting for these two configurations.
+
 Reproduce with
 `conda run -n TOD python scripts/compare_power_spectra.py`; raw binned
-Cℓ arrays dumped to `figures/power_spectra_comparison.npz`.
+Cℓ arrays dumped to `figures/power_spectra_comparison_{hp,noHP}.npz`.
 
 #### Structural narrative (from the maps above)
 
