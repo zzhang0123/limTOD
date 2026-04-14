@@ -78,6 +78,22 @@ def masked_cls(full_map: np.ndarray, mask: np.ndarray, lmax: int) -> np.ndarray:
     return hp.anafast(masked, lmax=lmax) / fsky
 
 
+def masked_cross_cls(map1: np.ndarray, map2: np.ndarray, mask: np.ndarray,
+                     lmax: int) -> np.ndarray:
+    """Cross pseudo-Cℓ between two masked full-sky maps, divided by f_sky."""
+    m = mask.astype(np.float64)
+    fsky = m.mean()
+    if fsky <= 0.0:
+        raise ValueError("Mask is empty.")
+
+    def _zero_mean_masked(x):
+        return (x - (x * m).sum() / m.sum() * m) * m
+
+    m1 = _zero_mean_masked(map1)
+    m2 = _zero_mean_masked(map2)
+    return hp.anafast(m1, m2, lmax=lmax) / fsky
+
+
 def bin_cls(ell: np.ndarray, cl: np.ndarray,
             edges: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Bin Cℓ in arbitrary ℓ-bins (returns bin centres + mean power)."""
@@ -159,7 +175,7 @@ def _plot_and_dump(results, sky_truth_full, hp_tag, title_suffix):
     bin_edges = np.unique(np.logspace(np.log10(2), np.log10(LMAX + 1), 12).astype(int))
     bin_edges = bin_edges[bin_edges <= LMAX + 1]
 
-    # Compute each scenario's own-mask Cℓ
+    # Compute each scenario's own-mask Cℓ (auto + cross)
     for r in results:
         mask = np.zeros(hp.nside2npix(NSIDE), dtype=np.float64)
         mask[r["pixel_indices"]] = 1.0
@@ -167,19 +183,28 @@ def _plot_and_dump(results, sky_truth_full, hp_tag, title_suffix):
         sky_est_full = embed_patch(r["sky_est"], r["pixel_indices"], NSIDE)
         cl_truth = masked_cls(sky_truth_full, mask, LMAX)
         cl_rec = masked_cls(sky_est_full, mask, LMAX)
+        cl_cross = masked_cross_cls(sky_est_full, sky_truth_full, mask, LMAX)
         l_centre, cl_truth_b = bin_cls(ell, cl_truth, bin_edges)
         _, cl_rec_b = bin_cls(ell, cl_rec, bin_edges)
+        _, cl_cross_b = bin_cls(ell, cl_cross, bin_edges)
         sig_truth = knox_sigma(cl_truth_b, l_centre, bin_edges, f_sky)
         sig_rec = knox_sigma(cl_rec_b, l_centre, bin_edges, f_sky)
-        # Transfer-function 1σ: propagate both independent errors.
         transfer = cl_rec_b / cl_truth_b
         sig_T = transfer * np.sqrt(
             (sig_rec / np.maximum(cl_rec_b, 1e-30)) ** 2
             + (sig_truth / np.maximum(cl_truth_b, 1e-30)) ** 2
         )
+        # Correlation coefficient: rℓ = Cℓ_cross / sqrt(Cℓ_rec · Cℓ_truth).
+        # Bounded in [-1, 1]. r=1 means the recovered modes are perfectly
+        # phase-aligned with truth at that scale (regardless of amplitude
+        # mismatch); r<1 means genuine leakage / uncorrelated noise power.
+        denom = np.sqrt(np.abs(cl_rec_b) * np.abs(cl_truth_b))
+        r_ell = cl_cross_b / np.maximum(denom, 1e-30)
         r["l_centre"] = l_centre
         r["cl_truth_binned"] = cl_truth_b
         r["cl_rec_binned"] = cl_rec_b
+        r["cl_cross_binned"] = cl_cross_b
+        r["r_ell_binned"] = r_ell
         r["sig_truth"] = sig_truth
         r["sig_rec"] = sig_rec
         r["transfer_binned"] = transfer
@@ -259,6 +284,69 @@ def _plot_and_dump(results, sky_truth_full, hp_tag, title_suffix):
     fig.savefig(out_base + ".pdf", bbox_inches="tight")
     plt.close(fig)
 
+    # --- Second figure: cross-correlation Cℓ^cross and correlation
+    # coefficient r_ℓ = Cℓ^cross / sqrt(Cℓ^rec · Cℓ^truth). r tests
+    # whether the recovered modes are *phase-aligned* with truth, a
+    # stronger statement than the transfer function (which only checks
+    # total power).
+    fig, axes = plt.subplots(
+        2, 3, figsize=(13.0, 7.0), constrained_layout=True, sharex=True,
+        gridspec_kw={"height_ratios": [1.3, 1.0]},
+    )
+    cross_ymin = 10 ** np.floor(np.log10(
+        np.abs(np.concatenate([r["cl_cross_binned"] for r in results])).min()
+        + 1e-40
+    ))
+    for col, r in enumerate(results):
+        ax_cl = axes[0, col]
+        ax_r = axes[1, col]
+        ax_cl.axvspan(ell_beam, LMAX + 1, **subbeam_kw)
+        ax_r.axvspan(ell_beam, LMAX + 1, **subbeam_kw)
+
+        lc = r["l_centre"]
+        ax_cl.loglog(lc, r["cl_truth_binned"], color="black",
+                     lw=8, alpha=0.22, label=r"$C_\ell^{\rm truth}$",
+                     solid_capstyle="round", zorder=1)
+        ax_cl.loglog(lc, np.abs(r["cl_cross_binned"]), color=r["colour"],
+                     marker="o", ms=6, mec="white", mew=0.8, lw=2,
+                     label=r"$|C_\ell^{\rm rec \times truth}|$", zorder=3)
+        ax_cl.axvline(ell_beam, color="0.35", ls="--", lw=1.2)
+        ax_cl.set_title(r["label"], pad=8)
+        ax_cl.set_ylim(cl_ymin, cl_ymax)
+        if col == 0:
+            ax_cl.set_ylabel(r"$C_\ell$  [K$^2$]")
+        ax_cl.legend(loc="lower left", frameon=True, framealpha=0.9,
+                     fancybox=False, edgecolor="0.7", fontsize=10)
+
+        ax_r.semilogx(lc, r["r_ell_binned"], color=r["colour"],
+                      marker="o", ms=6, mec="white", mew=0.8, lw=2,
+                      label=r"$r_\ell$", zorder=3)
+        ax_r.axhline(1.0, color="k", ls="-", lw=1.0, alpha=0.6)
+        ax_r.axhline(0.0, color="k", ls=":", lw=0.8, alpha=0.4)
+        ax_r.axvline(ell_beam, color="0.35", ls="--", lw=1.2,
+                     label=r"$\ell_{\rm beam}\approx %.0f$" % ell_beam)
+        ax_r.set_ylim(-0.2, 1.1)
+        ax_r.set_xlim(r["l_centre"][0] * 0.9, r["l_centre"][-1] * 1.1)
+        ax_r.set_xlabel(r"multipole $\ell$")
+        if col == 0:
+            ax_r.set_ylabel(
+                r"correlation  $r_\ell = C_\ell^{\rm rec\times truth}"
+                r"\,/\,\sqrt{C_\ell^{\rm rec} C_\ell^{\rm truth}}$")
+        ax_r.legend(loc="lower left", frameon=True, framealpha=0.9,
+                    fancybox=False, edgecolor="0.7", fontsize=10)
+
+    fig.suptitle(
+        f"Cross-correlation with truth: each survey on its own observed "
+        f"patch  ({title_suffix})",
+        fontsize=13,
+    )
+    out_base_xc = os.path.join(DSA_DIR, "figures",
+                               f"cross_spectra_comparison_{hp_tag}")
+    fig.savefig(out_base_xc + ".png", dpi=220, bbox_inches="tight")
+    fig.savefig(out_base_xc + ".pdf", bbox_inches="tight")
+    plt.close(fig)
+    print(f"[pk] wrote {out_base_xc}.{{png,pdf}}")
+
     # --- Dump binned arrays for reproducibility ---
     np.savez(
         out_base + ".npz",
@@ -270,6 +358,8 @@ def _plot_and_dump(results, sky_truth_full, hp_tag, title_suffix):
         **{f"sig_truth_{r['kind']}{r['suffix']}": r["sig_truth"] for r in results},
         **{f"sig_rec_{r['kind']}{r['suffix']}": r["sig_rec"] for r in results},
         **{f"sig_transfer_{r['kind']}{r['suffix']}": r["sig_transfer"] for r in results},
+        **{f"cl_cross_{r['kind']}{r['suffix']}": r["cl_cross_binned"] for r in results},
+        **{f"r_ell_{r['kind']}{r['suffix']}": r["r_ell_binned"] for r in results},
         **{f"f_sky_{r['kind']}{r['suffix']}": r["f_sky"] for r in results},
     )
     print(f"[pk] wrote {out_base}.{{png,pdf,npz}}")
@@ -277,11 +367,14 @@ def _plot_and_dump(results, sky_truth_full, hp_tag, title_suffix):
     # Stdout summary per scenario
     for r in results:
         print(f"\n=== {r['label']} ({hp_tag}, own mask) ===")
-        print(f"{'ℓ bin':>10} {'C_l^truth':>12} {'C_l^rec':>12} {'T_l':>8}")
+        print(f"{'ℓ bin':>10} {'C_truth':>11} {'C_rec':>11} "
+              f"{'C_cross':>11} {'T_l':>7} {'r_l':>7}")
         for i, lc in enumerate(r["l_centre"]):
-            print(f"{lc:10.1f} {r['cl_truth_binned'][i]:12.3e} "
-                  f"{r['cl_rec_binned'][i]:12.3e} "
-                  f"{r['transfer_binned'][i]:8.3f}")
+            print(f"{lc:10.1f} {r['cl_truth_binned'][i]:11.3e} "
+                  f"{r['cl_rec_binned'][i]:11.3e} "
+                  f"{r['cl_cross_binned'][i]:11.3e} "
+                  f"{r['transfer_binned'][i]:7.3f} "
+                  f"{r['r_ell_binned'][i]:7.3f}")
 
 
 if __name__ == "__main__":

@@ -206,6 +206,40 @@ pick up 1/f drift directly on the modes they resolve: `Tℓ` blows up
 by 2–50× without HP filtering. In a realistic pipeline you cannot
 turn HP off for stare or cascade, whereas baseline tolerates it.
 
+#### Cross-correlation with truth
+
+The transfer function only checks whether the *amplitude* of recovered
+power matches truth. It cannot tell us whether the recovered modes are
+actually phase-aligned with the true sky, or just uncorrelated
+noise/prior artefacts that happen to have the right amplitude. For
+that we compute the cross-spectrum `Cℓ^{rec × truth}` (top row) and
+the dimensionless correlation coefficient
+
+`rℓ = Cℓ^{rec × truth} / √(Cℓ^rec × Cℓ^truth)` ∈ [−1, 1],
+
+where `rℓ = 1` means perfect phase alignment at that scale.
+
+![Cross-correlation (HP filter on)](figures/cross_spectra_comparison_hp.png)
+
+With the HP filter on, **all three configurations maintain
+`rℓ ≈ 0.99` up to the beam scale**: the recovered maps are genuinely
+correlated with the truth, they are not just prior artefacts. At
+sub-beam scales all three decorrelate somewhat (baseline and cascade
+drop to `rℓ ≈ 0.65–0.75`; stop-and-stare slides to ~0.55 at the
+highest ℓ). But even the worst sub-beam correlation is far above 0 —
+the degraded sub-beam recovery is a noise/amplitude issue, not a
+phase-coherence failure.
+
+![Cross-correlation (no HP filter)](figures/cross_spectra_comparison_noHP.png)
+
+**Without HP the story changes**: stop-and-stare and cascade lose
+phase coherence at ℓ ≳ ℓ_beam (`rℓ` drops to 0.1–0.3 — the recovered
+power is essentially uncorrelated 1/f leakage). Baseline meerklass is
+again immune: `rℓ` stays above 0.7 even without HP, because its long
+single-elevation scans average 1/f drift geometrically. Whenever HP
+is available, use it; stare and cascade rely on it to preserve any
+sub-beam signal coherence at all.
+
 Reproduce with
 `conda run -n TOD python scripts/compare_power_spectra.py`; raw binned
 Cℓ arrays dumped to `figures/power_spectra_comparison_{hp,noHP}.npz`.
