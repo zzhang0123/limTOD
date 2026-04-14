@@ -184,6 +184,7 @@ Desktop.ini
 
 # Data directories (customize as needed)
 test/data/
+examples/data/
 output/
 results/
 plots/
@@ -200,6 +201,7 @@ figures/
 
 # Claude Code
 CLAUDE.md
+.claude/
 
 # Configuration files that might contain secrets
 config.ini
