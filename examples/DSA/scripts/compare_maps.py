@@ -143,7 +143,12 @@ def run_mapmaking(
         if prior_sigma_K is None:
             prior_sigma_K = max(prior_sigma_factor * float(np.std(sky_truth)), 1e-3)
         prior_inv = np.ones_like(sky_truth) / prior_sigma_K**2
-    cutoff = 0.001 if use_hp_filter else 1e-5
+    # HP cutoff chosen from the hp_cutoff_sweep diagnostic:
+    # 3e-2 Hz is ~1.8x below the azimuth-scan 55 mHz fundamental (safe
+    # margin for the order-4 Butterworth), and pushes all three
+    # strategies close to the noise floor under default flicker. Previous
+    # value 1e-3 Hz is now visibly insufficient for strong 1/f.
+    cutoff = 3e-2 if use_hp_filter else 1e-5
     order = 4 if use_hp_filter else 1
     # Per-sample noise variance proportional to TOD power, matching the
     # multiplicative simulator model: overall = sky * (1 + white_noise),

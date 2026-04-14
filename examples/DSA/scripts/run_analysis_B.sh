@@ -11,7 +11,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 WHITE_VAR="${WHITE_VAR:-1e-7}"
-GAIN_F0="${GAIN_F0:-1.335e-7}"
+GAIN_F0="${GAIN_F0:-1.335e-5}"
 NRANKS="${NRANKS:-8}"
 
 CONDA_RUN=(conda run --no-capture-output -n TOD)
