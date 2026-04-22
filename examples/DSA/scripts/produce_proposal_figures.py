@@ -60,7 +60,7 @@ CASES = [
 # ---------------------------------------------------------------------------
 # Figure 1 — cross-correlation comparison
 # ---------------------------------------------------------------------------
-def figure_crosscorr(nside: int) -> None:
+def figure_crosscorr(nside: int, hp_cutoff: float = 3e-2) -> None:
     lmax = 3 * nside - 1
     sky_truth_full = GDSM_sky_model(freq=FREQ_MHZ, nside=nside)
     ell = np.arange(lmax + 1)
@@ -74,7 +74,7 @@ def figure_crosscorr(nside: int) -> None:
         TOD_group = load_tods(kind, suffix=suffix)
         mm = load_ops(kind, nside, suffix=suffix)
         sky_est, _, rms = run_mapmaking(
-            mm, TOD_group, use_hp_filter=True,
+            mm, TOD_group, use_hp_filter=True, hp_cutoff=hp_cutoff,
             white_var=DEFAULT_WHITE_VAR, **PRIOR_KWARGS,
         )
         mask = np.zeros(hp.nside2npix(nside), dtype=np.float64)
@@ -155,11 +155,11 @@ def figure_crosscorr(nside: int) -> None:
 # ---------------------------------------------------------------------------
 # Figure 2 — MeerKLASS baseline: truth / recovered / residual
 # ---------------------------------------------------------------------------
-def figure_meerklass_maps(nside: int) -> None:
+def figure_meerklass_maps(nside: int, hp_cutoff: float = 3e-2) -> None:
     TOD_group = load_tods("meerklass", suffix="_baseline")
     mm = load_ops("meerklass", nside, suffix="_baseline")
     sky_est, sky_truth, rms = run_mapmaking(
-        mm, TOD_group, use_hp_filter=True,
+        mm, TOD_group, use_hp_filter=True, hp_cutoff=hp_cutoff,
         white_var=DEFAULT_WHITE_VAR, **PRIOR_KWARGS,
     )
     residual = sky_est - sky_truth
@@ -212,9 +212,13 @@ def main() -> None:
                         help="HEALPix nside for the recovered maps and "
                              "cross-correlation (default: 64). The map-maker "
                              "operator must already be cached at this nside.")
+    parser.add_argument("--hp-cutoff", type=float, default=3e-2,
+                        help="High-pass filter cutoff in Hz (default: 0.03). "
+                             "Lower values let more large-scale signal through "
+                             "at the cost of more 1/f leakage.")
     args = parser.parse_args()
-    figure_crosscorr(args.nside)
-    figure_meerklass_maps(args.nside)
+    figure_crosscorr(args.nside, hp_cutoff=args.hp_cutoff)
+    figure_meerklass_maps(args.nside, hp_cutoff=args.hp_cutoff)
 
 
 if __name__ == "__main__":
