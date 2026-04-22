@@ -106,6 +106,7 @@ def _build_prior_mean(sky_truth_full: np.ndarray, pixel_indices: np.ndarray,
 
 def run_mapmaking(
     mm, TOD_group, *, use_hp_filter: bool,
+    hp_cutoff: float = 3e-2,
     prior_sigma_K: float | None = None,
     prior_sigma_factor: float = 3.0,
     prior_mean_mode: str = "truth",
@@ -148,7 +149,7 @@ def run_mapmaking(
     # margin for the order-4 Butterworth), and pushes all three
     # strategies close to the noise floor under default flicker. Previous
     # value 1e-3 Hz is now visibly insufficient for strong 1/f.
-    cutoff = 3e-2 if use_hp_filter else 1e-5
+    cutoff = hp_cutoff if use_hp_filter else 1e-5
     order = 4 if use_hp_filter else 1
     # Per-sample noise variance proportional to TOD power, matching the
     # multiplicative simulator model: overall = sky * (1 + white_noise),
