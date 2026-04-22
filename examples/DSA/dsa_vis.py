@@ -1,17 +1,98 @@
-"""Publication-quality patch visualization for DSA survey notebooks.
+"""Publication-quality patch visualization + shared helpers for the DSA
+survey notebooks.
 
-Replaces limTOD.visual.gnomview_patch with a tighter, better-labelled
-version whose axes are real RA/Dec in degrees and whose figure extent
-matches the observed patch (no wasted blank space).
+Provides the patch-image plotting used in the proposal figures, plus a
+handful of helpers (site constants, coordinate conversion, beam loader)
+that the three DSA notebooks share. Keeping these here avoids copy-paste
+drift across ``dsa_scan_demo.ipynb``, ``dsa_meerklass_scan.ipynb`` and
+``dsa_steer_and_stare.ipynb``.
 """
 
 from __future__ import annotations
+
+import os
+from functools import lru_cache
 
 import healpy as hp
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib.colors import Normalize
+
+# ---------------------------------------------------------------------------
+# DSA site constants (Nevada — Owens Valley Radio Observatory proxy location
+# quoted in the proposal documents)
+# ---------------------------------------------------------------------------
+DSA_LAT = 39.553969   # deg
+DSA_LON = -114.423973  # deg
+DSA_HGT = 1746.51      # m
+
+
+def radec_to_azel(ra_deg, dec_deg, time_list_sec, start_time_utc, location):
+    """Convert a fixed sky target to per-sample local (Az, El).
+
+    Used by stop-and-stare pointings where the telescope tracks an
+    ICRS-fixed (RA, Dec) — the horizontal coordinates drift as the Earth
+    rotates, so the function evaluates the transform at every time sample.
+
+    Parameters
+    ----------
+    ra_deg, dec_deg : float
+        Target ICRS coordinates in degrees (scalar).
+    time_list_sec : array-like
+        Time offsets in seconds from ``start_time_utc``.
+    start_time_utc : str
+        UTC start time parseable by ``astropy.time.Time`` (e.g.
+        ``"2024-04-15 04:00:00"``).
+    location : astropy.coordinates.EarthLocation
+        Observatory location.
+
+    Returns
+    -------
+    az_deg, el_deg : np.ndarray
+        Azimuth (east of north) and elevation in degrees, one element per
+        entry in ``time_list_sec``.
+    """
+    # Local imports so importing dsa_vis at module scope is cheap in
+    # notebooks that only need plot_patch.
+    from astropy.coordinates import AltAz, SkyCoord
+    from astropy.time import Time, TimeDelta
+    from astropy import units as u
+
+    start = Time(start_time_utc)
+    times = start + TimeDelta(np.asarray(time_list_sec), format="sec")
+    target = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame="icrs")
+    altaz = target.transform_to(AltAz(obstime=times, location=location))
+    return altaz.az.deg, altaz.alt.deg
+
+
+@lru_cache(maxsize=8)
+def _load_beam_native() -> np.ndarray:
+    """Load the DSA zenith beam (HEALPix nside=128) once and cache it."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    fits_path = os.path.join(here, "beam_map_zenith.fits")
+    return hp.read_map(fits_path)
+
+
+def dsa_beam_func(*, freq, nside):
+    """Return the DSA zenith beam as a sum-normalised HEALPix map.
+
+    Signature matches ``limTOD.TODSim``'s ``beam_func`` protocol
+    (``beam_func(*, freq, nside) -> 1-D HEALPix map``). ``freq`` is
+    accepted for API compatibility; the zenith beam is achromatic in
+    this dataset so the value is ignored.
+
+    The beam is loaded at its native nside=128, downgraded/upgraded to
+    the requested nside with ``hp.ud_grade``, then normalised to
+    ``sum == 1`` (matches the convention of
+    ``limTOD.simulator.example_symm_beam_map``).
+    """
+    del freq  # achromatic zenith beam — kept for API compatibility
+    beam_native = _load_beam_native()
+    beam = beam_native if nside == 128 else hp.ud_grade(beam_native, nside)
+    beam = np.asarray(beam, dtype=float).copy()
+    beam /= beam.sum()
+    return beam
 
 
 def _patch_extent(nside: int, pixel_indices: np.ndarray, pad_frac: float = 0.08):
