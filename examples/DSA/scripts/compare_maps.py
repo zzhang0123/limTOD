@@ -149,8 +149,8 @@ def run_mapmaking(
     # margin for the order-4 Butterworth), and pushes all three
     # strategies close to the noise floor under default flicker. Previous
     # value 1e-3 Hz is now visibly insufficient for strong 1/f.
-    cutoff = hp_cutoff if use_hp_filter else 1e-5
-    order = 4 if use_hp_filter else 1
+    cutoff = hp_cutoff if use_hp_filter else None
+    order = 4
     # Per-sample noise variance proportional to TOD power, matching the
     # multiplicative simulator model: overall = sky * (1 + white_noise),
     # so var(overall_t) ≈ white_var * (sky_t)^2 per sample. The expected
@@ -177,13 +177,14 @@ def run_mapmaking(
     sky_est, _ = mm(
         TOD_group=np.array(TOD_group),
         dtime=2.0,
-        cutoff_freq_group=np.full(mm.num_tods, cutoff),
+        cutoff_freq_group=None if cutoff is None else np.full(mm.num_tods, cutoff),
         Tsky_prior_mean=prior_mean,
         Tsky_prior_inv_cov_diag=prior_inv,
         noise_variance=nv_per_tod,
         regularization=1e-12,
         return_full_cov=False,
         filter_order=order,
+        use_high_pass=use_hp_filter,
     )
     rms = float(np.std(sky_est - sky_truth))
     return sky_est, sky_truth, rms

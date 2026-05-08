@@ -55,6 +55,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                    help="High-pass filter cutoff in Hz.")
     p.add_argument("--filter-order", type=int, default=4,
                    help="Butterworth HP filter order.")
+    hp_group = p.add_mutually_exclusive_group()
+    hp_group.add_argument("--high-pass", action="store_true",
+                          help="Enable the high-pass filter.")
+    hp_group.add_argument("--no-high-pass", action="store_true",
+                          help="Disable the high-pass filter. This is the "
+                               "default and is kept as an explicit alias.")
     p.add_argument("--threshold", type=float, default=0.05,
                    help="Pixel selection threshold (beam-peak fraction).")
     p.add_argument("--beam-nside-map", type=int, default=64,
@@ -164,10 +170,15 @@ def main(argv: Sequence[str] | None = None) -> None:
             expected = np.asarray(mm.Tsys_operators) @ sky_truth
             noise_variance = [white_var * expected**2 + nv_floor]
 
-    cutoff_group = np.full(mm.num_tods, args.hp_cutoff, dtype=np.float64)
+    use_high_pass = args.high_pass and not args.no_high_pass
+    cutoff_group = None if not use_high_pass else np.full(
+        mm.num_tods, args.hp_cutoff, dtype=np.float64)
 
-    print(f"[map] solving (HP cutoff = {args.hp_cutoff} Hz, "
-          f"order={args.filter_order})")
+    if use_high_pass:
+        print(f"[map] solving (HP cutoff = {args.hp_cutoff} Hz, "
+              f"order={args.filter_order})")
+    else:
+        print("[map] solving (high-pass filter disabled)")
     t0 = time.perf_counter()
     sky_est, sky_unc = mm(
         TOD_group=cache["TOD_group"],
@@ -178,6 +189,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         noise_variance=noise_variance,
         regularization=1e-12,
         filter_order=args.filter_order,
+        use_high_pass=use_high_pass,
     )
     t_solve = time.perf_counter() - t0
     rms_K = float(np.std(sky_est - sky_truth))
