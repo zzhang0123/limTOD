@@ -415,7 +415,7 @@ class HPW_mapmaking:
         *,       
         TOD_group,
         dtime,
-        cutoff_freq_group,
+        cutoff_freq_group=None,
         gain_group=None,
         known_injection_group=None,
         Tsky_prior_mean=None,
@@ -427,6 +427,7 @@ class HPW_mapmaking:
         return_full_cov=False,
         filter_order=4,
         preserve_dc=False,
+        use_high_pass=False,
     ):
         """
         TOD_group : a TOD array or a list of TOD arrays at the same frequency channel.
@@ -440,8 +441,9 @@ class HPW_mapmaking:
         dtime : float
             Time interval between samples in seconds.
 
-        cutoff_freq_group : list of float, 
-            Cutoff frequency for high-pass filter in unit of the nyquist frequency.
+        cutoff_freq_group : list of float, optional
+            Cutoff frequency for high-pass filter in Hz. Required when
+            use_high_pass is True; ignored when use_high_pass is False.
 
         known_injection_group : a list of known system temperature components to be subtracted from Tsys (calibrated TOD),  each element corresponding to each TOD in TOD_group.
             e.g. [mu_1, mu_2, ...]
@@ -482,6 +484,11 @@ class HPW_mapmaking:
             But all elements must have the same shape.
             If None, assumed to be uninformative prior (zero, i.e., infinite prior variance).
 
+        use_high_pass : bool, default=False
+            If True, apply the Butterworth high-pass filter to the TOD and
+            system operator. If False, use the identity matrix and solve the
+            unfiltered map-making problem.
+
 
         Returns:        
         --------
@@ -498,11 +505,25 @@ class HPW_mapmaking:
         if gain_group is None:
             gain_group = [1.0]*self.num_tods
 
+        def make_tod_filter(n_samples, cutoff_freq):
+            if not use_high_pass:
+                return np.eye(n_samples)
+            if cutoff_freq is None:
+                raise ValueError("cutoff_freq_group must be provided when use_high_pass=True.")
+            return HP_filter_TOD(
+                n_samples,
+                dtime,
+                cutoff_freq=cutoff_freq,
+                filter_order=filter_order,
+                preserve_dc=preserve_dc,
+            )
+
         self.HP_exact = []
         if self.num_tods > 1:
 
             for i in range(self.num_tods):
-                hp_filter_mat = HP_filter_TOD(len(TOD_group[i]), dtime, cutoff_freq=cutoff_freq_group[i], filter_order=filter_order, preserve_dc=preserve_dc)
+                cutoff_freq = None if cutoff_freq_group is None else cutoff_freq_group[i]
+                hp_filter_mat = make_tod_filter(len(TOD_group[i]), cutoff_freq)
                 self.HP_exact.append(hp_filter_mat)
                 calibrated_TOD_i = np.asarray(TOD_group[i]) / gain_group[i] 
                 if known_injection_group is not None:
@@ -519,13 +540,15 @@ class HPW_mapmaking:
 
         elif self.num_tods == 1:
             TOD = TOD_group if isinstance(TOD_group, np.ndarray) and TOD_group.ndim == 1 else TOD_group[0]
-            cutoff_freq = cutoff_freq_group if isinstance(cutoff_freq_group, (int, float)) else cutoff_freq_group[0]
+            cutoff_freq = cutoff_freq_group if isinstance(cutoff_freq_group, (int, float)) else (
+                None if cutoff_freq_group is None else cutoff_freq_group[0]
+            )
             gain = gain_group if isinstance(gain_group, (int, float)) else gain_group[0]
             calibrated_TOD = np.asarray(TOD) / gain
             if known_injection_group is not None:
                 known_injection = known_injection_group if isinstance(known_injection_group, np.ndarray) and known_injection_group.ndim == 1 else known_injection_group[0]
                 calibrated_TOD -= known_injection
-            hp_filter_mat = HP_filter_TOD(len(TOD), dtime, cutoff_freq=cutoff_freq, filter_order=filter_order, preserve_dc=preserve_dc)
+            hp_filter_mat = make_tod_filter(len(TOD), cutoff_freq)
             HP_cal_TOD_overall = hp_filter_mat @ calibrated_TOD
             HP_Tsys_operator_overall = hp_filter_mat @ self.Tsys_operators
 
