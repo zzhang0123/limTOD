@@ -19,7 +19,8 @@ def get_filtfilt_matrix(n_samples, b, a):
     
     return H
 
-def HP_filter_TOD(n_samples, dtime, cutoff_freq=0.001, filter_order=4):
+def HP_filter_TOD(n_samples, dtime, cutoff_freq=0.001, filter_order=4,
+                  preserve_dc=False):
     """
     Apply high-pass Butterworth filter to the TOD.
     Parameters:
@@ -33,6 +34,15 @@ def HP_filter_TOD(n_samples, dtime, cutoff_freq=0.001, filter_order=4):
     filter_order : int, default=4
         Order of the Butterworth filter (typical range: 2-8)
         Higher order = sharper cutoff but more edge effects
+    preserve_dc : bool, default=False
+        If True, add back the DC projection so the filter has unit gain
+        at ℓ=0 while still rejecting drifts between DC and the cutoff.
+        Constructed as H' = H (I - P) + P with P = J/n (the DC
+        projection). Useful only when the per-chunk mean is dominated
+        by sky (low-noise regime). In the realistic 1/f regime the
+        chunk mean is dominated by drift realisation, so preserve_dc
+        would let drift DC leak into the recovered map — keep the
+        default False unless you've verified this for your noise model.
 
     Returns:
     --------
@@ -57,6 +67,12 @@ def HP_filter_TOD(n_samples, dtime, cutoff_freq=0.001, filter_order=4):
     b, a = signal.butter(filter_order, normalized_cutoff, btype='high', analog=False)
 
     H_exact = get_filtfilt_matrix(n_samples, b, a) # Exact matrix representation of filtfilt operation
+    if preserve_dc:
+        # H' x = H (I - P) x + P x = H (x - mean(x) 1) + mean(x) 1.
+        # Constants pass through unchanged; everything faster than the
+        # Butterworth cutoff is still attenuated.
+        P = np.ones((n_samples, n_samples)) / n_samples
+        H_exact = H_exact @ (np.eye(n_samples) - P) + P
     return H_exact
 
 
@@ -399,16 +415,19 @@ class HPW_mapmaking:
         *,       
         TOD_group,
         dtime,
-        cutoff_freq_group,
+        cutoff_freq_group=None,
         gain_group=None,
         known_injection_group=None,
         Tsky_prior_mean=None,
         Tsky_prior_inv_cov_diag=None,
         Tsys_other_prior_mean_group=None,
         Tsys_other_prior_inv_cov_group=None,
+        noise_variance=None,
         regularization=1e-12,
         return_full_cov=False,
         filter_order=4,
+        preserve_dc=False,
+        use_high_pass=False,
     ):
         """
         TOD_group : a TOD array or a list of TOD arrays at the same frequency channel.
@@ -422,8 +441,9 @@ class HPW_mapmaking:
         dtime : float
             Time interval between samples in seconds.
 
-        cutoff_freq_group : list of float, 
-            Cutoff frequency for high-pass filter in unit of the nyquist frequency.
+        cutoff_freq_group : list of float, optional
+            Cutoff frequency for high-pass filter in Hz. Required when
+            use_high_pass is True; ignored when use_high_pass is False.
 
         known_injection_group : a list of known system temperature components to be subtracted from Tsys (calibrated TOD),  each element corresponding to each TOD in TOD_group.
             e.g. [mu_1, mu_2, ...]
@@ -443,6 +463,19 @@ class HPW_mapmaking:
             e.g. [Tsys_other_prior_mean_1, Tsys_other_prior_mean_2, ...]
             If None, assumed to be zero.
 
+        noise_variance : float, 1D array, or list of (float | 1D array), optional
+            Per-sample noise variance. Three forms accepted:
+              * None (default): auto-estimate from the residual TOD - operator @ pinv(operator) @ TOD
+                via a 100-sample rolling window. NOTE: this estimate can be heavily biased
+                low when the operator does not span the projectable signal subspace —
+                it conflates un-projectable signal with noise, which mis-weights data
+                in the Wiener filter. Provide an explicit value when possible.
+              * scalar: uniform variance applied to every concatenated sample.
+              * 1D array of length sum(len(TOD_i)): per-sample variances over the
+                concatenated TOD ordering.
+              * list of length num_tods, each entry a scalar or 1D array of length
+                len(TOD_i): per-TOD variance, concatenated internally.
+
         Tsys_other_prior_inv_cov_group : a list of prior inverse covariances for other system temperature components, each element corresponding to each TOD in TOD_group.
             e.g. [Tsys_other_prior_inv_cov_1, Tsys_other_prior_inv_cov_2, ...]
             The shape of each element can be:
@@ -450,6 +483,11 @@ class HPW_mapmaking:
                 (num_other_params, num_other_params) : Full inverse covariance matrix. 
             But all elements must have the same shape.
             If None, assumed to be uninformative prior (zero, i.e., infinite prior variance).
+
+        use_high_pass : bool, default=False
+            If True, apply the Butterworth high-pass filter to the TOD and
+            system operator. If False, use the identity matrix and solve the
+            unfiltered map-making problem.
 
 
         Returns:        
@@ -467,11 +505,25 @@ class HPW_mapmaking:
         if gain_group is None:
             gain_group = [1.0]*self.num_tods
 
+        def make_tod_filter(n_samples, cutoff_freq):
+            if not use_high_pass:
+                return np.eye(n_samples)
+            if cutoff_freq is None:
+                raise ValueError("cutoff_freq_group must be provided when use_high_pass=True.")
+            return HP_filter_TOD(
+                n_samples,
+                dtime,
+                cutoff_freq=cutoff_freq,
+                filter_order=filter_order,
+                preserve_dc=preserve_dc,
+            )
+
         self.HP_exact = []
         if self.num_tods > 1:
 
             for i in range(self.num_tods):
-                hp_filter_mat = HP_filter_TOD(len(TOD_group[i]), dtime, cutoff_freq=cutoff_freq_group[i], filter_order=filter_order)
+                cutoff_freq = None if cutoff_freq_group is None else cutoff_freq_group[i]
+                hp_filter_mat = make_tod_filter(len(TOD_group[i]), cutoff_freq)
                 self.HP_exact.append(hp_filter_mat)
                 calibrated_TOD_i = np.asarray(TOD_group[i]) / gain_group[i] 
                 if known_injection_group is not None:
@@ -488,13 +540,15 @@ class HPW_mapmaking:
 
         elif self.num_tods == 1:
             TOD = TOD_group if isinstance(TOD_group, np.ndarray) and TOD_group.ndim == 1 else TOD_group[0]
-            cutoff_freq = cutoff_freq_group if isinstance(cutoff_freq_group, (int, float)) else cutoff_freq_group[0]
+            cutoff_freq = cutoff_freq_group if isinstance(cutoff_freq_group, (int, float)) else (
+                None if cutoff_freq_group is None else cutoff_freq_group[0]
+            )
             gain = gain_group if isinstance(gain_group, (int, float)) else gain_group[0]
             calibrated_TOD = np.asarray(TOD) / gain
             if known_injection_group is not None:
                 known_injection = known_injection_group if isinstance(known_injection_group, np.ndarray) and known_injection_group.ndim == 1 else known_injection_group[0]
                 calibrated_TOD -= known_injection
-            hp_filter_mat = HP_filter_TOD(len(TOD), dtime, cutoff_freq=cutoff_freq, filter_order=filter_order)
+            hp_filter_mat = make_tod_filter(len(TOD), cutoff_freq)
             HP_cal_TOD_overall = hp_filter_mat @ calibrated_TOD
             HP_Tsys_operator_overall = hp_filter_mat @ self.Tsys_operators
 
@@ -544,12 +598,33 @@ class HPW_mapmaking:
                     raise ValueError("Each element in Tsys_other_prior_inv_cov_group must be a 1D or 2D array.")
 
     
+        # Normalise per-TOD noise_variance into the form wiener_filter_map expects.
+        # Accepts: None / scalar / 1D array / list-of-(scalar|1D-array).
+        nv = noise_variance
+        if isinstance(nv, (list, tuple)):
+            assert len(nv) == self.num_tods, (
+                f"noise_variance list length {len(nv)} != num_tods {self.num_tods}"
+            )
+            tod_lengths = [len(TOD_group[i]) for i in range(self.num_tods)] \
+                if self.num_tods > 1 else [len(HP_cal_TOD_overall)]
+            pieces = []
+            for i, nv_i in enumerate(nv):
+                if np.isscalar(nv_i):
+                    pieces.append(np.full(tod_lengths[i], float(nv_i)))
+                else:
+                    nv_i = np.asarray(nv_i, dtype=float)
+                    assert nv_i.shape == (tod_lengths[i],), (
+                        f"noise_variance[{i}] shape {nv_i.shape} != ({tod_lengths[i]},)"
+                    )
+                    pieces.append(nv_i)
+            nv = np.concatenate(pieces)
+
         # Apply Wiener filter with the overall operator
         estmation, uncertainty = wiener_filter_map(
-            HP_cal_TOD_overall, 
-            HP_Tsys_operator_overall, 
-            noise_variance=None, # estimated from TOD, rather than provided
-            prior_inv_cov=Tsys_prior_inv_cov, 
+            HP_cal_TOD_overall,
+            HP_Tsys_operator_overall,
+            noise_variance=nv,  # explicit if provided, else auto-estimated inside
+            prior_inv_cov=Tsys_prior_inv_cov,
             guess=Tsys_prior_mean,
             regularization=regularization,
             return_full_cov=return_full_cov,

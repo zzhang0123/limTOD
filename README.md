@@ -590,7 +590,8 @@ sky_map, sky_uncertainty = mapmaker(
     Tsys_other_prior_inv_cov_group=None,
     regularization=1e-12,
     return_full_cov=False,
-    filter_order=4
+    filter_order=4,
+    use_high_pass=False
 )
 ```
 
@@ -608,6 +609,7 @@ sky_map, sky_uncertainty = mapmaker(
 * `regularization` (float): Regularization parameter for numerical stability
 * `return_full_cov` (bool): If True, return full posterior covariance matrix
 * `filter_order` (int): Order of the Butterworth high-pass filter. Default is 4.
+* `use_high_pass` (bool): If True, apply the Butterworth high-pass filter. Default is False, which solves using the unfiltered TOD/operator and allows `cutoff_freq_group=None`.
 
 **Returns:**
 

@@ -657,15 +657,30 @@ class TODSim:
             If return_LSTs is True, also return the array of LST values in degrees.
         """
         # the beam-weighted sum of the sky map at each pointing.
+        #
+        # Parallel strategy: partition the *time* axis contiguously across
+        # MPI ranks. Each rank computes its local time slice for every
+        # frequency (outer serial loop over freq_list, inner parallel slice
+        # over time), then allgathers along the time axis so every rank
+        # returns the full (nfreq, ntime) array. Time is always the
+        # dominant axis (typically thousands of samples) while nfreq is
+        # often 1, which is why partitioning here beats the previous
+        # freq-axis parallelism.
 
         ntime = len(time_list)
+        nfreq = len(freq_list)
+
         if isinstance(elevation_deg, (int, float)):
             elevation_deg_list = np.full(ntime, elevation_deg)
         else:
-            elevation_deg_list = elevation_deg
+            elevation_deg_list = np.asarray(elevation_deg)
 
         if selfrot_deg_list is None:
             selfrot_deg_list = np.zeros(ntime)
+        else:
+            selfrot_deg_list = np.asarray(selfrot_deg_list)
+
+        azimuth_deg_list = np.asarray(azimuth_deg_list)
 
         LST_deg_list = generate_LSTs_deg(
             self.ant_latitude_deg,
@@ -675,29 +690,46 @@ class TODSim:
             start_time_utc=start_time_utc,
         )
 
-        def single_freq_sky_TOD(freq):
+        # Contiguous time-axis partition. In serial (size == 1) this
+        # returns all ntime indices on the single rank.
+        idx_mine = np.asarray(
+            mpiutil.partition_list_mpi(list(range(ntime)), method="con"),
+            dtype=int,
+        )
+        n_local = len(idx_mine)
+
+        lst_mine = LST_deg_list[idx_mine]
+        az_mine = azimuth_deg_list[idx_mine]
+        el_mine = elevation_deg_list[idx_mine]
+        sr_mine = selfrot_deg_list[idx_mine]
+
+        TOD_local = np.empty((nfreq, n_local), dtype=np.float64)
+        for i, freq in enumerate(freq_list):
             beam_map = self.beam_func(freq=freq, nside=self.beam_nside)
             sky_map = self.sky_func(freq=freq, nside=self.sky_nside)
-
-            tod = generate_TOD_sky(
+            TOD_local[i] = generate_TOD_sky(
                 beam_map,
                 sky_map,
-                LST_deg_list,
+                lst_mine,
                 self.ant_latitude_deg,
-                azimuth_deg_list,
-                elevation_deg_list,
-                selfrot_deg_list,
+                az_mine,
+                el_mine,
+                sr_mine,
                 nside_hires=nside_hires,
                 normalize_beam=normalize_beam,
                 horizontal_mask=horizontal_mask,
-                truncate_frac_thres=truncate_frac_thres
+                truncate_frac_thres=truncate_frac_thres,
             )
 
-            return tod
-
-        TOD_array = np.array(
-            mpiutil.parallel_map_gather(single_freq_sky_TOD, freq_list)
-        )
+        if mpiutil.size == 1:
+            TOD_array = TOD_local
+        else:
+            # allgather preserves the "all ranks return the full array"
+            # contract of this method. Concatenation along the last axis
+            # reassembles the global time order because partition_list_mpi
+            # hands out contiguous slices in rank order.
+            pieces = mpiutil.world.allgather(TOD_local)
+            TOD_array = np.concatenate(pieces, axis=-1)
 
         if return_LSTs:
             return TOD_array, LST_deg_list
@@ -785,6 +817,10 @@ class TODSim:
                 )
             white_noise_var = 2.5e-6
 
+        # Generate 1/f gain noise on rank 0 only, then broadcast to every
+        # rank. The 1/f sequence is correlated in time, so every rank must
+        # see the *same* realisation — a per-rank re-draw would give a
+        # rank-dependent overall_TOD and silently corrupt MPI runs.
         if gain_noise_TOD is None:
             if gain_noise_params is None:
                 gain_noise_TOD = 0.0
@@ -796,20 +832,34 @@ class TODSim:
                         f"alpha={gain_noise_params[2]}."
                         "\nNote that these 1/f noise are uncorrelated in frequencies."
                     )
-
-                f0, fc, alpha = gain_noise_params
-                gain_noise_TOD = sim_noise(
-                    f0, fc, alpha, time_list, n_samples=nfreq, white_n_variance=0.0
-                )
+                    f0, fc, alpha = gain_noise_params
+                    gain_noise_TOD = sim_noise(
+                        f0, fc, alpha, time_list, n_samples=nfreq,
+                        white_n_variance=0.0,
+                    )
+                else:
+                    gain_noise_TOD = None
+                if mpiutil.size > 1:
+                    gain_noise_TOD = mpiutil.world.bcast(
+                        gain_noise_TOD, root=0)
         elif gain_noise_params is not None:
             if mpiutil.rank0:
                 print(
                     "Warning: Both gain_noise_TOD and gain_noise_params are provided. Ignoring gain_noise_params."
                 )
 
-        white_noise_TOD = np.random.normal(
-            0, np.sqrt(white_noise_var), size=(nfreq, ntime)
-        )
+        # White noise follows the same rank-0-then-bcast pattern. Without
+        # the broadcast each rank draws from its own (different) RNG state
+        # and overall_TOD would differ by rank after the multiplicative
+        # combine below.
+        if mpiutil.rank0:
+            white_noise_TOD = np.random.normal(
+                0, np.sqrt(white_noise_var), size=(nfreq, ntime),
+            )
+        else:
+            white_noise_TOD = None
+        if mpiutil.size > 1:
+            white_noise_TOD = mpiutil.world.bcast(white_noise_TOD, root=0)
 
         sky_TOD, LST_deg_list = self.simulate_sky_TOD(
             freq_list,
