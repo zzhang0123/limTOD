@@ -30,14 +30,24 @@ from limtod_jax.alm import (
     packed_to_2d,
 )
 from limtod_jax.angles import zyz_of_pointing, zyzyz2zyz
+from limtod_jax.core import (
+    beam_weighted_sum,
+    generate_tod_sky,
+    generate_tod_sky_adjoint,
+    rotate_alm,
+)
 
 __all__ = [
     "__version__",
     "alm_dot",
+    "beam_weighted_sum",
+    "generate_tod_sky",
+    "generate_tod_sky_adjoint",
     "lmax_of_nalm",
     "nalm_of_lmax",
     "packed_from_2d",
     "packed_to_2d",
+    "rotate_alm",
     "zyz_of_pointing",
     "zyzyz2zyz",
 ]
