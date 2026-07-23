@@ -69,6 +69,11 @@ notebooks = [
     "matplotlib>=3.3.0",
     "seaborn>=0.11.0",
 ]
+# The jax extra requires Python >= 3.11 (s2fft floor); the base package stays >= 3.8.
+jax = [
+    "jax>=0.5",
+    "s2fft>=1.4.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/zzhang0123/limTOD"
@@ -80,7 +85,7 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["limTOD*"]
+include = ["limTOD*", "limtod_jax*"]
 
 [tool.setuptools.package-data]
 limTOD = ["data/*", "examples/*"]
