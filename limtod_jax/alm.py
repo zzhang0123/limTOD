@@ -32,6 +32,8 @@ def nalm_of_lmax(lmax: int) -> int:
 
 def lmax_of_nalm(n_alm: int) -> int:
     """Inverse of :func:`nalm_of_lmax`; raises if ``n_alm`` is not triangular."""
+    if n_alm < 1:
+        raise ValueError(f"n_alm={n_alm} is not a valid packed-alm length")
     lmax = int(round((np.sqrt(8 * n_alm + 1) - 3) / 2))
     if lmax < 0 or nalm_of_lmax(lmax) != n_alm:
         raise ValueError(f"n_alm={n_alm} is not a valid packed-alm length")
@@ -47,8 +49,8 @@ def packed_lm_arrays(lmax: int) -> tuple[np.ndarray, np.ndarray]:
     """
     ls, ms = [], []
     for m in range(lmax + 1):
-        for l in range(m, lmax + 1):
-            ls.append(l)
+        for ell in range(m, lmax + 1):
+            ls.append(ell)
             ms.append(m)
     return np.asarray(ls, dtype=np.int64), np.asarray(ms, dtype=np.int64)
 

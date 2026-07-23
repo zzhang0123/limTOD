@@ -15,6 +15,8 @@ jax = pytest.importorskip("jax")
 pytest.importorskip("s2fft")
 hp = pytest.importorskip("healpy")
 
+# Process-global: enabling x64 here affects every jax-using test collected in
+# the same pytest session (today only this directory touches jax).
 jax.config.update("jax_enable_x64", True)
 
 

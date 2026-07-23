@@ -74,8 +74,11 @@ def rotate_flm_2d(
     optionally supplies a precomputed ``(L, 2L-1, 2L-1)`` Wigner-d plane
     (from :func:`generate_rotate_dls`), in which case ``beta`` is unused.
     """
-    if flm.shape[-2:] != (L, 2 * L - 1):
-        raise ValueError(f"flm shape {flm.shape} does not match L={L}")
+    if flm.ndim != 2 or flm.shape != (L, 2 * L - 1):
+        raise ValueError(
+            f"flm must have shape (L, 2L-1)={(L, 2 * L - 1)}, got {flm.shape}; "
+            "batch with jax.vmap rather than a leading axis"
+        )
 
     m_grid = jnp.arange(-L + 1, L)
     alpha_phases = jnp.exp(-1j * m_grid * jnp.asarray(alpha))

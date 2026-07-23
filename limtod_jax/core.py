@@ -89,6 +89,7 @@ def beam_weighted_sum(
     num = alm_dot(beam_alm, sky_alm)
     if not normalize:
         return num
+    assert ones_alm is not None  # _require_ones guarantees; narrows the type
     return num / alm_dot(beam_alm, ones_alm)
 
 
@@ -130,7 +131,10 @@ def generate_tod_sky(
     L = lmax + 1
     beam_flm = packed_to_2d(beam_alm, lmax)
     sky_flm = packed_to_2d(sky_alm, lmax)
-    ones_flm = packed_to_2d(ones_alm, lmax) if normalize else None
+    ones_flm = None
+    if normalize:
+        assert ones_alm is not None  # _require_ones guarantees; narrows the type
+        ones_flm = packed_to_2d(ones_alm, lmax)
 
     def sample(angles: jnp.ndarray) -> jnp.ndarray:
         a, b, g = angles_to_alpha_beta_gamma(angles[0], angles[1], angles[2])
@@ -138,6 +142,7 @@ def generate_tod_sky(
         num = _full_sphere_dot(rot, sky_flm)
         if not normalize:
             return num
+        assert ones_flm is not None  # set above whenever normalize is True
         return num / _full_sphere_dot(rot, ones_flm)
 
     return jax.lax.map(sample, zyz_angles)
@@ -167,13 +172,17 @@ def generate_tod_sky_adjoint(
     """
     _validate_angles(zyz_angles)
     _require_ones(normalize, ones_alm)
-    if tod.shape[-1] != zyz_angles.shape[0]:
+    if tod.ndim != 1 or tod.shape[0] != zyz_angles.shape[0]:
         raise ValueError(
-            f"tod length {tod.shape[-1]} != n_time {zyz_angles.shape[0]}"
+            f"tod must be 1D of length n_time={zyz_angles.shape[0]} "
+            f"(batch with jax.vmap), got shape {tod.shape}"
         )
     L = lmax + 1
     beam_flm = packed_to_2d(beam_alm, lmax)
-    ones_flm = packed_to_2d(ones_alm, lmax) if normalize else None
+    ones_flm = None
+    if normalize:
+        assert ones_alm is not None  # _require_ones guarantees; narrows the type
+        ones_flm = packed_to_2d(ones_alm, lmax)
     acc_dtype = jnp.result_type(beam_flm.dtype, tod.dtype)
 
     def step(accum, inputs):

@@ -78,7 +78,14 @@ def _zyz_from_matrix(r: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndar
     return psi, theta, phi
 
 
-def zyzyz2zyz(alpha, beta, gamma, delta, chi, output_degrees: bool = False):
+def zyzyz2zyz(
+    alpha: jnp.ndarray,
+    beta: jnp.ndarray,
+    gamma: jnp.ndarray,
+    delta: jnp.ndarray,
+    chi: jnp.ndarray,
+    output_degrees: bool = False,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Collapse a "zyzyz" rotation to effective "zyz" angles.
 
     ``R = Rz(chi)·Ry(delta)·Rz(gamma)·Ry(beta)·Rz(alpha)`` with inputs in
@@ -94,7 +101,13 @@ def zyzyz2zyz(alpha, beta, gamma, delta, chi, output_degrees: bool = False):
     return psi, theta, phi
 
 
-def zyz_of_pointing(lst_deg, lat_deg, az_deg, el_deg, selfrot_deg):
+def zyz_of_pointing(
+    lst_deg: jnp.ndarray,
+    lat_deg: jnp.ndarray,
+    az_deg: jnp.ndarray,
+    el_deg: jnp.ndarray,
+    selfrot_deg: jnp.ndarray,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Pointing parameters -> effective "zyz" angles (radians).
 
     Mirrors ``limTOD.simulator.zyz_of_pointing``: azimuth is east-of-north

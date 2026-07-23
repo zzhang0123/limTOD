@@ -143,6 +143,33 @@ def test_default_truncation_realism_case(rng, quad_alm, beam_alm_iter3, oracle_t
     assert rel_trunc < 1e-2, f"truncation effect blew up: {rel_trunc:.3e}"
 
 
+@pytest.mark.parametrize("normalize", [False, True])
+def test_beam_weighted_sum_matches_numpy_oracle(normalize, rng, quad_alm, beam_alm_iter3):
+    """Direct oracle for contract function #4: pixel-space _beam_weighted_sum.
+
+    numpy: T = np.sum(B·s) (normalize: B/np.sum(B) first), with B the
+    synthesized bandlimited beam. Native: the weighted harmonic dot with
+    quadrature sky/ones alms — exactly equal by the quadrature identity.
+    """
+    sim = pytest.importorskip("limTOD.simulator")
+    from limtod_jax.core import beam_weighted_sum
+
+    nside, lmax = 8, 23
+    npix = hp.nside2npix(nside)
+    beam_alm = beam_alm_iter3(rng.random(npix), lmax)
+    beam_map = hp.alm2map(beam_alm.copy(), nside)  # exactly bandlimited map
+    sky_map = rng.random(npix)
+
+    direct = sim._beam_weighted_sum(beam_map, sky_map, normalize=normalize)
+    native = beam_weighted_sum(
+        jnp.asarray(beam_alm),
+        jnp.asarray(quad_alm(sky_map, lmax)),
+        normalize=normalize,
+        ones_alm=jnp.asarray(quad_alm(np.ones(npix), lmax)) if normalize else None,
+    )
+    np.testing.assert_allclose(float(native), float(direct), rtol=1e-12)
+
+
 def test_rotate_alm_public_matches_healpy(rng):
     """Public rotate_alm(alm, psi, theta, phi) == _rotate_healpix_map's alm op."""
     lmax = 23

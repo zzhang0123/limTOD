@@ -108,4 +108,4 @@ def test_jit_and_dtype():
     out1 = f(10.0, 53.24, 12.0, 41.0, 0.0)
     out2 = f(20.0, 53.24, 12.0, 41.0, 0.0)  # same shapes, no retrace error
     assert all(o.dtype == jnp.float64 for o in out1)
-    assert float(out1[1]) != float(out2[1]) or True  # values differ, just smoke
+    assert [float(x) for x in out1] != [float(x) for x in out2]

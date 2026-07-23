@@ -21,7 +21,7 @@ N_TIME = 5
 
 
 @pytest.fixture(scope="module")
-def setup(rng):
+def setup():
     npix = hp.nside2npix(NSIDE)
     beam_map = np.random.default_rng(1).random(npix)
     sky_map = np.random.default_rng(2).random(npix)

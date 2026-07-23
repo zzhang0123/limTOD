@@ -104,6 +104,7 @@ def test_jax_path_never_imports_healpy():
         "print('clean')"
     )
     out = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=600
     )
+    assert out.returncode == 0, out.stderr[-2000:]
     assert "clean" in out.stdout

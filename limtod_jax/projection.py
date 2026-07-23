@@ -60,7 +60,10 @@ def generate_projection_rows(
         )
     L = lmax + 1
     beam_flm = packed_to_2d(beam_alm, lmax)
-    ones_flm = packed_to_2d(ones_alm, lmax) if normalize else None
+    ones_flm = None
+    if normalize:
+        assert ones_alm is not None  # _require_ones guarantees; narrows the type
+        ones_flm = packed_to_2d(ones_alm, lmax)
 
     def row(angles: jnp.ndarray) -> jnp.ndarray:
         a, b, g = angles_to_alpha_beta_gamma(angles[0], angles[1], angles[2])
@@ -69,6 +72,7 @@ def generate_projection_rows(
         vals = full[..., pixel_indices]
         if not normalize:
             return vals
+        assert ones_flm is not None  # set above whenever normalize is True
         return vals / _full_sphere_dot(rot, ones_flm)
 
     return jax.lax.map(row, zyz_angles)

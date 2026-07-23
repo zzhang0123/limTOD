@@ -31,7 +31,7 @@ def pointings():
 
 
 @pytest.fixture(scope="module")
-def beam(rng):
+def beam():
     beam_map = np.random.default_rng(3).random(hp.nside2npix(NSIDE))
     return beam_map, jnp.asarray(hp.map2alm(beam_map, lmax=LMAX))
 
