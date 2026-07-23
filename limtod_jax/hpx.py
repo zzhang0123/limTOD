@@ -13,6 +13,13 @@ Two operations, both linear and jit/vmap/grad-safe:
 
 ``method="jax"`` equivalents only — s2fft's ``jax_healpy`` backend routes
 through healpy and is banned from this package.
+
+PRECISION: s2fft's healpix transforms use the Price-McEwen on-the-fly
+recursion, which needs float64 — in a float32 session (``jax_enable_x64``
+off) they carry O(10%) errors even at L ~ 12 (s2fft warns about exactly
+this at import). Enable x64 wherever these functions feed real analysis.
+The Wigner rotation path (:mod:`limtod_jax.wigner`, Risbo recursion) does
+NOT share this problem — it stays at roundoff accuracy in float32.
 """
 
 from __future__ import annotations

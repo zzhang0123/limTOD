@@ -6,6 +6,13 @@ works on a dense 2D array ``flm[l, lmax+m]`` covering all m in
 [-lmax, lmax]; for a real field the negative-m entries are fixed by
 ``flm[l, −m] = (−1)^m · conj(flm[l, m])``.
 
+Domain: VALID real-field alms — in particular the m = 0 coefficients (the
+first ``lmax+1`` packed entries) must be real, as ``hp.map2alm`` produces
+them. Inputs with imaginary m = 0 parts lie outside the representable
+space: the forward dot silently drops that component while the
+packed->2D->packed round trip re-symmetrizes it, so forward/adjoint pairs
+are transposes of each other only on the valid subspace.
+
 ``lmax`` is always a static Python int; index arrays are built with numpy at
 trace time (cached per lmax) so every function is jit/vmap/grad-safe.
 """
