@@ -36,15 +36,21 @@ from limtod_jax.core import (
     generate_tod_sky_adjoint,
     rotate_alm,
 )
+from limtod_jax.hpx import alm2map, map2alm_quad, ones_quadrature_alm
+from limtod_jax.projection import generate_projection_rows
 
 __all__ = [
     "__version__",
+    "alm2map",
     "alm_dot",
     "beam_weighted_sum",
+    "generate_projection_rows",
     "generate_tod_sky",
     "generate_tod_sky_adjoint",
     "lmax_of_nalm",
+    "map2alm_quad",
     "nalm_of_lmax",
+    "ones_quadrature_alm",
     "packed_from_2d",
     "packed_to_2d",
     "rotate_alm",
