@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "limTOD"
-version = "1.1.0"
+version = "1.3.0"
 authors = [
     {name = "Zheng Zhang", email = "zheng.zhang@manchester.ac.uk"},
 ]
@@ -22,6 +22,8 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Astronomy",
     "Topic :: Scientific/Engineering :: Physics",
 ]
@@ -35,18 +37,40 @@ keywords = [
     "noise modeling",
     "map making"
 ]
+# Base dependencies are kept to wheel-installable packages only. Heavy or
+# toolchain-dependent dependencies live in extras (see below): mpi4py needs a
+# system MPI compiler ([mpi]); pygdsm pulls extra packages and downloads sky
+# data ([gdsm]). Without them limTOD runs serially and every feature except
+# GDSM_sky_model works unchanged.
 dependencies = [
     "numpy>=1.19.0",
     "healpy>=1.14.0",
     "astropy>=4.0.0",
     "scipy>=1.5.0",
     "tqdm>=4.60.0",
-    "mpi4py>=3.0.0",
-    "pygdsm>=1.2.0",
     "mpmath>=1.2.0",
 ]
 
 [project.optional-dependencies]
+# MPI-parallel runs (mpirun/mpiexec); without it limTOD.mpiutil falls back to
+# serial mode (rank=0, size=1).
+mpi = [
+    "mpi4py>=3.0.0",
+]
+# The Global Sky Model used by limTOD.sky_model.GDSM_sky_model (lazy import).
+gdsm = [
+    "pygdsm>=1.2.0",
+]
+# Everything (today's pre-1.3 default install). Deps are enumerated directly
+# rather than as self-referential "limTOD[...]" extras because this package is
+# installed from source/git — a self-reference would make pip resolve "limTOD"
+# against PyPI, where it is not published.
+full = [
+    "mpi4py>=3.0.0",
+    "pygdsm>=1.2.0",
+    "jax>=0.5",
+    "s2fft>=1.4.0",
+]
 dev = [
     "pytest>=6.0",
     "pytest-cov>=2.0",
