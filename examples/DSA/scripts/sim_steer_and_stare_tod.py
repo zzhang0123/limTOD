@@ -207,8 +207,11 @@ def main() -> None:
             )
         my_results.append((idx, tod, lst, az, el))
 
-    # --- Gather pointings on rank 0 ---
-    all_results = mpiutil.world.gather(my_results, root=0)
+    # --- Gather pointings on rank 0 (serial mode: no communicator) ---
+    if mpiutil.size > 1:
+        all_results = mpiutil.world.gather(my_results, root=0)
+    else:
+        all_results = [my_results]
     if mpiutil.rank0:
         flat: list[tuple[int, np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = []
         for chunk in all_results:

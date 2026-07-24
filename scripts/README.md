@@ -21,8 +21,10 @@ operators, custom beam FITS, multi-elevation cascade, etc.) see
 
 - A conda environment with `limTOD` installed (editable install is
   fine); the repo uses the `TOD` env in the author's setup.
-- `mpi4py` is a runtime dependency of limTOD; you only need `mpirun`
-  if you want to run in parallel.
+- `mpi4py` is an optional dependency since limTOD 1.3.0
+  (`pip install -e ".[mpi]"`); without it these scripts run serially
+  automatically. You only need `mpirun` (and the `[mpi]` extra) for
+  parallel runs.
 
 ## Quick start (serial)
 

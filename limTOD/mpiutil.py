@@ -5,9 +5,6 @@ This module is adapted from https://github.com/radiocosmology/caput/blob/master/
 import numpy as np
 import logging
 
-# Add near the top with other CPU affinity code
-import os
-
 rank = 0
 size = 1
 _comm = None
@@ -34,18 +31,25 @@ def init_mpi():
         _mpi_initialized = True
 
 
-# Initialize MPI when module is imported
-init_mpi()
+# mpi4py is an OPTIONAL dependency (install with: pip install "limTOD[mpi]").
+# Without it, every function in this module degrades to serial mode
+# (rank=0, size=1, world=None) — the same fallback the upstream caput
+# mpiutil this file is adapted from provides. All consumers already guard
+# on `size == 1` / `comm is None`, so serial behavior is unchanged.
+try:
+    # Initialize MPI when module is imported
+    init_mpi()
+    from mpi4py import MPI
 
-from mpi4py import MPI
+    _comm = MPI.COMM_WORLD
+    world = _comm
+    rank = _comm.Get_rank()
+    size = _comm.Get_size()
 
-_comm = MPI.COMM_WORLD
-world = _comm
-rank = _comm.Get_rank()
-size = _comm.Get_size()
-
-if _comm is not None and size > 1:
-    logger.debug("Starting MPI rank=%i [size=%i]", rank, size)
+    if _comm is not None and size > 1:
+        logger.debug("Starting MPI rank=%i [size=%i]", rank, size)
+except ImportError:
+    logger.debug("mpi4py not found — running in serial mode (size=1)")
 
 rank0 = rank == 0
 
@@ -83,11 +87,14 @@ def partition_list_mpi(full_list, method="con", comm=_comm):
     """
     Return the partition of a list specific to the current MPI process.
     """
+    # Distinct local names: assigning to `rank`/`size` here would shadow the
+    # module-level serial defaults and leave them unbound when comm is None.
     if comm is not None:
-        rank = comm.rank
-        size = comm.size
+        proc_rank, proc_size = comm.rank, comm.size
+    else:
+        proc_rank, proc_size = rank, size
 
-    return partition_list(full_list, rank, size, method=method)
+    return partition_list(full_list, proc_rank, proc_size, method=method)
 
 
 def parallel_map_gather(

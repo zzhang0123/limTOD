@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-24
+
+### Added
+
+- 🚀 **`limtod_jax` package**: pure-JAX, differentiable port of the sky→TOD
+  chain (pointing → ZYZ Euler angles → Wigner rotation of beam alms →
+  beam-weighted harmonic dot), implementing the e-RHINO
+  `docs/limtod-port-contract.md`. Ships `zyz_of_pointing`, `rotate_alm`,
+  `beam_weighted_sum`, `generate_tod_sky` (+ exact adjoint),
+  `generate_projection_rows`, and JAX-side HEALPix map↔alm wrappers.
+  Matches `limTOD.simulator.generate_TOD_sky(..., truncate_frac_thres=0.0)`
+  to ~1e-12 relative in float64 (oracle-tested at extreme pointing corners);
+  jit/vmap/grad-safe. Install with `pip install -e ".[jax]"` (Python ≥ 3.11).
+- 📦 **Dependency extras**: `[mpi]` (mpi4py), `[gdsm]` (pygdsm), `[jax]`
+  (jax + s2fft), and `[full]` (all of the above).
+
+### Changed
+
+- **Fresh-install default changed**: `mpi4py` and `pygdsm` are no longer
+  required dependencies — a plain `pip install -e .` now installs a lighter,
+  wheel-only stack (numpy, healpy, astropy, scipy, tqdm, mpmath). Rationale:
+  mpi4py needs a system MPI toolchain and pygdsm downloads sky-model data,
+  both an unnecessary burden for downstream users (e.g. e-RHINO) who only
+  consume the JAX port. **Existing environments are unaffected** (already-
+  installed packages stay); for a fresh full setup use
+  `pip install -e ".[full]"`, for MPI runs `.[mpi]`, for GDSM skies `.[gdsm]`.
+- `limTOD.mpiutil` falls back to serial mode (`rank=0, size=1, world=None`)
+  when mpi4py is absent — restoring the graceful-degradation behavior of the
+  upstream caput `mpiutil` it is adapted from. With mpi4py installed,
+  behavior is unchanged.
+- `GDSM_sky_model` imports pygdsm lazily and raises a clear `ImportError`
+  pointing at `pip install "limTOD[gdsm]"` when it is missing. All other
+  functionality works without pygdsm.
+
+### Fixed
+
+- Aligned `pyproject.toml`/`limTOD.__version__` (stuck at 1.1.0) with the
+  changelog version history.
+
 ## [1.2.0] - 2025-10-06
 
 ### Added

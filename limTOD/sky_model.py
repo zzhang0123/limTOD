@@ -1,10 +1,19 @@
-from pygdsm import GlobalSkyModel16 as GlobalSkyModel
-
 import healpy as hp
 import numpy as np
 
 
-def GDSM_sky_model(*, freq, nside):
+def GDSM_sky_model(*, freq: float, nside: int) -> np.ndarray:
+    """Global Sky Model (GSM16) map at `freq` [MHz], regridded to `nside`."""
+    # pygdsm is an OPTIONAL dependency (it pulls extra packages and downloads
+    # sky-model data on first use), imported lazily so that `import limTOD`
+    # works without it. Install with: pip install "limTOD[gdsm]".
+    try:
+        from pygdsm import GlobalSkyModel16 as GlobalSkyModel
+    except ImportError as exc:
+        raise ImportError(
+            "GDSM_sky_model requires the optional pygdsm package; "
+            'install it with: pip install "limTOD[gdsm]"'
+        ) from exc
     gsm = GlobalSkyModel()
     skymap = gsm.generate(freq)
     skymap = hp.ud_grade(skymap, nside_out=nside)

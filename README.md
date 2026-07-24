@@ -61,7 +61,8 @@ This will install `jupyter` and `matplotlib` for the notebook, as well as instal
 
 ### Required Dependencies
 
-All required dependencies will be automatically installed when installing via `pip` .
+The base install is deliberately lightweight — wheel-installable packages only,
+so `pip install -e .` never needs a compiler toolchain:
 
 ```
 numpy >= 1.19.0
@@ -69,18 +70,57 @@ healpy >= 1.14.0
 astropy >= 4.0.0
 scipy >= 1.5.0
 tqdm >= 4.60.0
-mpi4py >= 3.0.0 (for parallel processing)
-pygdsm >= 1.2.0 (for Global Sky Model)
 mpmath >= 1.2.0 (for flicker noise modeling)
 ```
 
-### Development Setup
+### Optional Extras
 
-The `pip` command should be run with `-e` flag (or `--editable` ) and `[dev]` varient
+Heavier dependencies are opt-in extras (since v1.3.0; see
+[CHANGELOG.md](CHANGELOG.md)):
+
+| Extra | Installs | When you need it |
+|-------|----------|------------------|
+| `[mpi]` | `mpi4py` | MPI-parallel TOD simulation (`mpirun -n <N> ...`). Without it, `limTOD.mpiutil` transparently runs in serial mode (`rank=0, size=1`) — all APIs work unchanged. Note: building mpi4py requires a system MPI library (e.g. `brew install open-mpi` / `apt install libopenmpi-dev`). |
+| `[gdsm]` | `pygdsm` | The `GDSM_sky_model` sky function (Global Sky Model; downloads sky data on first use). Every other sky/beam function works without it; calling `GDSM_sky_model` without pygdsm raises an `ImportError` telling you to install this extra. |
+| `[jax]` | `jax`, `s2fft` | The **`limtod_jax`** package — a pure-JAX, differentiable port of the sky→TOD chain (see below). Requires Python ≥ 3.11. |
+| `[full]` | all of the above | Restores the pre-1.3 "everything" install. |
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[mpi]"        # cluster / MPI runs
+pip install -e ".[gdsm]"       # GDSM sky model
+pip install -e ".[jax]"        # differentiable JAX port (limtod_jax)
+pip install -e ".[full]"       # everything
 ```
+
+> **Upgrading from ≤ 1.2.0**: nothing changes in an existing environment
+> (installed packages stay installed). Only *fresh* installs are affected:
+> add `[mpi]`/`[gdsm]`/`[full]` if you rely on MPI parallelism or the GDSM
+> sky model.
+
+### The `limtod_jax` package
+
+Installing with the `[jax]` extra also provides `limtod_jax` — a pure-JAX,
+jit/vmap/grad-safe reimplementation of the sky→TOD machinery
+(pointing → ZYZ angles → Wigner rotation of beam alms → beam-weighted sum),
+verified against `limTOD.simulator.generate_TOD_sky` to ~1e-12 relative
+accuracy in float64. It never imports healpy/mpi4py/pygdsm, and is what
+[e-RHINO](https://github.com/zzhang0123/e-RHINO)'s differentiable
+`NativeLimTODProjector` builds on. Enable `jax_enable_x64` for quantitative
+work (the HEALPix map↔alm transforms need float64; see
+`limtod_jax/hpx.py`).
+
+### Development Setup
+
+The `pip` command should be run with `-e` flag (or `--editable` ). For
+development, combine `[dev]` (test/lint tooling) with `[full]` so the test
+suite exercises both the MPI-present and the serial-fallback code paths:
+
+```bash
+pip install -e ".[dev,full]"
+```
+
+(A `[dev]`-only environment still runs the whole suite; the single
+mpi4py-present check is skipped automatically.)
 
 ## Simulating TOD with TODSim Class
 

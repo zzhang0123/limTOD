@@ -237,8 +237,9 @@ def main() -> None:
                     white_noise_full = rng.normal(
                         0.0, np.sqrt(args.white_var), size=n_samp,
                     ) if args.white_var > 0 else np.zeros(n_samp)
-                gain_noise_full = mpiutil.world.bcast(gain_noise_full, root=0)
-                white_noise_full = mpiutil.world.bcast(white_noise_full, root=0)
+                if mpiutil.size > 1:
+                    gain_noise_full = mpiutil.world.bcast(gain_noise_full, root=0)
+                    white_noise_full = mpiutil.world.bcast(white_noise_full, root=0)
                 gain_noise_mine = gain_noise_full[idx_mine]
                 white_noise_mine = white_noise_full[idx_mine]
 

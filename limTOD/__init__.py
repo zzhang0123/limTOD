@@ -2,7 +2,7 @@
 limTOD: Time-Ordered Data Simulator
 """
 
-__version__ = "1.1.0"
+__version__ = "1.3.0"
 __author__ = "Zheng Zhang"
 __email__ = "zheng.zhang@manchester.ac.uk"
 __license__ = "MIT"
