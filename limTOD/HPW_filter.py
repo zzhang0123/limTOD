@@ -275,10 +275,19 @@ def simple_wiener_map(
 
 
 
-class HPW_mapmaking:
+class _MapmakingBase:
+    """Shared geometry/operator construction for the TOD map-makers.
+
+    Builds the truncated pixel set and the per-TOD system operators from
+    the scan geometry. :class:`HPW_mapmaking` (high-pass + Wiener) and
+    :class:`limTOD.gls_mapmaking.GLS_mapmaking` both subclass this, so
+    the expensive operator construction and the prior assembly are shared
+    while each solver keeps its own ``__call__``.
     """
-    Map-making class for Time-Ordered Data (TOD) using high-pass filtering and Wiener filtering.
-    """
+
+    # Total parameter count (sky + other-Tsys columns); set by each
+    # subclass's __call__ from its stacked operator before _build_priors.
+    nparams: int
 
     def __init__(
         self,
@@ -469,6 +478,69 @@ class HPW_mapmaking:
             else:
                 self.Tsys_operators = sky_operators
 
+    def _build_priors(
+        self,
+        Tsky_prior_mean: Optional[np.ndarray],
+        Tsys_other_prior_mean_group: Optional[Sequence[np.ndarray]],
+        Tsky_prior_inv_cov_diag: Optional[np.ndarray],
+        Tsys_other_prior_inv_cov_group: Optional[Sequence[np.ndarray]],
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Assemble the joint prior mean vector and prior inverse-covariance
+        matrix over (sky pixels + other-Tsys parameters). Requires
+        ``self.nparams`` to be set."""
+        Tsys_prior_mean = np.zeros(self.nparams)
+        if Tsky_prior_mean is not None:
+            if len(Tsky_prior_mean) != self.nsky_params:
+                raise ValueError("Length of Tsky_prior_mean must match number of sky parameters.")
+            Tsys_prior_mean[:self.nsky_params] = Tsky_prior_mean
+        counter = self.nsky_params
+        if Tsys_other_prior_mean_group is not None:
+            if not self.Tsys_others:
+                raise ValueError("Tsys_others_operator must be provided in initialization if Tsys_other_prior_mean_group is provided.")
+            if len(Tsys_other_prior_mean_group) != self.num_tods:
+                raise ValueError("Length of Tsys_other_prior_mean_group must match number of TODs.")
+            for Tsys_other_prior_mean_i in Tsys_other_prior_mean_group:
+                Tsys_prior_mean[counter:counter+len(Tsys_other_prior_mean_i)] = Tsys_other_prior_mean_i
+                counter += len(Tsys_other_prior_mean_i)
+
+        Tsys_prior_inv_cov = np.zeros((self.nparams, self.nparams))
+        if Tsky_prior_inv_cov_diag is not None:
+            Tsky_prior_inv_cov_diag = np.asarray(Tsky_prior_inv_cov_diag).reshape(-1) # flatten
+            if len(Tsky_prior_inv_cov_diag) != self.nsky_params:
+                raise ValueError("Length of Tsky_prior_inv_cov_diag must match number of sky parameters.")
+            Tsys_prior_inv_cov[:self.nsky_params, :self.nsky_params] = np.diag(Tsky_prior_inv_cov_diag)
+
+        counter = self.nsky_params
+        if Tsys_other_prior_inv_cov_group is not None:
+            if not self.Tsys_others:
+                raise ValueError("Tsys_others_operator must be provided in initialization if Tsys_other_prior_inv_cov_group is provided.")
+            if len(Tsys_other_prior_inv_cov_group) != self.num_tods:
+                raise ValueError("Length of Tsys_other_prior_inv_cov_group must match number of TODs.")
+
+            for Tsys_other_prior_inv_cov_i in Tsys_other_prior_inv_cov_group:
+                # Branch on THIS element's ndim: checking group[0] here used to
+                # misroute mixed 1D/2D groups, silently np.diag-ing a 2D
+                # covariance and discarding its off-diagonal entries.
+                Tsys_other_prior_inv_cov_i = np.asarray(Tsys_other_prior_inv_cov_i)
+                if Tsys_other_prior_inv_cov_i.ndim == 1:
+                    n_others = len(Tsys_other_prior_inv_cov_i)
+                    Tsys_prior_inv_cov[counter:counter+n_others, counter:counter+n_others] = np.diag(Tsys_other_prior_inv_cov_i)
+                    counter += n_others
+                elif Tsys_other_prior_inv_cov_i.ndim == 2:
+                    n_others = Tsys_other_prior_inv_cov_i.shape[0]
+                    Tsys_prior_inv_cov[counter:counter+n_others, counter:counter+n_others] = Tsys_other_prior_inv_cov_i
+                    counter += n_others
+                else:
+                    raise ValueError("Each element in Tsys_other_prior_inv_cov_group must be a 1D or 2D array.")
+
+        return Tsys_prior_mean, Tsys_prior_inv_cov
+
+
+class HPW_mapmaking(_MapmakingBase):
+    """
+    Map-making class for Time-Ordered Data (TOD) using high-pass filtering and Wiener filtering.
+    """
+
     def _filter_and_stack(
         self,
         TOD_group: Union[np.ndarray, Sequence[np.ndarray]],
@@ -537,63 +609,6 @@ class HPW_mapmaking:
             HP_Tsys_operator_overall = hp_filter_mat @ self.Tsys_operators
 
         return HP_cal_TOD_overall, HP_Tsys_operator_overall
-
-    def _build_priors(
-        self,
-        Tsky_prior_mean: Optional[np.ndarray],
-        Tsys_other_prior_mean_group: Optional[Sequence[np.ndarray]],
-        Tsky_prior_inv_cov_diag: Optional[np.ndarray],
-        Tsys_other_prior_inv_cov_group: Optional[Sequence[np.ndarray]],
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Assemble the joint prior mean vector and prior inverse-covariance
-        matrix over (sky pixels + other-Tsys parameters). Requires
-        ``self.nparams`` to be set."""
-        Tsys_prior_mean = np.zeros(self.nparams)
-        if Tsky_prior_mean is not None:
-            if len(Tsky_prior_mean) != self.nsky_params:
-                raise ValueError("Length of Tsky_prior_mean must match number of sky parameters.")
-            Tsys_prior_mean[:self.nsky_params] = Tsky_prior_mean
-        counter = self.nsky_params
-        if Tsys_other_prior_mean_group is not None:
-            if not self.Tsys_others:
-                raise ValueError("Tsys_others_operator must be provided in initialization if Tsys_other_prior_mean_group is provided.")
-            if len(Tsys_other_prior_mean_group) != self.num_tods:
-                raise ValueError("Length of Tsys_other_prior_mean_group must match number of TODs.")
-            for Tsys_other_prior_mean_i in Tsys_other_prior_mean_group:
-                Tsys_prior_mean[counter:counter+len(Tsys_other_prior_mean_i)] = Tsys_other_prior_mean_i
-                counter += len(Tsys_other_prior_mean_i)
-
-        Tsys_prior_inv_cov = np.zeros((self.nparams, self.nparams))
-        if Tsky_prior_inv_cov_diag is not None:
-            Tsky_prior_inv_cov_diag = np.asarray(Tsky_prior_inv_cov_diag).reshape(-1) # flatten
-            if len(Tsky_prior_inv_cov_diag) != self.nsky_params:
-                raise ValueError("Length of Tsky_prior_inv_cov_diag must match number of sky parameters.")
-            Tsys_prior_inv_cov[:self.nsky_params, :self.nsky_params] = np.diag(Tsky_prior_inv_cov_diag)
-
-        counter = self.nsky_params
-        if Tsys_other_prior_inv_cov_group is not None:
-            if not self.Tsys_others:
-                raise ValueError("Tsys_others_operator must be provided in initialization if Tsys_other_prior_inv_cov_group is provided.")
-            if len(Tsys_other_prior_inv_cov_group) != self.num_tods:
-                raise ValueError("Length of Tsys_other_prior_inv_cov_group must match number of TODs.")
-
-            for Tsys_other_prior_inv_cov_i in Tsys_other_prior_inv_cov_group:
-                # Branch on THIS element's ndim: checking group[0] here used to
-                # misroute mixed 1D/2D groups, silently np.diag-ing a 2D
-                # covariance and discarding its off-diagonal entries.
-                Tsys_other_prior_inv_cov_i = np.asarray(Tsys_other_prior_inv_cov_i)
-                if Tsys_other_prior_inv_cov_i.ndim == 1:
-                    n_others = len(Tsys_other_prior_inv_cov_i)
-                    Tsys_prior_inv_cov[counter:counter+n_others, counter:counter+n_others] = np.diag(Tsys_other_prior_inv_cov_i)
-                    counter += n_others
-                elif Tsys_other_prior_inv_cov_i.ndim == 2:
-                    n_others = Tsys_other_prior_inv_cov_i.shape[0]
-                    Tsys_prior_inv_cov[counter:counter+n_others, counter:counter+n_others] = Tsys_other_prior_inv_cov_i
-                    counter += n_others
-                else:
-                    raise ValueError("Each element in Tsys_other_prior_inv_cov_group must be a 1D or 2D array.")
-
-        return Tsys_prior_mean, Tsys_prior_inv_cov
 
     def _normalize_noise_variance(
         self,
