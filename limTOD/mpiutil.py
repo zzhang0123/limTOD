@@ -2,8 +2,10 @@
 This module is adapted from https://github.com/radiocosmology/caput/blob/master/caput/mpiutil.py
 """
 
-import numpy as np
 import logging
+import os
+
+import numpy as np
 
 rank = 0
 size = 1
@@ -31,6 +33,31 @@ def init_mpi():
         _mpi_initialized = True
 
 
+# Environment variables set by common MPI launchers (mpirun/mpiexec/srun),
+# used to detect the "launched under MPI but mpi4py missing" misconfiguration.
+_MPI_LAUNCHER_SIZE_VARS = (
+    "OMPI_COMM_WORLD_SIZE",  # Open MPI
+    "PMI_SIZE",              # MPICH / Intel MPI (Hydra)
+    "MV2_COMM_WORLD_SIZE",   # MVAPICH2
+    "SLURM_NTASKS",          # Slurm srun
+)
+
+
+def _detect_mpi_launcher():
+    """Return "VAR=value" if an MPI launcher with >1 tasks is detected, else None."""
+    for var in _MPI_LAUNCHER_SIZE_VARS:
+        value = os.environ.get(var)
+        if value is None:
+            continue
+        try:
+            n_tasks = int(value)
+        except ValueError:
+            continue
+        if n_tasks > 1:
+            return f"{var}={value}"
+    return None
+
+
 # mpi4py is an OPTIONAL dependency (install with: pip install "limTOD[mpi]").
 # Without it, every function in this module degrades to serial mode
 # (rank=0, size=1, world=None) — the same fallback the upstream caput
@@ -49,6 +76,19 @@ try:
     if _comm is not None and size > 1:
         logger.debug("Starting MPI rank=%i [size=%i]", rank, size)
 except ImportError:
+    # Guard against the silent-duplication trap: under `mpirun -n N` without
+    # mpi4py, every process would believe it is rank 0 of 1 and run the FULL
+    # workload — N-fold duplicated compute, and rank-0-gated file writes
+    # would collide. Fail loudly instead (escape hatch: LIMTOD_FORCE_SERIAL=1).
+    _launcher = _detect_mpi_launcher()
+    if _launcher is not None and os.environ.get("LIMTOD_FORCE_SERIAL") != "1":
+        raise RuntimeError(
+            f"An MPI launcher is detected ({_launcher}) but mpi4py is not "
+            "installed, so every process would silently run the whole "
+            "workload in serial mode. Install the MPI extra "
+            '(pip install "limTOD[mpi]") or, if running N independent serial '
+            "copies is intentional, set LIMTOD_FORCE_SERIAL=1."
+        ) from None
     logger.debug("mpi4py not found — running in serial mode (size=1)")
 
 rank0 = rank == 0

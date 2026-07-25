@@ -1,6 +1,13 @@
 import healpy as hp
 import numpy as np
-import matplotlib.pyplot as plt
+
+try:
+    import matplotlib.pyplot as plt
+except ImportError as exc:  # pragma: no cover — matplotlib is not a base dep
+    raise ImportError(
+        "limTOD.visual needs matplotlib (pip install matplotlib); "
+        "it is not part of limTOD's base dependencies."
+    ) from exc
 
 
 def view_patch_map(map, pixel_indices):

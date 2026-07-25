@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.3.0] - 2026-07-24
+## [1.3.0] - 2026-07-25
 
 ### Added
 
@@ -22,6 +22,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   jit/vmap/grad-safe. Install with `pip install -e ".[jax]"` (Python ≥ 3.11).
 - 📦 **Dependency extras**: `[mpi]` (mpi4py), `[gdsm]` (pygdsm), `[jax]`
   (jax + s2fft), and `[full]` (all of the above).
+- 🛡️ **MPI launcher guard**: importing limTOD under `mpirun`/`srun`
+  *without* mpi4py now raises a clear `RuntimeError` instead of silently
+  running N duplicated serial copies (each process believing it is rank 0).
+  Escape hatch for intentionally independent serial copies:
+  `LIMTOD_FORCE_SERIAL=1`.
+- 🚢 **First PyPI release**: `pip install limTOD`.
+
+### Documentation
+
+- 📚 **Restructured**: README is now a concise landing page (install,
+  quick starts, citation); detailed guides moved to `docs/`
+  (tod-simulation, mapmaking, theory & conventions, api-reference,
+  limtod-jax). Fixed duplicated/garbled parameter listings, broken
+  fences, and case-mismatched notebook links from the old monolithic
+  README.
+
+### Packaging
+
+- Version is single-sourced from `pyproject.toml`: both
+  `limTOD.__version__` and `limtod_jax.__version__` read the installed
+  distribution metadata (the hardcoded copies had drifted once).
+- Modernized metadata (SPDX license expression + `license-files`,
+  Python 3.12/3.13 classifiers, Documentation/Changelog URLs) and a lean
+  sdist (packages + docs + CHANGELOG; notebooks/data stay on GitHub).
 
 ### Changed
 
@@ -43,6 +67,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+Pre-release full-code review (independent numpy-side and JAX-side passes)
+caught and fixed, with regression tests for each:
+
+- 🐛 **`horizontal_mask` orientation**: the horizontal-frame mask was
+  rotated with `elevation=0` instead of the zenith pointing
+  (`elevation=90`), tipping it 90° onto the horizon — every masked
+  simulation placed the mask at the wrong sky location. Fixed; a
+  regression test pins the mask cap to (RA = LST, Dec = latitude).
+- 🐛 **Silent NaN from zero-sum beams**: `normalize_beam`/`normalize=True`
+  divided by the beam's pixel sum unguarded; a fully-truncated or
+  fully-masked pointing silently poisoned the TOD with NaN. Now raises a
+  clear `ValueError` naming the pointing conditions; negative beam sums
+  scale all Stokes rows consistently (previously Q/U/V were left
+  unscaled).
+- 🐛 **Flicker-noise error handling**: `aux_int` no longer swallows
+  mpmath errors into a printed message plus a fabricated `inf`
+  (it raises with context); `flicker_corr`/`sim_noise` explicitly reject
+  the singular `alpha=1` exponent instead of failing type-dependently.
+- 🐛 **`wiener_filter_map` short TODs**: the default rolling-variance
+  estimator crashed with an opaque matmul error for TODs shorter than its
+  100-sample window; the window now caps at the TOD length and mismatched
+  `noise_variance` lengths raise a clear error.
+- 🐛 **`HPW_mapmaking` prior routing**: mixed 1D/2D
+  `Tsys_other_prior_inv_cov_group` elements were all routed by the FIRST
+  element's dimensionality, silently discarding off-diagonal covariance
+  entries; each element now routes by its own shape.
+- 🐛 **`generate_gaussian_field(seed=None)`** no longer reseeds the global
+  NumPy RNG from OS entropy (which clobbered callers' reproducibility
+  seeding); it only seeds when a seed is given.
+- Pointing-array length mismatches now raise upfront (zip previously
+  truncated silently); MPI-unsafe unconditional prints are rank-0-gated;
+  `HPW_mapmaking` argument validation raises `ValueError` instead of
+  `assert` (which `python -O` strips); example scripts' obfuscated
+  serializer imports (written to dodge a security hook) were replaced with
+  plain, warning-commented imports.
 - Aligned `pyproject.toml`/`limTOD.__version__` (stuck at 1.1.0) with the
   changelog version history.
 

@@ -20,13 +20,30 @@ Conventions (matching numpy limTOD):
 * healpy is never imported here — it remains the test-suite oracle only.
 """
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version as _dist_version
+
+try:
+    # limtod_jax ships inside the limTOD distribution; keep one version.
+    __version__ = _dist_version("limTOD")
+except PackageNotFoundError:  # pragma: no cover — running from a bare checkout
+    __version__ = "0.0.0.dev0"
+
+try:
+    import jax as _jax  # noqa: F401
+    import s2fft as _s2fft  # noqa: F401
+except ImportError as exc:  # pragma: no cover — depends on install extras
+    raise ImportError(
+        "limtod_jax needs the jax extra of the limTOD distribution: "
+        'pip install "limTOD[jax]" (Python >= 3.11).'
+    ) from exc
 
 from limtod_jax.alm import (
     alm_dot,
+    alm_weights,
     lmax_of_nalm,
     nalm_of_lmax,
     packed_from_2d,
+    packed_lm_arrays,
     packed_to_2d,
 )
 from limtod_jax.angles import zyz_of_pointing, zyzyz2zyz
@@ -43,6 +60,7 @@ __all__ = [
     "__version__",
     "alm2map",
     "alm_dot",
+    "alm_weights",
     "beam_weighted_sum",
     "generate_projection_rows",
     "generate_tod_sky",
@@ -52,6 +70,7 @@ __all__ = [
     "nalm_of_lmax",
     "ones_quadrature_alm",
     "packed_from_2d",
+    "packed_lm_arrays",
     "packed_to_2d",
     "rotate_alm",
     "zyz_of_pointing",
