@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.3.0] - 2026-07-24
+## [1.3.0] - 2026-07-25
 
 ### Added
 
@@ -22,6 +22,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   jit/vmap/grad-safe. Install with `pip install -e ".[jax]"` (Python ≥ 3.11).
 - 📦 **Dependency extras**: `[mpi]` (mpi4py), `[gdsm]` (pygdsm), `[jax]`
   (jax + s2fft), and `[full]` (all of the above).
+- 🛡️ **MPI launcher guard**: importing limTOD under `mpirun`/`srun`
+  *without* mpi4py now raises a clear `RuntimeError` instead of silently
+  running N duplicated serial copies (each process believing it is rank 0).
+  Escape hatch for intentionally independent serial copies:
+  `LIMTOD_FORCE_SERIAL=1`.
+- 🚢 **First PyPI release**: `pip install limTOD`.
+
+### Documentation
+
+- 📚 **Restructured**: README is now a concise landing page (install,
+  quick starts, citation); detailed guides moved to `docs/`
+  (tod-simulation, mapmaking, theory & conventions, api-reference,
+  limtod-jax). Fixed duplicated/garbled parameter listings, broken
+  fences, and case-mismatched notebook links from the old monolithic
+  README.
+
+### Packaging
+
+- Version is single-sourced from `pyproject.toml`: both
+  `limTOD.__version__` and `limtod_jax.__version__` read the installed
+  distribution metadata (the hardcoded copies had drifted once).
+- Modernized metadata (SPDX license expression + `license-files`,
+  Python 3.12/3.13 classifiers, Documentation/Changelog URLs) and a lean
+  sdist (packages + docs + CHANGELOG; notebooks/data stay on GitHub).
 
 ### Changed
 
