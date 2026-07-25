@@ -97,6 +97,27 @@ class TestBeamOrientation:
         mirror = _expected_vec(NCP, ZENITH, EAST, 0.0, psi_deg=-30.0)
         assert _sep_deg(got, mirror) > 4.0 * TOL_DEG
 
+    # Azimuth convention: measured from North, increasing towards East
+    # (N=0, E=90, S=180, W=270). A boresight-centred blob pointed at
+    # (az, el=0) must land on the corresponding horizon compass point;
+    # a west-of-north convention would land az=90 on the West point.
+    @pytest.mark.parametrize(
+        "az, compass_point",
+        [(0.0, NCP),                              # North point
+         (90.0, EAST),                            # East point
+         (180.0, np.array([0.0, 0.0, -1.0])),     # South point (SCP)
+         (270.0, np.array([0.0, -1.0, 0.0]))],    # West point
+    )
+    def test_azimuth_measured_from_north_towards_east(self, az, compass_point):
+        theta, _ = hp.pix2ang(NSIDE, np.arange(hp.nside2npix(NSIDE)))
+        alm = hp.map2alm(np.exp(-0.5 * (theta / SIGMA) ** 2), lmax=LMAX)
+        out = pointing_beam_in_eq_sys(
+            alm, LST_deg=0.0, lat_deg=0.0, azimuth_deg=az, elevation_deg=0.0,
+            selfrot_deg=0.0, nside=NSIDE, normalize=False,
+        )
+        got = np.asarray(hp.pix2vec(NSIDE, int(np.argmax(out))))
+        assert _sep_deg(got, compass_point) < TOL_DEG
+
     # Parked configuration (az=0, el=90): the beam axes must land on
     # (south point, east point, zenith) — the alt-az Cartesian triad.
     # At lat=0, LST=0: zenith = (RA 0, Dec 0), south point = SCP.
