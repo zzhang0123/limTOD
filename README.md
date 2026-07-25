@@ -124,13 +124,12 @@ archivePrefix = {arXiv},
 }
 ```
 
-## License and maintainers
+## License and authorship
 
 MIT License — see
 [LICENSE](https://github.com/zzhang0123/limTOD/blob/main/LICENSE).
 
-limTOD is developed and maintained by members of the MeerKLASS
-collaboration, currently:
-
-- Zheng Zhang (University of Manchester)
-- Piyanat Kittiwisit (University of the Western Cape)
+limTOD is developed and maintained by Zheng Zhang (University of
+Manchester), with active help and advice from members of the MeerKLASS
+and RHINO collaborations — including Phil Bull, Piyanat Kittiwisit,
+Geoff Murphy, and Mario Santos.

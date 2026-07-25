@@ -1,0 +1,52 @@
+# Publish limTOD to PyPI via Trusted Publishing (OIDC) — no API token needed.
+#
+# One-time PyPI setup (done on pypi.org, not here):
+#   Account settings -> Publishing -> "Add a new pending publisher":
+#     PyPI project name : limTOD
+#     Owner             : zzhang0123
+#     Repository        : limTOD
+#     Workflow name     : publish.yml
+#     Environment name  : pypi
+# The first successful run creates the PyPI project and claims the name.
+#
+# Trigger: publishing a GitHub Release (or manual dispatch as a fallback).
+# No untrusted event data is interpolated into any run command.
+
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          python -m twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write   # required for PyPI Trusted Publishing (OIDC)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
