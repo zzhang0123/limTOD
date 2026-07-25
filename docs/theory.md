@@ -133,6 +133,15 @@ rather than compass or left/right words.
   $\hat e_{\mathrm{az}} = \cos A\, \hat E - \sin A\, \hat N$ (unchanged)
   and $\hat e_{\mathrm{el}}(A, 90°) = -(\sin A\, \hat E + \cos A\, \hat N)$,
   the continuous carry-over of the mount's approach azimuth.
+- **Parked configuration** ($A = 0°, e = 90°$ — the rotation chain with
+  only its site steps applied): the beam axes land on
+  $(\varphi{=}0, \varphi{=}90°, \text{boresight}) \to$ (**south point**
+  of the horizon, **east point**, **zenith**) — the standard alt-az
+  Cartesian triad $(\hat S, \hat E, \hat U)$, right-handed since
+  $\hat S \times \hat E = \hat U$. This is just the general formulas at
+  $A = 0°, e = 90°$: $\hat e_{\mathrm{el}} = -\hat N = \hat S$,
+  $\hat e_{\mathrm{az}} = \hat E$. Verified through the chain at
+  several (latitude, LST) combinations.
 - **Symmetric beams** are insensitive to $\varphi$ entirely — which is
   why this section matters only for asymmetric beams and polarization
   work (and why the orientation went unstated for so long: symmetric

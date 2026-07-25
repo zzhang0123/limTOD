@@ -97,6 +97,19 @@ class TestBeamOrientation:
         mirror = _expected_vec(NCP, ZENITH, EAST, 0.0, psi_deg=-30.0)
         assert _sep_deg(got, mirror) > 4.0 * TOL_DEG
 
+    # Parked configuration (az=0, el=90): the beam axes must land on
+    # (south point, east point, zenith) — the alt-az Cartesian triad.
+    # At lat=0, LST=0: zenith = (RA 0, Dec 0), south point = SCP.
+    @pytest.mark.parametrize(
+        "phi_b, t_hat",
+        [(0.0, np.array([0.0, 0.0, -1.0])),   # e_el(A=0, e=90) = south point
+         (90.0, EAST)],                        # e_az(A=0) = east point
+    )
+    def test_parked_axes_land_on_south_east_zenith(self, phi_b, t_hat):
+        got = _landing_vec(phi_b, az=0.0, el=90.0)
+        expected = np.cos(THETA0) * ZENITH + np.sin(THETA0) * t_hat
+        assert _sep_deg(got, expected) < TOL_DEG
+
     def test_mirror_convention_rejected(self):
         """phi = 90 landing along -e_az (the mirrored convention) must be
         far off — this is the case a symmetric beam can never detect."""
