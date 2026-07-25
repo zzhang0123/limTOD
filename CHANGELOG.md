@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   toward decreasing declination, φ = 90° along RA = 90°).
 - README now opens with the documentation link
   (https://limtod.readthedocs.io).
+- **Parked configuration documented and pinned**: with only the site
+  steps applied (`A = 0°, e = 90°`), the beam axes land on
+  (φ = 0, φ = 90°, boresight) → (south point, east point, zenith) —
+  the standard right-handed alt-az Cartesian triad, i.e. the general
+  tangent formulas at `A = 0°, e = 90°`. Two new parked-case tests
+  (el = 90° was an untested corner; 11 orientation tests total).
 
 ## [1.5.1] - 2026-07-25
 
