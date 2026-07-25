@@ -40,6 +40,13 @@ from .HPW_filter import (
     HPW_mapmaking
 )
 
+from .gls_mapmaking import (
+    GLS_mapmaking,
+    flicker_noise_cov,
+    flicker_noise_inv_cov,
+    iterative_gls,
+)
+
 __all__ = [
     "TODSim",
     "example_scan",
@@ -57,4 +64,8 @@ __all__ = [
     "wiener_filter_map",
     "simple_wiener_map",
     "HPW_mapmaking",
+    "GLS_mapmaking",
+    "flicker_noise_cov",
+    "flicker_noise_inv_cov",
+    "iterative_gls",
 ]

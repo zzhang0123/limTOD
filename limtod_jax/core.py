@@ -115,7 +115,8 @@ def generate_tod_sky(
             sum (numpy limTOD's ``normalize_beam`` semantics).
         ones_alm: quadrature alms of the ones map; required iff normalize.
 
-    Returns:
+    Returns
+    -------
         ``(n_time,)`` real TOD. Pointings are iterated with ``lax.map``
         (sequential — per-step Wigner memory is O(lmax^3), so batching the
         time axis would multiply that by n_time); the whole function is

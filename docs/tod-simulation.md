@@ -35,8 +35,8 @@ print(tod_array.shape)                     # (3, n_time)
 > without it.
 
 Worked notebooks:
-[TODsim_examples.ipynb](../examples/TODsim_examples.ipynb) (simulation),
-[mm_example.ipynb](../examples/mm_example.ipynb) (map-making workflow).
+[TODsim_examples.ipynb](https://github.com/zzhang0123/limTOD/blob/main/examples/TODsim_examples.ipynb) (simulation),
+[mm_example.ipynb](https://github.com/zzhang0123/limTOD/blob/main/examples/mm_example.ipynb) (map-making workflow).
 
 ## Beam and sky functions
 

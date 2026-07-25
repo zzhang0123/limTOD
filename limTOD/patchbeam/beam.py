@@ -18,7 +18,7 @@ module:
     construction time, so the working cube is ~1/4 the size of the raw
     complex Jones for the selected antenna;
 *   exposes the cube as a contiguous ndarray that downstream
-    :mod:`simeer.interpolation` can fancy-index.
+    :mod:`limTOD.patchbeam.interpolation` can fancy-index.
 
 For unit tests and for the synthetic Gaussian benchmark we also provide
 :meth:`MeerKLASSBeam.from_arrays` to construct a beam from in-memory
@@ -293,7 +293,7 @@ class MeerKLASSBeam:
         """Convenience interpolator for arbitrary (freq, l, m) queries.
 
         For the hot TOD-integration path you almost certainly want
-        :mod:`simeer.interpolation` directly (it precomputes the (l, m)
+        :mod:`limTOD.patchbeam.interpolation` directly (it precomputes the (l, m)
         weights once per pointing and applies them to all frequencies in
         a single vectorised pass).
         """

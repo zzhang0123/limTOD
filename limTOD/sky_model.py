@@ -49,7 +49,8 @@ def generate_gaussian_field(
     has zero mean (on average) by default. See Alonso et al. (2014) [1405.1751],
     Sect. 4.1, for the algorithm used.
 
-    Parameters:
+    Parameters
+    ----------
         freqs (array_like):
             Frequencies at which to generate maps, in MHz.
         nside (int):
@@ -77,7 +78,8 @@ def generate_gaussian_field(
             The  minimum eigenvalue to tolerate from the freq.-freq. part of the
             covariance matrix. Modes with eigenvalues lower than this are ignored.
 
-    Returns:
+    Returns
+    -------
         maps (array_like):
             Array of Healpix maps, of shape `(Nfreqs, Npix)`.
     """

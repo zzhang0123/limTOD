@@ -6,7 +6,7 @@ harmonic rotation.
 The class inherits everything else from limTOD: LST generation, gain
 noise, flicker noise, white noise, and the overall TOD assembly via
 ``generate_TOD``. Only :meth:`simulate_sky_TOD` is overridden. Users who
-only need the lower-level :mod:`limTOD.simeer.sky_integrator` API can
+only need the lower-level :mod:`limTOD.patchbeam.sky_integrator` API can
 bypass this class entirely.
 """
 
@@ -30,13 +30,13 @@ from .sky_integrator import integrate_tod, materialize_sky_cube
 SkyFunc = Callable[..., np.ndarray]
 
 
-class SimeerTODSim(_BaseTODSim):
+class PatchBeamTODSim(_BaseTODSim):
     """MeerKLASS-aware TOD simulator.
 
     Inherits gain/noise/white-noise modelling and the overall
     ``generate_TOD`` assembly from :class:`limTOD.TODSim`. Only the
     sky-signal step is replaced with the disc-based (l, m) interpolation
-    path implemented in :mod:`simeer.sky_integrator`.
+    path implemented in :mod:`limTOD.patchbeam.sky_integrator`.
 
     Parameters
     ----------
@@ -79,7 +79,7 @@ class SimeerTODSim(_BaseTODSim):
         # the noise and gain machinery downstream.
         def _unused_beam_func(**_: object) -> np.ndarray:
             raise RuntimeError(
-                "SimeerTODSim replaces the HEALPix beam_func path; this "
+                "PatchBeamTODSim replaces the HEALPix beam_func path; this "
                 "placeholder should never be called."
             )
 
@@ -89,7 +89,7 @@ class SimeerTODSim(_BaseTODSim):
             ant_height_m=ant_height_m,
             beam_func=_unused_beam_func,
             sky_func=sky_func,
-            beam_nside=sky_nside,  # unused by the simeer path
+            beam_nside=sky_nside,  # unused by the patch-beam path
             sky_nside=sky_nside,
         )
 
@@ -122,7 +122,7 @@ class SimeerTODSim(_BaseTODSim):
         truncate_frac_thres: float = 1e-10,  # accepted for API parity, ignored
         progress: bool = False,
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
-        """Sky-TOD integration via the Simeer (l, m) disc path.
+        """Sky-TOD integration via the patch-beam (l, m) disc path.
 
         The signature mirrors :meth:`limTOD.TODSim.simulate_sky_TOD` so
         callers can swap one class for the other. Parameters specific to

@@ -1,6 +1,6 @@
-# limTOD.simeer — patch-beam TOD path (MeerKLASS-optimal)
+# limTOD.patchbeam — patch-beam TOD path (MeerKLASS-optimal)
 
-`limTOD.simeer` computes the sky TOD **without ever rotating the beam in
+`limTOD.patchbeam` computes the sky TOD **without ever rotating the beam in
 harmonic space**: the beam stays on its native direction-cosine grid
 `(l, m)` and, for every pointing, only the HEALPix sky pixels inside a
 small disc around the pointing are touched. This is the right tool when
@@ -30,11 +30,11 @@ limTOD usage is unaffected.
 
 ```python
 import numpy as np
-from limTOD.simeer import MeerKLASSBeam, SimeerTODSim
+from limTOD.patchbeam import MeerKLASSBeam, PatchBeamTODSim
 
 beam = MeerKLASSBeam("meerklass_beam.npz", antenna="array_average")
 
-sim = SimeerTODSim(
+sim = PatchBeamTODSim(
     beam=beam,
     sky_func=my_sky_func,          # limTOD convention: f(freq=..., nside=...)
     sky_nside=256,
@@ -49,7 +49,7 @@ tod, sky_tod, gain_noise = sim.generate_TOD(     # inherited from TODSim:
 )
 ```
 
-`SimeerTODSim` subclasses `limTOD.TODSim` and overrides **only** the
+`PatchBeamTODSim` subclasses `limTOD.TODSim` and overrides **only** the
 sky-TOD step — gain noise, 1/f noise, white noise, LST handling, and the
 `generate_TOD` assembly are inherited unchanged. `simulate_sky_TOD`
 mirrors the base signature (HEALPix-specific arguments like
@@ -68,13 +68,13 @@ mirrors the base signature (HEALPix-specific arguments like
 ## Parallelism
 
 The sample loop parallelizes over time with joblib
-(`SimeerTODSim(n_jobs=-1)` / `integrate_tod(n_jobs=...)`). joblib is an
+(`PatchBeamTODSim(n_jobs=-1)` / `integrate_tod(n_jobs=...)`). joblib is an
 optional dependency (`pip install "limTOD[parallel]"`); the default
 serial path (`n_jobs=1`) needs nothing extra.
 
 ## Accuracy cross-check
 
-`tests/simeer/test_against_limtod.py` pins the disc path against the
+`tests/patchbeam/test_against_limtod.py` pins the disc path against the
 classic HEALPix spherical-harmonic path on matched Gaussian beams
 (agreement at the few-percent level, limited by HEALPix pixelization of
 the narrow beam — the regime where the disc path is *more* accurate, not

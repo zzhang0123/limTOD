@@ -45,9 +45,11 @@ def generate_projection_rows(
             ``ones_alm`` (required iff normalize; see
             :func:`limtod_jax.hpx.ones_quadrature_alm`).
 
-    Returns:
-        ``(n_time, n_sel)`` real matrix — ``limTOD.simulator.
-        generate_sky2sys_projection(..., truncate_frac_thres=0.0)``. Rows
+    Returns
+    -------
+        ``(n_time, n_sel)`` real matrix, matching
+        ``limTOD.simulator.generate_sky2sys_projection`` with
+        ``truncate_frac_thres=0.0``. Rows
         are produced with ``lax.map`` (sequential over pointings); the
         function is vmappable over a leading frequency axis of ``beam_alm``.
     """

@@ -1,23 +1,23 @@
 """
 Per-sample sky-TOD integration on a disc of HEALPix sky pixels.
 
-This is the core of Simeer. For one (LST, az_pointing, el_pointing)
+This is the core of the patch-beam path. For one (LST, az_pointing, el_pointing)
 sample it:
 
 1.  rotates the pointing into the equatorial frame to identify the
-    relevant HEALPix sky pixels (:mod:`simeer.disc`);
+    relevant HEALPix sky pixels (:mod:`limTOD.patchbeam.disc`);
 2.  rotates those pixels back into the horizontal frame at this LST
-    (:mod:`simeer.projection`);
+    (:mod:`limTOD.patchbeam.projection`);
 3.  computes their direction cosines (l, m) in the beam frame;
 4.  precomputes bilinear interpolation weights against the beam grid
-    (:mod:`simeer.interpolation`);
+    (:mod:`limTOD.patchbeam.interpolation`);
 5.  applies the weights to the beam power cube to get B(l, m, freq);
 6.  multiplies by the sky temperature, sums over the disc, normalises
-    by the beam solid angle Omega_b(freq) (:mod:`simeer.stokes`).
+    by the beam solid angle Omega_b(freq) (:mod:`limTOD.patchbeam.stokes`).
 
 The module exposes both a single-sample function
 (:func:`integrate_sample`) and a vectorised driver over a full time
-list (:func:`integrate_tod`) that uses :mod:`simeer._parallel`.
+list (:func:`integrate_tod`) that uses :mod:`limTOD.patchbeam._parallel`.
 """
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ def integrate_sample(
 
     The returned value is the beam-weighted sky temperature at this
     single pointing -- no gain, no noise. See :func:`integrate_tod` for
-    the multi-pointing driver, and :meth:`simeer.SimeerTODSim.generate_TOD`
+    the multi-pointing driver, and :meth:`limTOD.patchbeam.PatchBeamTODSim.generate_TOD`
     for the Full TOD that injects gain and noise on top.
 
     Parameters
@@ -272,11 +272,11 @@ def integrate_tod(
     This is the noiseless, gain-free beam-weighted sky signal -- it does
     NOT include receiver gain, 1/f gain fluctuations, system-temperature
     offsets, or white noise. For a Full TOD with those instrumental
-    effects, use :class:`simeer.SimeerTODSim.generate_TOD` (which calls
+    effects, use :class:`limTOD.patchbeam.PatchBeamTODSim.generate_TOD` (which calls
     this function internally as its sky-TOD step).
 
     Implemented as a vectorised driver over :func:`integrate_sample`,
-    parallelised across time samples via :mod:`simeer._parallel`.
+    parallelised across time samples via :mod:`limTOD.patchbeam._parallel`.
 
     Parameters
     ----------
@@ -291,7 +291,7 @@ def integrate_tod(
         Output observing frequencies (MHz). Must be representable on the
         beam grid; an error is raised otherwise.
     n_jobs : int, default 1
-        Passed to :func:`simeer._parallel.map_samples`. ``1`` runs
+        Passed to :func:`limTOD.patchbeam._parallel.map_samples`. ``1`` runs
         serially; ``-1`` uses every available core via joblib's Loky
         process pool.
     batch_size : int, optional

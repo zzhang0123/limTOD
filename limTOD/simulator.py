@@ -70,7 +70,8 @@ def zyzyz2zyz(
     "zyzyz"-rotation: R = R_z(chi) R_y(delta) * R_z(gamma) * R_y(beta) * R_z(alpha)
     "zyz"-rotation: R = R_z(phi) * R_y(theta) * R_z(psi)
 
-    Parameters:
+    Parameters
+    ----------
     alpha : float
         First "z" rotation angle in degrees.
     beta : float
@@ -84,7 +85,8 @@ def zyzyz2zyz(
     output_degrees : bool, optional
         If True, output angles are in degrees. Default is False (radians).
 
-    Returns:
+    Returns
+    -------
     tuple
         A tuple containing the (psi, theta, phi) angles.
     """
@@ -112,7 +114,8 @@ def zyz_of_pointing(
     All input angles are in degrees.
     The output angles (psi, theta, phi) are in radians, as that is the unit used by hp.rotate_alm().
 
-    Parameters:
+    Parameters
+    ----------
     LST_deg : float
         The site's Local Sidereal Time in degrees.
     lat_deg : float
@@ -124,7 +127,8 @@ def zyz_of_pointing(
     selfrot_deg: float
         The antenna's self-rotation (with respect to the beam centre) in degrees.
 
-    Returns:
+    Returns
+    -------
     tuple
         A tuple containing the (psi, theta, phi) angles in radians.
     """
@@ -152,7 +156,8 @@ def generate_LSTs_deg(
     """
     Generate Local Sidereal Time (LST) values in degrees for a list of time offsets.
 
-    Parameters:
+    Parameters
+    ----------
     ant_latitude_deg : float
         Latitude of the antenna/site in degrees.
     ant_longitude_deg : float
@@ -163,7 +168,8 @@ def generate_LSTs_deg(
     start_time_utc : str
         Start time in UTC (e.g. "2019-04-23 20:41:56.397").
 
-    Returns:
+    Returns
+    -------
     LST_list_deg : array
         Array of Local Sidereal Time values in degrees corresponding to each time offset.
     """
@@ -217,7 +223,8 @@ def _rotate_healpix_map(
     Rotate a Healpix map represented by its alm coefficients using given Euler angles (psi, theta, phi).
     The rotation is performed in-place on a copy of the alm coefficients.
 
-    Parameters:
+    Parameters
+    ----------
     alm : array
         The alm coefficients of the Healpix map to be rotated.
         Input map(s) can be:
@@ -235,7 +242,8 @@ def _rotate_healpix_map(
     return_map : bool, optional
         If True, return the rotated map. If False, return the rotated alm coefficients. Default is True.
 
-    Returns:
+    Returns
+    -------
     array
         The rotated Healpix map (if return_map is True) or the rotated alm coefficients (if return_map is False).
     """
@@ -277,15 +285,18 @@ def _normalize_map(input_map: np.ndarray) -> np.ndarray:
     """
     Normalize a Healpix map to have a sum value of 1.
 
-    Parameters:
+    Parameters
+    ----------
     input_map : array
         The Healpix map to be normalized.
 
-    Returns:
+    Returns
+    -------
     array
         The normalized Healpix map.
 
-    Raises:
+    Raises
+    ------
     ValueError
         If the map sums to (numerically) zero — dividing would silently
         fill the pipeline with NaN/Inf samples.
@@ -303,14 +314,16 @@ def _truncate_map(input_map: np.ndarray, frac_thres: float = 1e-10) -> np.ndarra
     """
     Truncate a Healpix map by setting all pixels with values below a certain fraction of the maximum pixel value to zero.
 
-    Parameters:
+    Parameters
+    ----------
     input_map : array
         The Healpix map to be truncated.
     frac_thres : float, optional
         The fractional threshold value for beam truncation.
         If specified, set all pixels with values below this fraction of the maximum pixel value to zero. Default is 0.0.
 
-    Returns:
+    Returns
+    -------
     array
         The truncated Healpix map.
     """
@@ -342,13 +355,13 @@ def pointing_beam_in_eq_sys(
 ) -> np.ndarray:
     """
     Point the beam in the equatorial coordinate system.
-    Parameters:
+
+    Parameters
+    ----------
     beam_alm : array
         The alm coefficients of the beam in its native orientation.
-        Input map can be:
-            a single array is considered I,
-            array with 3 rows:[I,Q,U]
-            array with 4 rows:[I,Q,U,V]
+        Input can be a single array (Stokes I), an array
+        with 3 rows [I, Q, U], or with 4 rows [I, Q, U, V].
     LST_deg : float
         The Local Sidereal Time in degrees.
     lat_deg : float
@@ -370,7 +383,8 @@ def pointing_beam_in_eq_sys(
         The fractional threshold value for (rotated-)beam truncation.
         If specified, set all pixels with values below this fraction of the maximum pixel value to zero before normalization. Default is 1e-10.
 
-    Returns:
+    Returns
+    -------
     array
         The pointed beam map in the equatorial coordinate system.
     """
@@ -425,24 +439,22 @@ def _beam_weighted_sum(
     """
     Compute the beam-weighted sum of the sky map.
 
-    Parameters:
+    Parameters
+    ----------
     beam_map : array
         The Healpix map of the beam (should be normalized).
-        Input map can be:
-            a single array is considered I,
-            array with 3 rows:[I,Q,U]
-            array with 4 rows:[I,Q,U,V]
+        Input can be a single array (Stokes I), an array
+        with 3 rows [I, Q, U], or with 4 rows [I, Q, U, V].
     sky_map : array
         The Healpix map of the sky.
-        Input map can be:
-            a single array is considered I,
-            array with 3 rows:[I,Q,U]
-            array with 4 rows:[I,Q,U,V]
+        Input can be a single array (Stokes I), an array
+        with 3 rows [I, Q, U], or with 4 rows [I, Q, U, V].
     normalize : bool, optional
         If True, normalize the Stokes-I beam map to have a sum of 1 before computing the weighted sum.
         All other Stokes parameters (Q,U,V) will be scaled by the same factor.
 
-    Returns:
+    Returns
+    -------
     float
         The beam-weighted sum of the sky map.
     """
@@ -485,19 +497,16 @@ def generate_TOD_sky(
     Generate Time-Ordered Data (TOD) by simulating observations of a sky map with a given beam pattern.
     Note that the TOD represents the beam-weighted sum of the sky map at each pointing.
 
-    Parameters:
+    Parameters
+    ----------
     beam_map : array
         The Healpix map of the beam pattern.
-        Input map can be:
-            a single array is considered I,
-            array with 3 rows:[I,Q,U]
-            array with 4 rows:[I,Q,U,V]
+        Input can be a single array (Stokes I), an array
+        with 3 rows [I, Q, U], or with 4 rows [I, Q, U, V].
     sky_map : array
         The Healpix map of the sky.
-        Input map can be:
-            a single array is considered I,
-            array with 3 rows:[I,Q,U]
-            array with 4 rows:[I,Q,U,V]
+        Input can be a single array (Stokes I), an array
+        with 3 rows [I, Q, U], or with 4 rows [I, Q, U, V].
     LST_deg_list : array
         List of Local Sidereal Time values in degrees for each observation.
     lat_deg : float
@@ -523,7 +532,8 @@ def generate_TOD_sky(
         It is ignored if horizontal_mask is provided.
         If specified, and horizontal_mask is provided, set all pixels with values below this fraction of the maximum pixel value to zero before normalization. Default is 1e-10.
 
-    Returns:
+    Returns
+    -------
     array
         The generated Time-Ordered Data (TOD) as a 1D array.
     """
@@ -601,7 +611,8 @@ def example_symm_beam_map(*, freq: float, nside: int, FWHM: float = 1.1) -> np.n
     """
     Generate a symmetric Gaussian beam map centered at the pole.
 
-    Parameters:
+    Parameters
+    ----------
     freq : float
         Frequency (not used in this achromatic model, but kept for API consistency).
     nside : int
@@ -609,7 +620,8 @@ def example_symm_beam_map(*, freq: float, nside: int, FWHM: float = 1.1) -> np.n
     FWHM : float, optional
         Full Width at Half Maximum of the Gaussian beam in degrees. Default is 1.1.
 
-    Returns:
+    Returns
+    -------
     beam_map : array
         Normalized Gaussian beam map (1D array, sum = 1).
     """
@@ -643,7 +655,9 @@ class TODSim:
     ) -> None:
         """
         Initialize the limTODsim class.
-        Parameters:
+
+        Parameters
+        ----------
         ant_latitude_deg : float
             Latitude of the antenna/site in degrees.
         ant_longitude_deg : float
@@ -695,7 +709,8 @@ class TODSim:
         """
         Simulate sky TOD (beam-weighted sum of sky map) for a list of frequencies and time offsets.
 
-        Parameters:
+        Parameters
+        ----------
         freq_list : list or array
             List of frequencies.
         time_list : list or array
@@ -725,7 +740,8 @@ class TODSim:
         return_LSTs : bool, optional
             If True, return the LST values along with the TODs. Default is False.
 
-        Returns:
+        Returns
+        -------
         TOD_array : array
             The simulated sky TOD array with shape (nfreq, ntime).
             Each element represents the simulated TOD sample.
@@ -842,7 +858,8 @@ class TODSim:
         Data model:
         overall_TOD = background_gain_TOD * (1 + gain_noise_TOD) * (sky_TOD + Tsys_others_TOD) * (1 + white_noise_TOD)
 
-        Parameters:
+        Parameters
+        ----------
         freq_list : list or array
             List of frequencies.
         time_list : list or array
@@ -884,7 +901,8 @@ class TODSim:
             The fractional threshold value for beam truncation.
             If specified, set all pixels with values below this fraction of the maximum pixel value to zero before normalization. Default is 1e-10.
 
-        Returns:
+        Returns
+        -------
         overall_TOD : array
             The overall generated TOD (shape: nfreq x ntime).
         sky_TOD : array
@@ -999,13 +1017,12 @@ def truncate_stacked_beam(
     Generate the selected pixel indices based on beam sensitivity.
     The selected pixels are those with beam response above a given threshold in the stacked abs(beam) map.
 
-    Parameters:
+    Parameters
+    ----------
     beam_map : array
         The Healpix map of the beam pattern.
-        Input map can be:
-            a single array is considered I,
-            array with 3 rows:[I,Q,U]
-            array with 4 rows:[I,Q,U,V]
+        Input can be a single array (Stokes I), an array
+        with 3 rows [I, Q, U], or with 4 rows [I, Q, U, V].
     LST_deg_list : array
         List of Local Sidereal Time values in degrees for each observation.
     lat_deg : float
@@ -1029,7 +1046,8 @@ def truncate_stacked_beam(
     nside_target : int, optional
         The target nside for the output beam map. This should match the convention used in pixel_indices.   
 
-    Returns:
+    Returns
+    -------
     pixel_indices : array
         The selected pixel indices based on the beam sensitivity.
     """
@@ -1110,13 +1128,12 @@ def generate_sky2sys_projection(
     Generate the sky-to-Tsys projection matrix and the selected pixel indices based on beam sensitivity.
     The projection matrix maps the sky pixels to the system temperature.
 
-    Parameters:
+    Parameters
+    ----------
     beam_map : array
         The Healpix map of the beam pattern.
-        Input map can be:
-            a single array is considered I,
-            array with 3 rows:[I,Q,U]
-            array with 4 rows:[I,Q,U,V]
+        Input can be a single array (Stokes I), an array
+        with 3 rows [I, Q, U], or with 4 rows [I, Q, U, V].
     LST_deg_list : array
         List of Local Sidereal Time values in degrees for each observation.
     lat_deg : float
@@ -1145,7 +1162,8 @@ def generate_sky2sys_projection(
     nside_target : int, optional
         The target nside for the output beam map. This should match the convention used in pixel_indices.
 
-    Returns:
+    Returns
+    -------
     array
         The generated Time-Ordered Data (TOD) as a 1D array.
     """

@@ -1,11 +1,11 @@
-"""Unit tests for simeer.beam."""
+"""Unit tests for limTOD.patchbeam.beam."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from limTOD.simeer.beam import MeerKLASSBeam, synthetic_gaussian_beam
+from limTOD.patchbeam.beam import MeerKLASSBeam, synthetic_gaussian_beam
 
 
 @pytest.fixture
