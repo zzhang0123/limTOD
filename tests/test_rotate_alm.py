@@ -1,4 +1,7 @@
-"""Test that splitting rotate_alm into two calls is equivalent to one call."""
+"""Contract check on healpy itself (no limTOD code under test): the
+composition order of hp.rotate_alm's Euler angles, which both
+limTOD.simulator._rotate_healpix_map and the limtod_jax convention lock
+(tests/limtod_jax/test_rotation_convention.py) rely on."""
 
 import numpy as np
 import healpy as hp

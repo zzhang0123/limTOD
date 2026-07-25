@@ -207,3 +207,10 @@ CLAUDE.md
 config.ini
 secrets.yaml
 .secrets
+# Regeneratable DSA example caches (built by examples/DSA/scripts/) and
+# third-party documents — never re-track these.
+examples/DSA/mapmaker_ops_*.pkl
+examples/DSA/simulated_TODs_*.npz
+examples/DSA/assets/
+# Stray local scratch dir (near-duplicate of tests/)
+/test/

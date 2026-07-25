@@ -31,7 +31,8 @@ DEFAULT_MEERKAT_LONGITUDE = 21.4430  # degrees, East is positive (EarthLocation 
 DEFAULT_MEERKAT_HEIGHT = 1054  # meters above sea level
 DEFAULT_START_TIME_UTC = "2019-04-23 20:41:56.397"
 DEFAULT_WHITE_NOISE_VAR = 2.5e-6  # Typical thermal noise variance
-DEFAULT_GAIN_NOISE_PARAMS = [1.4e-5, 1e-3, 2.0]  # [f0, fc, alpha] for 1/f noise
+# [f0, fc, alpha] for 1/f noise — matches generate_TOD's signature default
+DEFAULT_GAIN_NOISE_PARAMS = [1.335e-5, 1.099e-3, 2]
 
 
 def example_scan(az_s=-60.3, az_e=-42.3, dt=2.0, n_repeats=5):
@@ -779,7 +780,7 @@ class TODSim:
         gain_noise_TOD : array, optional
             Array of gain noise TOD (shape: nfreq x ntime). Default is None (no gain noise).
         gain_noise_params : list, optional
-            List of parameters [f0, fc, alpha] for generating gain noise if gain_noise_TOD is None. Default is [1.4e-5, 1e-3, 2].
+            List of parameters [f0, fc, alpha] for generating gain noise if gain_noise_TOD is None. Default is [1.335e-5, 1.099e-3, 2].
         white_noise_var : float, optional
             Variance of white noise to be added. Default is None (uses default value of 2.5e-6).
         return_LSTs : bool, optional

@@ -39,9 +39,11 @@ except ImportError as exc:  # pragma: no cover — depends on install extras
 
 from limtod_jax.alm import (
     alm_dot,
+    alm_weights,
     lmax_of_nalm,
     nalm_of_lmax,
     packed_from_2d,
+    packed_lm_arrays,
     packed_to_2d,
 )
 from limtod_jax.angles import zyz_of_pointing, zyzyz2zyz
@@ -58,6 +60,7 @@ __all__ = [
     "__version__",
     "alm2map",
     "alm_dot",
+    "alm_weights",
     "beam_weighted_sum",
     "generate_projection_rows",
     "generate_tod_sky",
@@ -67,6 +70,7 @@ __all__ = [
     "nalm_of_lmax",
     "ones_quadrature_alm",
     "packed_from_2d",
+    "packed_lm_arrays",
     "packed_to_2d",
     "rotate_alm",
     "zyz_of_pointing",
