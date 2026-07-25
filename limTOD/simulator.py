@@ -356,6 +356,12 @@ def pointing_beam_in_eq_sys(
     """
     Point the beam in the equatorial coordinate system.
 
+    The beam's native orientation follows the limTOD beam convention
+    (docs/theory.md): boresight at the map north pole; the phi = 0
+    meridian is carried to the pointing's "up" side (increasing
+    elevation), phi = 90 deg to the "right" side (increasing azimuth),
+    rotated further by selfrot_deg about the boresight.
+
     Parameters
     ----------
     beam_alm : array
@@ -500,7 +506,10 @@ def generate_TOD_sky(
     Parameters
     ----------
     beam_map : array
-        The Healpix map of the beam pattern.
+        The Healpix map of the beam pattern, in the limTOD beam
+        convention (docs/theory.md): boresight at the map north pole;
+        phi = 0 -> the pointing's "up" side (increasing elevation),
+        phi = 90 deg -> "right" (increasing azimuth).
         Input can be a single array (Stokes I), an array
         with 3 rows [I, Q, U], or with 4 rows [I, Q, U, V].
     sky_map : array
@@ -584,8 +593,11 @@ def example_beam_map(
     Generate an example Gaussian beam map.
     This toy model is achromatic.
 
-    FWHM_major: major axis FWHM in degrees
-    FWHM_minor: minor axis FWHM in degrees
+    FWHM_major: major axis FWHM in degrees, along the beam-map meridian
+    phi = 0 — the beam's "up" side (increasing elevation) under limTOD's
+    beam coordinate convention (docs/theory.md).
+    FWHM_minor: minor axis FWHM in degrees, along phi = 90 deg — the
+    "right" side (increasing azimuth).
     """
     NPIX = hp.nside2npix(nside)
     theta, phi = hp.pix2ang(nside, np.arange(NPIX))
@@ -670,6 +682,12 @@ class TODSim:
                 a single array is considered I,
                 array with 3 rows:[I,Q,U]
                 array with 4 rows:[I,Q,U,V]
+            Orientation (limTOD beam convention, see docs/theory.md):
+            boresight at the map's north pole (theta = 0); for a pointing
+            (az, el) the meridian phi = 0 maps to the beam's "up" side
+            (increasing elevation) and phi = 90 deg to its "right" side
+            (increasing azimuth); positive selfrot rotates the pattern
+            from up toward right. Pinned by tests/test_beam_orientation.py.
         sky_func : function
             Function that takes frequency and nside as keyword input and returns the sky map.
             The output map can be:

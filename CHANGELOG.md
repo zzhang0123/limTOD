@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-07-25
+
+### Documentation
+
+- 🧭 **Beam coordinate convention stated definitively**
+  (`docs/theory.md`): a beam's orientation is only meaningful relative
+  to the local horizontal system, so the convention is defined there —
+  boresight at the beam map's north pole; the map point (θ, φ) is
+  carried to the tangent direction
+  `cos(φ+ψ)·ê_up + sin(φ+ψ)·ê_right` at the pointing (ê_up = increasing
+  elevation, ê_right = increasing azimuth, ψ = selfrot). φ = 0 → up,
+  φ = 90° → right. Special cases spelled out: the identity/equatorial
+  reading (lat 0, LST 0, az 0, el 0 — the map IS the equatorial map,
+  with the chart-South/antenna-up trap flagged), zenith pointing
+  (frame carried continuously: ê_up → azimuth A+180°), and the
+  insensitivity of symmetric beams. The `beam_func` contract, the key
+  simulator docstrings, and the patch-beam (l, m) wording (axes are
+  (right, up) at the pointing, not compass (East, North)) now all
+  reference it.
+- 🗑️ **conventions.pdf removed**: its beam-frame figure omitted the
+  local horizontal system — without which the convention is not
+  uniquely defined — and its x̂/ŷ captions disagreed with the
+  implementation by 90°. The prose convention above supersedes it.
+- 📡 **UVBeam adapter docs rewritten in axis language**
+  (`docs/uvbeam.md`): pyuvdata's frame is a *fixed* antenna-local
+  (x = East, y = North, z = boresight) system with az running East →
+  North, and pyuvdata does not define how it rotates with pointing;
+  limTOD's frame is pointing-anchored (up/right). The locked
+  identification is **North → up, East → right**
+  (`az_uvbeam = 90° − φ`, orientation-reversing at the chart level —
+  the source of the historical hand-derivation failures).
+
+### Tests
+
+- `tests/test_beam_orientation.py`: displaced-blob probes through the
+  full pointing chain pin φ = 0 → up and φ = 90° → right at two
+  independent pointings, the identity/equatorial special case, the
+  selfrot sense, and reject the mirrored convention — the orientation
+  is invisible to every symmetric-beam test, so these are the only
+  guards.
+
 ## [1.5.0] - 2026-07-25
 
 ### Added

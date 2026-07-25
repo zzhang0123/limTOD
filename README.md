@@ -110,8 +110,8 @@ Worked notebooks:
 [TOD simulation](https://github.com/zzhang0123/limTOD/blob/main/examples/TODsim_examples.ipynb)
 and
 [map-making](https://github.com/zzhang0123/limTOD/blob/main/examples/mm_example.ipynb).
-Mathematical derivations:
-[conventions.pdf](https://github.com/zzhang0123/limTOD/blob/main/conventions.pdf).
+Coordinate and beam-orientation conventions:
+[Theory & conventions](https://limtod.readthedocs.io/en/latest/theory.html).
 
 ## Citation
 

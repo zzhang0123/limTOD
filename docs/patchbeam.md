@@ -22,8 +22,13 @@ limTOD usage is unaffected.
 1. Rotate the pointing to equatorial coordinates and query a HEALPix
    disc of sky pixels around it (radius ~8° for a ±6° beam).
 2. Rotate those pixels back to the horizontal frame at this LST and
-   project onto the antenna-local tangent plane: direction cosines
-   `l = East`, `m = North` (SIN projection).
+   project onto the pointing's tangent plane (SIN projection). The
+   direction-cosine axes follow the
+   [beam coordinate convention](theory.md#beam-coordinate-convention):
+   `l` along **increasing azimuth** (the beam's right side) and `m`
+   along **increasing elevation** (the up side) — for a north-facing
+   pointing, `l` = East. The beam cube's `(l, m)` axes are assumed to
+   follow the same convention.
 3. Bilinearly interpolate the beam power cube at those `(l, m)` — the
    weights are computed once per pointing and applied vectorially across
    the whole frequency axis.

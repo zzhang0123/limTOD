@@ -47,20 +47,60 @@ sim = PatchBeamTODSim(beam=patch, sky_func=my_sky_func, sky_nside=256)
 This samples the UVBeam onto the `(l, m)` direction-cosine grid of
 [`MeerKLASSBeam`](patchbeam.md) — the right choice for narrow beams.
 
-## Conventions (numerically locked)
+## Conventions: UVBeam vs limTOD, and the adapter
 
-- UVBeam zenith angle → HEALPix polar angle directly (boresight at the
-  pole; limTOD's beam-map convention).
-- UVBeam azimuth (pyuvdata convention: East = 0, North = π/2,
-  counterclockwise) maps to the HEALPix beam-map azimuth as
-  ``az_uvbeam = π/2 − φ_healpix``. This mapping was **locked
-  numerically** — a strongly displaced test beam pushed through the
-  HEALPix path and the independent `limTOD.patchbeam` disc path agrees at
-  0.5%, while every other candidate mapping is 66–90% off
-  (`tests/test_uvbeam.py::TestOrientationLock` keeps both directions
-  pinned). Hand derivations of such conventions are not trusted in this
-  package — an earlier one had a handedness error that only the
-  numerical lock caught.
+**pyuvdata's frame** (per the pyuvdata ≥3.2 source): a UVBeam on an
+`az_za` grid lives in a *fixed* antenna-local Cartesian frame with
+**x = East, y = North, z = zenith = boresight** — the coordinate-system
+registry says *"az runs from East to North"*: `az = 0` along East,
+`az = 90°` along North, increasing counterclockwise (the mathematician's
+angle in the East–North plane), with `za` measured from the boresight.
+This is **not** the astronomer's compass azimuth (North 0° → East 90°);
+the two are mirror images: `az_astro = 90° − az_uvbeam`. E-field beams
+carry two vector components along this grid's θ̂(za)/φ̂(az) unit
+vectors, and `x_orientation="east"` ties the X feed to the `az = 0`
+(East) axis. Crucially, **pyuvdata does not define how this frame
+rotates when a dish points away from zenith** — that is the consumer's
+job.
+
+**limTOD's frame**
+([theory](theory.md#beam-coordinate-convention)) is anchored to the
+*pointing*, not to fixed compass labels: the beam-map meridian φ = 0
+tracks the **up** side (increasing elevation) and φ = 90° the **right**
+side (increasing azimuth), at every pointing.
+
+**The adapter** supplies the missing rotation rule through one
+identification, applied when the UVBeam is sampled onto the beam map:
+
+```
+healpix (θ, φ)   ←   UVBeam (za = θ,  az = 90° − φ)
+```
+
+In axis language: **UVBeam's North axis becomes the beam's up side
+(φ = 0), and UVBeam's East axis (the X feed for `x_orientation="east"`)
+becomes the right side (φ = 90°)**. Note the minus sign: the two
+azimuths increase in *opposite* senses (`az`: East → North; φ:
+up → right, i.e. North-image → East-image), so the identification is
+orientation-reversing at the chart level. This is exactly the kind of
+statement hand derivations get wrong — an earlier one had a handedness
+error — so the mapping was **locked numerically**: a strongly displaced
+test beam pushed through the HEALPix path and the independent
+`limTOD.patchbeam` disc path agrees at 0.5%, while every other candidate
+mapping is 66–90% off (`tests/test_uvbeam.py::TestOrientationLock` pins
+both directions).
+
+`uvbeam_to_patch_beam` applies the same identification via direction
+cosines: the UVBeam components
+`(sin za · cos az, sin za · sin az) = (East, North)` map onto the patch
+grid's `(l, m) = (right, up)` axes.
+
+If your beam file was produced under a different physical mounting
+convention (e.g. the feed frame rotated relative to the E/N axes),
+rotate the UVBeam yourself before passing it in — the adapter assumes
+exactly the identification above.
+
+Other adapter behavior:
+
 - Pixels beyond the UVBeam's zenith-angle coverage are filled with
   `fill_value` (default 0).
 - Frequencies are in MHz on the limTOD side and interpolated on the

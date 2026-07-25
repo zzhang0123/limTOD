@@ -1,5 +1,5 @@
 # sdist contents beyond the packages themselves. Deliberately lean: the big
-# example notebooks/data and conventions.pdf stay on GitHub (linked from docs).
+# example notebooks/data stay on GitHub (linked from docs).
 include CHANGELOG.md
 recursive-include docs *.md
 prune examples

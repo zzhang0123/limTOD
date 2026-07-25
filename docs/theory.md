@@ -1,10 +1,10 @@
 # Theory and conventions
 
-Full derivations live in
-[conventions.pdf](https://github.com/zzhang0123/limTOD/blob/main/conventions.pdf)
-(coordinate systems, Euler-angle conventions, spherical-harmonic
-formulations, beam convolution, noise models). This page is the working
-summary.
+This page is the authoritative statement of limTOD's conventions —
+coordinate systems, the beam orientation, Euler angles, and the noise
+model. (It supersedes the retired `conventions.pdf`, whose beam-frame
+figure did not pin the local horizontal system and therefore could not
+define the orientation uniquely.)
 
 ## Signal model
 
@@ -30,6 +30,84 @@ over HEALPix pixels `p`, where `B_t` is the beam rotated to the pointing at
 time `t`. (This is the discrete counterpart of `∫ B · T dΩ`; limTOD uses
 the plain pixel sum, without a solid-angle factor — pair it with
 `normalize_beam=True` for a beam-weighted average.)
+
+## Beam coordinate convention
+
+The beam enters limTOD as a HEALPix map (RING ordering;
+`(θ, φ) = healpy.pix2ang`). A beam's orientation is only meaningful
+**relative to the local horizontal system** — any definition that does
+not reference it is ambiguous — so the convention is stated in those
+terms and every claim below is pinned numerically by
+[`tests/test_beam_orientation.py`](https://github.com/zzhang0123/limTOD/blob/main/tests/test_beam_orientation.py)
+(displaced-blob probes through the full pointing chain).
+
+**Horizontal system.** Azimuth $A$ runs from North ($0°$) through East
+($90°$); elevation $E$ from the horizon ($0°$) to the zenith ($90°$).
+At the pointing direction $\hat b(A, E)$ define two tangent directions:
+
+- $\hat e_\mathrm{up}$ — direction of **increasing elevation** (along
+  the great circle toward the zenith);
+- $\hat e_\mathrm{right}$ — direction of **increasing azimuth** (the
+  right-hand side when you stand at the antenna facing the pointing,
+  head up; East when facing North).
+
+$(\hat e_\mathrm{up}, \hat e_\mathrm{right}, \hat b)$ is right-handed:
+$\hat e_\mathrm{up} \times \hat e_\mathrm{right} = \hat b$.
+
+**The convention.** For a pointing $(A, E)$ with self-rotation $\psi$
+(`selfrot_deg`):
+
+- the **beam centre (boresight) is the beam map's north pole**,
+  $\theta = 0$; $\theta$ is the angular distance from the boresight;
+- the map point $(\theta, \varphi)$ is carried to the sky direction at
+  angular distance $\theta$ from $\hat b$ along the tangent direction
+
+$$
+\hat t(\varphi) \;=\; \cos(\varphi + \psi)\, \hat e_\mathrm{up}
+              \;+\; \sin(\varphi + \psi)\, \hat e_\mathrm{right}.
+$$
+
+Equivalently, with $\psi = 0$:
+
+| beam-map meridian | side of the beam |
+|---|---|
+| $\varphi = 0$ | **up** (increasing elevation, toward the zenith) |
+| $\varphi = 90°$ | **right** (increasing azimuth; East when facing North) |
+| $\varphi = 180°$ | down (toward the horizon) |
+| $\varphi = 270°$ | left |
+
+Positive `selfrot_deg` rotates the pattern about the boresight in the
+$\varphi$-increasing sense (a feature at meridian $\varphi$ moves from
+the up side toward the right side).
+
+### Special cases
+
+- **Identity / reading the map as equatorial.** For
+  `lat = 0°, LST = 0°, A = 0° (North), E = 0° (horizon)`, $\psi = 0$,
+  the full rotation chain is the identity: the beam map can be read
+  directly as an equatorial map — beam centre at the **north celestial
+  pole**, $\varphi \equiv$ RA. The $\varphi = 0$ meridian runs along
+  RA $= 0$ toward this observer's zenith at (RA $0°$, Dec $0°$).
+  Beware the classic trap: at the pole, "chart South" (decreasing Dec)
+  is the beam's **up** side in this configuration — sky-chart down and
+  antenna down are opposite things here.
+- **Zenith pointing** ($E = 90°$, reached with mount azimuth $A$): the
+  tangent frame is carried continuously over the top —
+  $\hat e_\mathrm{up}$ ends along the horizontal direction of azimuth
+  $A + 180°$ and $\hat e_\mathrm{right}$ along azimuth $A + 90°$. The
+  formula above stays unambiguous; only the everyday words "up/right"
+  lose their meaning.
+- **Symmetric beams** are insensitive to $\varphi$ entirely — which is
+  why this section matters only for asymmetric beams and polarization
+  work (and why the orientation went unstated for so long: symmetric
+  cross-checks cannot detect it).
+
+The patch-beam path uses the same two tangent axes: its direction
+cosines are $(l, m) = (\sin$-projected $\hat e_\mathrm{right},
+\hat e_\mathrm{up})$ components — see
+[patchbeam.md](patchbeam.md). For the pyuvdata UVBeam frame and the
+adapter between the two conventions, see
+[uvbeam.md](uvbeam.md#conventions-uvbeam-vs-limtod-and-the-adapter).
 
 ## Coordinate chain
 

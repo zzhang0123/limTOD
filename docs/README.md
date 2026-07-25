@@ -13,5 +13,5 @@ sphinx-build -b html docs docs/_build/html
 
 Release notes live in
 [CHANGELOG.md](https://github.com/zzhang0123/limTOD/blob/main/CHANGELOG.md);
-mathematical derivations in
-[conventions.pdf](https://github.com/zzhang0123/limTOD/blob/main/conventions.pdf).
+coordinate and beam-orientation conventions in
+[theory.md](theory.md).

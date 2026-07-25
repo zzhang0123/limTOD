@@ -47,6 +47,15 @@ two of which must be `freq` and `nside`, returning a HEALPix map:
 - 2D array `(3, npix)` — polarized (I, Q, U);
 - 2D array `(4, npix)` — full Stokes (I, Q, U, V).
 
+**Beam orientation.** The beam map must follow the
+[beam coordinate convention](theory.md#beam-coordinate-convention):
+boresight at the map's north pole (θ = 0); the φ = 0 meridian is
+carried to the pointing's **up** side (increasing elevation) and
+φ = 90° to its **right** side (increasing azimuth), with positive
+`selfrot_deg` rotating the pattern from up toward right. Symmetric
+beams are unaffected; for asymmetric or polarized beams this is
+load-bearing.
+
 Built-ins: `example_beam_map` (elliptical Gaussian),
 `example_symm_beam_map` (symmetric Gaussian), `GDSM_sky_model`
 (Global Sky Model, `[gdsm]` extra), and
