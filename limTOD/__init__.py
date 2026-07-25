@@ -2,7 +2,15 @@
 limTOD: Time-Ordered Data Simulator
 """
 
-__version__ = "1.3.0"
+from importlib.metadata import PackageNotFoundError, version as _dist_version
+
+try:
+    # Single-sourced from pyproject.toml via the installed distribution
+    # metadata (the hardcoded copy went stale once — see CHANGELOG 1.3.0).
+    __version__ = _dist_version("limTOD")
+except PackageNotFoundError:  # pragma: no cover — running from a bare checkout
+    __version__ = "0.0.0.dev0"
+
 __author__ = "Zheng Zhang"
 __email__ = "zheng.zhang@manchester.ac.uk"
 __license__ = "MIT"
