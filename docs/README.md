@@ -1,14 +1,17 @@
 # limTOD documentation
 
-| Page | Contents |
-|------|----------|
-| [TOD simulation](tod-simulation.md) | `TODSim` user guide: inputs, outputs, noise model, examples, troubleshooting |
-| [Patch-beam path](patchbeam.md) | `limTOD.patchbeam`: MeerKLASS-optimal disc-restricted (l, m) beam interpolation |
-| [UVBeam support](uvbeam.md) | `limTOD.uvbeam`: pyuvdata beams as `beam_func` or patch beams |
-| [Map-making](mapmaking.md) | `HPW_mapmaking`: high-pass + Wiener filtering from TOD to sky maps |
-| [Theory & conventions](theory.md) | Signal model, coordinate transformations, Euler-angle conventions, workflow |
-| [API reference](api-reference.md) | Signatures and parameters of the public numpy API |
-| [limtod_jax](limtod-jax.md) | The pure-JAX differentiable port: usage, conventions, exactness contract, precision |
+The rendered documentation lives at
+**<https://limtod.readthedocs.io>**.
 
-Release notes live in [CHANGELOG.md](../CHANGELOG.md); mathematical
-derivations in [conventions.pdf](../conventions.pdf).
+The pages in this directory are the Sphinx (MyST-Markdown) sources —
+build locally with:
+
+```bash
+pip install -e ".[docs]"
+sphinx-build -b html docs docs/_build/html
+```
+
+Release notes live in
+[CHANGELOG.md](https://github.com/zzhang0123/limTOD/blob/main/CHANGELOG.md);
+mathematical derivations in
+[conventions.pdf](https://github.com/zzhang0123/limTOD/blob/main/conventions.pdf).

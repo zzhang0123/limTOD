@@ -29,8 +29,9 @@ def HP_filter_TOD(n_samples: int, dtime: float, cutoff_freq: float = 0.001,
                   preserve_dc: bool = False) -> np.ndarray:
     """
     Apply high-pass Butterworth filter to the TOD.
-    Parameters:
-    -----------
+
+    Parameters
+    ----------
     n_samples : int
         Number of samples in the TOD
     dtime : float
@@ -50,8 +51,8 @@ def HP_filter_TOD(n_samples: int, dtime: float, cutoff_freq: float = 0.001,
         would let drift DC leak into the recovered map — keep the
         default False unless you've verified this for your noise model.
 
-    Returns:
-    --------
+    Returns
+    -------
     HP_operator : array-like, shape (n_time, n_params)
         High-pass filtered system temperature operator
 
@@ -98,8 +99,8 @@ def wiener_filter_map(
     The Wiener filter solves: (A^T N^-1 A + S^-1)^-1 A^T N^-1 d
     where A is the operator, N is noise covariance, S is signal covariance, d is data
     
-    Parameters:
-    -----------
+    Parameters
+    ----------
     TOD : array-like, shape (n_time,)
         Time-ordered data to be mapped
     operator : array-like, shape (n_time, n_pixels)
@@ -111,8 +112,8 @@ def wiener_filter_map(
     regularization : float, default=1e-12
         Regularization parameter to ensure matrix invertibility
         
-    Returns:
-    --------
+    Returns
+    -------
     sky_map : array, shape (n_pixels,)
         Reconstructed sky map
     uncertainty : array, shape (n_pixels,)
@@ -310,10 +311,8 @@ class _MapmakingBase:
         Parameters:
         beam_map : array
             The Healpix map of the beam pattern for a single frequency.
-            Input map can be:
-                a single array is considered I,
-                array with 3 rows:[I,Q,U]
-                array with 4 rows:[I,Q,U,V]
+            Input can be a single array (Stokes I), an array
+            with 3 rows [I, Q, U], or with 4 rows [I, Q, U, V].
 
         LST_deg_list_group : a LST list or a list of LST lists corresponding to each TOD in TOD_group.
             e.g. [LST_deg_list_1, LST_deg_list_2, ...]
@@ -663,7 +662,10 @@ class HPW_mapmaking(_MapmakingBase):
         Tuple[np.ndarray, np.ndarray],
         Tuple[np.ndarray, np.ndarray, List[np.ndarray], List[np.ndarray]],
     ]:
-        """
+        """Solve the (optionally high-pass-filtered) map-making system.
+
+        Parameters
+        ----------
         TOD_group : a TOD array or a list of TOD arrays at the same frequency channel.
             e.g. [TOD_1, TOD_2, ...]
 
@@ -688,9 +690,9 @@ class HPW_mapmaking(_MapmakingBase):
             If None, assumed to be zero.
 
         Tsky_prior_inv_cov_diag : array, optional
-            Diagonal of the prior inverse covariance for the sky temperature map, the shape can be:
-                (num_pixels,) : single polarization map.
-                (npol, num_pixels) : multi-polarization map.
+            Diagonal of the prior inverse covariance for the sky temperature
+            map: shape ``(num_pixels,)`` for a single-polarization map or
+            ``(npol, num_pixels)`` for a multi-polarization map.
             If None, assumed to be uninformative prior (zero, i.e., infinite prior variance).
 
         Tsys_other_prior_mean_group : a list of prior means for other system temperature components, each element corresponding to each TOD in TOD_group.
@@ -699,6 +701,7 @@ class HPW_mapmaking(_MapmakingBase):
 
         noise_variance : float, 1D array, or list of (float | 1D array), optional
             Per-sample noise variance. Three forms accepted:
+
               * None (default): auto-estimate from the residual TOD - operator @ pinv(operator) @ TOD
                 via a 100-sample rolling window. NOTE: this estimate can be heavily biased
                 low when the operator does not span the projectable signal subspace —
@@ -712,10 +715,10 @@ class HPW_mapmaking(_MapmakingBase):
 
         Tsys_other_prior_inv_cov_group : a list of prior inverse covariances for other system temperature components, each element corresponding to each TOD in TOD_group.
             e.g. [Tsys_other_prior_inv_cov_1, Tsys_other_prior_inv_cov_2, ...]
-            The shape of each element can be:
-                (num_other_params,) : Diagonal of the inverse covariance matrix.
-                (num_other_params, num_other_params) : Full inverse covariance matrix. 
-            But all elements must have the same shape.
+            Each element is either ``(num_other_params,)`` (the diagonal of
+            the inverse covariance) or
+            ``(num_other_params, num_other_params)`` (the full matrix);
+            all elements must have the same shape.
             If None, assumed to be uninformative prior (zero, i.e., infinite prior variance).
 
         use_high_pass : bool, default=False
@@ -724,8 +727,8 @@ class HPW_mapmaking(_MapmakingBase):
             unfiltered map-making problem.
 
 
-        Returns:        
-        --------
+        Returns
+        -------
         sky_estimation : array, the shape is (npol, num_pixels) for multi-polarization maps, or (num_pixels,) for single polarization map.
             Reconstructed sky map(s).
         sky_uncertainty : array, the shape is (npol, num_pixels) for multi-polarization maps, or (num_pixels,) for single polarization map.

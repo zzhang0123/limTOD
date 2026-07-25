@@ -268,32 +268,48 @@ class GLS_mapmaking(_MapmakingBase):
             ``(U p + mu)(1 + n)`` — it is NOT subtracted from the data
             (subtracting would mis-weight the noise); under the additive
             model it enters the residual ``d - mu``.
-        gain_noise_params, white_noise_var
-            Flicker/white parameters used to build the fractional-noise
-            covariance via :func:`flicker_noise_cov`. Defaults match
+        gain_noise_params : (f0, fc, alpha), optional
+            Flicker parameters used to build the fractional-noise
+            covariance via :func:`flicker_noise_cov`. Default matches
             ``generate_TOD``. Ignored if ``noise_inv_cov_group`` is given.
+        white_noise_var : float
+            Fractional white-noise variance for the covariance build
+            (``generate_TOD`` default ``2.5e-6``).
         noise_inv_cov_group : list of (n_time_i, n_time_i) arrays, optional
             Explicit per-TOD inverse noise covariances (fractional noise
             for the multiplicative model, additive noise otherwise).
         noise_model : {"multiplicative", "additive"}
-            "multiplicative" (default): IRLS on ``d = (U p + mu)(1+n)``,
-            the limTOD/hydra-tod model. "additive": one GLS solve of
+            ``"multiplicative"`` (default): IRLS on ``d = (U p + mu)(1+n)``,
+            the limTOD/hydra-tod model. ``"additive"``: one GLS solve of
             ``d = U p + mu + eps``.
-        Tsky_prior_mean, Tsky_prior_inv_cov_diag,
-        Tsys_other_prior_mean_group, Tsys_other_prior_inv_cov_group
-            Gaussian priors, same semantics as ``HPW_mapmaking.__call__``.
+        Tsky_prior_mean : array, optional
+            Gaussian prior mean on the sky parameters, as in
+            ``HPW_mapmaking.__call__``.
+        Tsky_prior_inv_cov_diag : array, optional
+            Diagonal prior inverse covariance on the sky parameters.
+        Tsys_other_prior_mean_group : list of arrays, optional
+            Prior means for the other-Tsys parameters, per TOD.
+        Tsys_other_prior_inv_cov_group : list of arrays, optional
+            Prior inverse covariances for the other-Tsys parameters.
         regularization : float
             Added to the normal-equation diagonal (default 1e-12).
         return_full_cov : bool
             Also return the full posterior parameter covariance.
-        tol, min_iter, max_iter
-            IRLS convergence controls (multiplicative model only).
+        tol : float
+            IRLS relative convergence tolerance (multiplicative only).
+        min_iter : int
+            Minimum IRLS iterations before convergence is checked.
+        max_iter : int
+            Maximum IRLS iterations.
 
         Returns
         -------
-        Same tuple structure as ``HPW_mapmaking.__call__``:
-        ``(sky_estimation, sky_uncertainty[, Tsys_others_estimation_group,
-        Tsys_others_uncertainty_group][, posterior_cov])``.
+        outputs : tuple
+            Same structure as ``HPW_mapmaking.__call__``:
+            ``(sky_estimation, sky_uncertainty)``, extended with the
+            other-Tsys estimation/uncertainty groups when other-Tsys
+            operators were supplied, and with ``posterior_cov`` when
+            ``return_full_cov=True``.
         """
         if noise_model not in _NOISE_MODELS:
             raise ValueError(
@@ -320,7 +336,7 @@ class GLS_mapmaking(_MapmakingBase):
 
         Ninv_list = self._noise_inv_list(
             noise_inv_cov_group, tod_list, dtime, time_list_group,
-            gain_noise_params, white_noise_var,
+            gain_noise_params, white_noise_var, noise_model,
         )
 
         self.nparams = ops[0].shape[1]
@@ -389,6 +405,7 @@ class GLS_mapmaking(_MapmakingBase):
         time_list_group: Optional[Sequence[np.ndarray]],
         gain_noise_params: Optional[Sequence[float]],
         white_noise_var: float,
+        noise_model: str = "multiplicative",
     ) -> List[np.ndarray]:
         if noise_inv_cov_group is not None:
             if len(noise_inv_cov_group) != self.num_tods:
@@ -425,6 +442,22 @@ class GLS_mapmaking(_MapmakingBase):
             raise ValueError(
                 "provide dtime, time_list_group, or noise_inv_cov_group so "
                 "the noise covariance can be built"
+            )
+        if noise_model == "additive":
+            # The parametric builder produces the FRACTIONAL-noise
+            # covariance of the multiplicative model (its defaults are
+            # tuned for generate_TOD's gain noise). Reusing it as an
+            # absolute additive covariance fixes the relative
+            # time-weighting but generally mis-scales the reported
+            # uncertainties — make that explicit.
+            logger.warning(
+                "noise_model='additive' without noise_inv_cov_group: building "
+                "the additive noise covariance from the flicker/white "
+                "parameters, whose defaults describe FRACTIONAL noise in the "
+                "multiplicative model. The point estimate is unaffected by "
+                "the overall scale, but sky_uncertainty/posterior_cov are "
+                "only meaningful if these parameters really describe your "
+                "additive noise; otherwise pass noise_inv_cov_group."
             )
         return [
             flicker_noise_inv_cov(t, gain_noise_params, white_noise_var)
@@ -486,7 +519,7 @@ class GLS_mapmaking(_MapmakingBase):
         )
         p = np.linalg.lstsq(U_stack, r_stack, rcond=None)[0]
 
-        p_new, A = p, A_prior
+        p_new = p
         for iteration in range(1, max_iter + 1):
             A, b = accumulate(p)
             p_new = solve(A, b, assume_a="sym")
@@ -502,6 +535,12 @@ class GLS_mapmaking(_MapmakingBase):
                 "GLS_mapmaking did not reach tol=%g within max_iter=%d "
                 "iterations.", tol, max_iter,
             )
+        # Re-evaluate the normal equations AT the returned estimate (as
+        # hydra-tod's iterative_gls recomputes Sigma_inv at p_new): the
+        # in-loop A lags p_new by one iteration, which is bounded by tol
+        # after convergence but can skew the reported uncertainties at the
+        # percent level when max_iter is hit without convergence.
+        A, _ = accumulate(p_new)
         return p_new, A
 
     # ------------------------------------------------------------------ #

@@ -94,11 +94,13 @@ dev = [
     "jupyter>=1.0",
     "matplotlib>=3.3.0",
 ]
+# Sphinx toolchain for docs/ (ReadTheDocs uses this extra; see
+# .readthedocs.yaml, which additionally installs [jax] so the limtod_jax
+# API pages render real signatures).
 docs = [
-    "sphinx>=4.0",
-    "sphinx-rtd-theme>=1.0",
-    "jupyter>=1.0",
-    "matplotlib>=3.3.0",
+    "sphinx>=7.0",
+    "myst-parser>=2.0",
+    "sphinx-rtd-theme>=2.0",
 ]
 notebooks = [
     "jupyter>=1.0",
@@ -113,7 +115,7 @@ jax = [
 
 [project.urls]
 Homepage = "https://github.com/zzhang0123/limTOD"
-Documentation = "https://github.com/zzhang0123/limTOD/tree/main/docs"
+Documentation = "https://limtod.readthedocs.io"
 Changelog = "https://github.com/zzhang0123/limTOD/blob/main/CHANGELOG.md"
 "Bug Reports" = "https://github.com/zzhang0123/limTOD/issues"
 "Source Code" = "https://github.com/zzhang0123/limTOD"

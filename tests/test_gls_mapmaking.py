@@ -318,6 +318,65 @@ class TestGLSMapmakingOracle:
         assert np.asarray(unc).shape == np.asarray(est).shape
 
 
+class TestReviewRegressions:
+    """Pins for the two pre-merge review findings."""
+
+    def test_uncertainty_matches_estimate_when_not_converged(self, geometry):
+        """The returned uncertainties must come from the normal equations
+        evaluated AT the returned estimate. With the in-loop A (one
+        iteration stale), max_iter=1 non-convergence used to skew the
+        reported uncertainty at the ~1e-2 level."""
+        mm, kw, ops, truth, rng = geometry
+        gen = np.random.default_rng(77)
+        d_list, Ninv_list = [], []
+        for U in ops:
+            n_i = U.shape[0]
+            t = np.arange(n_i) * 2.0
+            N = flicker_noise_cov(t, FLICKER, WVAR)
+            n_frac = gen.multivariate_normal(np.zeros(n_i), N)
+            d_list.append((U @ truth) * (1.0 + n_frac))
+            Ninv_list.append(flicker_noise_inv_cov(t, FLICKER, WVAR))
+
+        # Force non-convergence: 1 iteration, impossible tolerance.
+        est, unc = mm(
+            TOD_group=d_list, dtime=2.0,
+            gain_noise_params=FLICKER, white_noise_var=WVAR,
+            regularization=REG, tol=1e-300, min_iter=1, max_iter=1,
+        )
+        # Independent rebuild of A at the RETURNED estimate.
+        n_par = len(truth)
+        A = REG * np.eye(n_par)
+        for d, U, Ninv in zip(d_list, ops, Ninv_list):
+            Dinv = np.diag(1.0 / (U @ np.asarray(est)))
+            Sinv = Dinv @ Ninv @ Dinv
+            A = A + U.T @ Sinv @ U
+        expected_unc = np.sqrt(np.diag(np.linalg.inv(A)))
+        np.testing.assert_allclose(np.asarray(unc), expected_unc, rtol=1e-8)
+
+    def test_additive_parametric_covariance_warns(self, geometry, caplog):
+        """additive mode falling back to the fractional-noise parametric
+        covariance must say so loudly."""
+        import logging
+
+        mm, kw, ops, truth, rng = geometry
+        d_list = [U @ truth for U in ops]
+        with caplog.at_level(logging.WARNING, logger="limTOD.gls_mapmaking"):
+            mm(TOD_group=d_list, dtime=2.0, noise_model="additive",
+               regularization=REG)
+        assert any("FRACTIONAL" in r.message for r in caplog.records)
+
+    def test_additive_with_explicit_cov_does_not_warn(self, geometry, caplog):
+        import logging
+
+        mm, kw, ops, truth, rng = geometry
+        d_list = [U @ truth for U in ops]
+        Ninv = [np.eye(U.shape[0]) for U in ops]
+        with caplog.at_level(logging.WARNING, logger="limTOD.gls_mapmaking"):
+            mm(TOD_group=d_list, noise_inv_cov_group=Ninv,
+               noise_model="additive", regularization=REG)
+        assert not any("FRACTIONAL" in r.message for r in caplog.records)
+
+
 class TestGLSErrorPaths:
     def test_bad_noise_model(self, geometry):
         mm, kw, ops, truth, rng = geometry

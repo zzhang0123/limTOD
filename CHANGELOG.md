@@ -34,6 +34,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   displaced beam: winner 0.5%, all other candidate mappings 66–90% off) —
   the hand-derived mapping had a handedness error only the numerical
   lock caught. Out-of-coverage pixels zero-fill; error paths tested.
+- 🗺️ **`GLS_mapmaking`** (`limTOD.gls_mapmaking`) — a generalised-least-
+  squares map-maker ported from hydra-tod's iterative GLS
+  (Zhang et al. 2026, RASTI rzag024, §3.2), serial, no extra
+  dependencies. Weights the TOD with the inverse of the full
+  1/f + white time-time covariance (`flicker_noise_cov`, exactly the
+  matrix `sim_noise` draws limTOD's noise from) under the multiplicative
+  model of `generate_TOD`, iterating the reweighted solve; a
+  `noise_model="additive"` single-solve mode covers externally
+  calibrated data. Same constructor as `HPW_mapmaking` (shared operator
+  construction via the new `_MapmakingBase`), same return conventions,
+  priors, and `return_full_cov`. 26 tests including an independent-IRLS
+  oracle and an end-to-end where the GLS beats uniform weighting 4x
+  under intra-chunk red noise. The faithful single-TOD solver is
+  exported as `iterative_gls`.
+- 📚 **Sphinx documentation** (`docs/`, MyST-Markdown) with autodoc API
+  reference, ready for ReadTheDocs (`.readthedocs.yaml`); the `[docs]`
+  extra now installs the Sphinx toolchain.
 
 ### Changed
 
@@ -41,6 +58,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [replicant-telescope](https://github.com/zzhang0123/replicant-telescope)
   (Python package `replicant`); references updated. Historical changelog
   entries keep the old name.
+- `HPW_mapmaking`'s operator construction and prior assembly moved into
+  the shared `_MapmakingBase` base class (behavior unchanged — the
+  oracle suite pins the outputs); the hand-written
+  `docs/api-reference.md` is superseded by the generated API pages.
 
 ## [1.3.0] - 2026-07-25
 
@@ -211,7 +232,7 @@ caught and fixed, with regression tests for each:
 - 🎯 **Full Stokes Support**: Added complete polarization handling (I, Q, U, V) for both TOD simulation and map-making
 - 🗺️ **Map-Making Pipeline**: Implemented `HPW_mapmaking` class combining high-pass filtering and Wiener filtering for sky reconstruction from TOD
 - 🎲 **Gaussian Random Field Generator**: Added generator for correlated sky realizations from frequency-frequency angular power spectra C_ℓ(ν,ν'), enabling realistic simulation of line intensity mapping signals with spectral correlations (credit: Katrine Alice Glasscock, Philip Bull)
-- 📓 **Example Notebooks**: Added comprehensive Jupyter notebook demonstrating the full map-making workflow ([examples/mm_example.ipynb](examples/mm_example.ipynb))
+- 📓 **Example Notebooks**: Added comprehensive Jupyter notebook demonstrating the full map-making workflow ([examples/mm_example.ipynb](https://github.com/zzhang0123/limTOD/blob/main/examples/mm_example.ipynb))
 
 ### Changed
 
