@@ -31,8 +31,10 @@ DEFAULT_MEERKAT_LONGITUDE = 21.4430  # degrees, East is positive (EarthLocation 
 DEFAULT_MEERKAT_HEIGHT = 1054  # meters above sea level
 DEFAULT_START_TIME_UTC = "2019-04-23 20:41:56.397"
 DEFAULT_WHITE_NOISE_VAR = 2.5e-6  # Typical thermal noise variance
-# [f0, fc, alpha] for 1/f noise — matches generate_TOD's signature default
-DEFAULT_GAIN_NOISE_PARAMS = [1.335e-5, 1.099e-3, 2]
+# (f0, fc, alpha) for 1/f noise — the default of TODSim.generate_TOD.
+# A tuple (immutable) so the shared default cannot be mutated across calls;
+# pass gain_noise_params=None to disable gain-noise generation entirely.
+DEFAULT_GAIN_NOISE_PARAMS = (1.335e-5, 1.099e-3, 2)
 
 
 def example_scan(az_s=-60.3, az_e=-42.3, dt=2.0, n_repeats=5):
@@ -167,6 +169,19 @@ def generate_LSTs_deg(
     return LST_list_deg
 
 
+def _check_pointing_lengths(LST_deg_list, azimuth_deg_list, elevation_deg_list, selfrot_deg_list):
+    """Raise if the per-sample pointing arrays disagree in length (zip would
+    otherwise silently truncate to the shortest)."""
+    lengths = {
+        "LST_deg_list": len(LST_deg_list),
+        "azimuth_deg_list": len(azimuth_deg_list),
+        "elevation_deg_list": len(elevation_deg_list),
+        "selfrot_deg_list": len(selfrot_deg_list),
+    }
+    if len(set(lengths.values())) != 1:
+        raise ValueError(f"Pointing arrays must have equal lengths, got {lengths}")
+
+
 def _rotate_healpix_map(alm, psi_rad, theta_rad, phi_rad, nside, return_map=True):
     """
     Rotate a Healpix map represented by its alm coefficients using given Euler angles (psi, theta, phi).
@@ -205,7 +220,8 @@ def _rotate_healpix_map(alm, psi_rad, theta_rad, phi_rad, nside, return_map=True
         alm_rot = alm_copy
         stokes_V = False
     elif alm.shape[0] == 4:
-        # If input alm has 4 rows, ignore the V component (4th row)
+        # 4-row input: rotate I,Q,U jointly (spin-weighted), then rotate the
+        # V component separately as a scalar field.
         alm_copy = alm[:3].copy()
         hp.rotate_alm(alm_copy, phi_rad, theta_rad, psi_rad)
         alm_rot[:3] = alm_copy
@@ -238,8 +254,20 @@ def _normalize_map(input_map):
     Returns:
     array
         The normalized Healpix map.
+
+    Raises:
+    ValueError
+        If the map sums to (numerically) zero — dividing would silently
+        fill the pipeline with NaN/Inf samples.
     """
-    return input_map / np.sum(input_map)
+    total = np.sum(input_map)
+    if not np.isfinite(total) or np.abs(total) < np.finfo(np.float64).tiny:
+        raise ValueError(
+            "Cannot normalize a beam map whose pixel sum is zero or non-finite "
+            f"(sum={total!r}); check the beam model, mask, and truncation "
+            "settings for this pointing."
+        )
+    return input_map / total
 
 def _truncate_map(input_map, frac_thres=1e-10):
     """
@@ -326,11 +354,17 @@ def pointing_beam_in_eq_sys(
     beam_pointed = _rotate_healpix_map(beam_alm, psi_rad, theta_rad, phi_rad, nside)
 
     if horizontal_mask is not None:
+        # The horizontal-frame mask has its pole at the ZENITH (like beams
+        # have theirs at boresight), so horizontal -> equatorial is the
+        # zenith pointing: elevation=90 makes delta = el-90 vanish and the
+        # chain reduce to the pure LST/lat transform (psi'=LST, theta'=
+        # 90-lat, phi'=0). elevation=0 here was a bug that tipped the mask
+        # 90 deg onto the horizon (fixed in v1.3.0; regression-tested).
         mask_psi_rad, mask_theta_rad, mask_phi_rad = zyz_of_pointing(
             LST_deg=LST_deg,
             lat_deg=lat_deg,
             azimuth_deg=0,
-            elevation_deg=0,
+            elevation_deg=90,
             selfrot_deg=0
         )
         mask_alm = hp.map2alm(horizontal_mask)
@@ -343,13 +377,11 @@ def pointing_beam_in_eq_sys(
         if beam_pointed.ndim == 1:
             beam_pointed = _normalize_map(beam_pointed)
         elif beam_pointed.shape[0] in [3, 4]:
+            # _normalize_map raises on a zero-sum Stokes I, so norm_factor
+            # is guaranteed usable for the remaining Stokes rows.
             norm_factor = np.sum(beam_pointed[0])
             beam_pointed[0] = _normalize_map(beam_pointed[0])
-            # Scale other Stokes parameters by the same factor
-            if norm_factor > 0:
-                beam_pointed[1:] = beam_pointed[1:] / norm_factor
-            else:
-                print("Warning: Beam normalization factor is zero!")
+            beam_pointed[1:] = beam_pointed[1:] / norm_factor
         else:
             raise ValueError(
                 "Pointed beam map must be a 1D array or a 2D array with 3 or 4 rows."
@@ -388,18 +420,19 @@ def _beam_weighted_sum(beam_map, sky_map, normalize=False):
         if beam_map.ndim == 1:
             beam_map = _normalize_map(beam_map)
         elif beam_map.shape[0] in [3, 4]:
+            # _normalize_map raises on a zero-sum Stokes I, so norm_factor
+            # is guaranteed usable for the remaining Stokes rows.
             norm_factor = np.sum(beam_map[0])
             beam_map[0] = _normalize_map(beam_map[0])
-            # Scale other Stokes parameters by the same factor
-            if norm_factor > 0:
-                beam_map[1:] = beam_map[1:] / norm_factor
-            else:
-                print("Warning: Beam normalization factor is zero!")
+            beam_map[1:] = beam_map[1:] / norm_factor
         else:
             raise ValueError(
                 "Input beam_map must be a 1D array or a 2D array with 3 or 4 rows."
             )
 
+    # For multi-row (Stokes) inputs this sums I_b*I_s + Q_b*Q_s + U_b*U_s
+    # (+ V_b*V_s) over pixels — a total-detected-power convention with unit
+    # Mueller response and no polarization leakage terms.
     return np.sum(beam_map * sky_map)
 
 
@@ -463,7 +496,7 @@ def generate_TOD_sky(
     else:
         beam_map_hires = beam_map
     nside_sky = hp.get_nside(sky_map) if sky_map.ndim == 1 else hp.get_nside(sky_map[0])
-
+    _check_pointing_lengths(LST_deg_list, azimuth_deg_list, elevation_deg_list, selfrot_deg_list)
 
     # Convert beam map to alm coefficients
     if beam_map_hires.ndim == 1 or beam_map_hires.shape[0] == 3:
@@ -510,13 +543,9 @@ def example_beam_map(*, freq, nside, FWHM_major=1.1, FWHM_minor=1.1):
     sigma_major = np.radians(FWHM_major / (2 * np.sqrt(2 * np.log(2))))
     sigma_minor = np.radians(FWHM_minor / (2 * np.sqrt(2 * np.log(2))))
     angle_rad = 0.0
-    # Compute offsets from beam center
-
-    dtheta = theta
-    dphi = phi
-    # Convert to Cartesian offsets
-    x = dtheta * np.cos(phi)
-    y = dtheta * np.sin(phi)
+    # Offsets from the beam center (at the pole) in Cartesian projection
+    x = theta * np.cos(phi)
+    y = theta * np.sin(phi)
     # Rotate by angle
     x_rot = x * np.cos(angle_rad) + y * np.sin(angle_rad)
     y_rot = -x * np.sin(angle_rad) + y * np.cos(angle_rad)
@@ -636,6 +665,9 @@ class TODSim:
         elevation_deg : list or float
             If float: Elevation value in degrees universal for all observations.
             If list: List of elevation values in degrees for each observation.
+        selfrot_deg_list : list or array, optional
+            Antenna self-rotation angles in degrees for each observation.
+            Default is None (zero self-rotation).
         start_time_utc : str
             Start time in UTC (e.g. "2019-04-23 20:41:56.397").
         nside_hires : int, optional
@@ -643,8 +675,12 @@ class TODSim:
         normalize_beam : bool, optional
             If True, normalize the beam map to have a sum of 1 before computing the weighted sum.
             Default is False.
+        horizontal_mask : array, optional
+            Binary HEALPix mask in the local horizontal coordinate system
+            (1 = keep, 0 = masked), rotated with the pointing and applied to
+            the pointed beam. Default is None (no mask).
         truncate_frac_thres : float, optional
-            The fractional threshold value for beam truncation. 
+            The fractional threshold value for beam truncation.
             If specified, set all pixels with values below this fraction of the maximum pixel value to zero before normalization. Default is 1e-10.
         return_LSTs : bool, optional
             If True, return the LST values along with the TODs. Default is False.
@@ -747,7 +783,7 @@ class TODSim:
         Tsys_others_TOD=None,
         background_gain_TOD=None,
         gain_noise_TOD=None,
-        gain_noise_params=[1.335e-5, 1.099e-3, 2],
+        gain_noise_params=DEFAULT_GAIN_NOISE_PARAMS,
         white_noise_var=None,
         return_LSTs=False,
         nside_hires=None,
@@ -771,6 +807,9 @@ class TODSim:
         elevation_deg : list or float
             If float: Elevation value in degrees universal for all observations.
             If list: List of elevation values in degrees for each observation.
+        selfrot_deg_list : list or array, optional
+            Antenna self-rotation angles in degrees for each observation.
+            Default is None (zero self-rotation).
         start_time_utc : str
             Start time in UTC (e.g. "2019-04-23 20:41:56.397").
         Tsys_others_TOD : array, optional
@@ -779,8 +818,9 @@ class TODSim:
             Array of background gain TOD (shape: nfreq x ntime). Default is None (unity gain).
         gain_noise_TOD : array, optional
             Array of gain noise TOD (shape: nfreq x ntime). Default is None (no gain noise).
-        gain_noise_params : list, optional
-            List of parameters [f0, fc, alpha] for generating gain noise if gain_noise_TOD is None. Default is [1.335e-5, 1.099e-3, 2].
+        gain_noise_params : tuple or list, optional
+            Parameters (f0, fc, alpha) for generating gain noise if gain_noise_TOD is None.
+            Default is (1.335e-5, 1.099e-3, 2); pass None to disable gain noise.
         white_noise_var : float, optional
             Variance of white noise to be added. Default is None (uses default value of 2.5e-6).
         return_LSTs : bool, optional
@@ -791,8 +831,12 @@ class TODSim:
         normalize_beam : bool, optional
             If True, normalize the beam map to have a sum of 1 before computing the weighted sum.
             Default is False.
+        horizontal_mask : array, optional
+            Binary HEALPix mask in the local horizontal coordinate system
+            (1 = keep, 0 = masked), rotated with the pointing and applied to
+            the pointed beam. Default is None (no mask).
         truncate_frac_thres : float, optional
-            The fractional threshold value for beam truncation. 
+            The fractional threshold value for beam truncation.
             If specified, set all pixels with values below this fraction of the maximum pixel value to zero before normalization. Default is 1e-10.
 
         Returns:
@@ -802,6 +846,8 @@ class TODSim:
             The sky signal TOD (shape: nfreq x ntime).
         gain_noise_TOD : array
             The gain noise TOD (shape: nfreq x ntime).
+        LST_deg_list : array, optional
+            Only when return_LSTs is True (making the return a 4-tuple).
         """
 
         nfreq = len(freq_list)
@@ -946,7 +992,8 @@ def truncate_stacked_beam(
 
     if nside_target is None:
         nside_target = nside_beam
-        print("nside_target is not provided, using beam map nside as target nside.")
+        if mpiutil.rank0:
+            print("nside_target is not provided, using beam map nside as target nside.")
 
 
     # Convert beam map to alm coefficients
@@ -962,9 +1009,12 @@ def truncate_stacked_beam(
         )
 
 
+    _check_pointing_lengths(LST_deg_list, azimuth_deg_list, elevation_deg_list, selfrot_deg_list)
+
     # Integrate the beam map as the sum map, select pixels above threshold
 
-    print("\nStep 1: Generating the stacked abs(beam) map ... \n")
+    if mpiutil.rank0:
+        print("\nStep 1: Generating the stacked abs(beam) map ... \n")
     # Generate a initial boolean map with all pixels zero
     bool_map = np.zeros(hp.nside2npix(nside_target), dtype=bool)
 
@@ -983,7 +1033,8 @@ def truncate_stacked_beam(
         else:
             print("Warning: Beam has zero maximum value at this pointing!")
 
-    print("\nStep 2: Selecting pixels above threshold sensitivity ... \n")
+    if mpiutil.rank0:
+        print("\nStep 2: Selecting pixels above threshold sensitivity ... \n")
     if bool_map.ndim == 2:
         bool_map = np.any(bool_map, axis=0)
     pixel_indices = np.where(bool_map)[0]
@@ -1068,10 +1119,13 @@ def generate_sky2sys_projection(
             "Input beam_map must be a 1D array or a 2D array with 3 or 4 rows."
         )
 
+    _check_pointing_lengths(LST_deg_list, azimuth_deg_list, elevation_deg_list, selfrot_deg_list)
+
     n_data = len(LST_deg_list)
     n_pixels = len(pixel_indices)
-    print(f"Number of data points: {n_data}")
-    print(f"Number of selected pixels: {n_pixels}")
+    if mpiutil.rank0:
+        print(f"Number of data points: {n_data}")
+        print(f"Number of selected pixels: {n_pixels}")
 
     if beam_map.ndim == 1:
         sky2sys = np.zeros((n_data, n_pixels))
@@ -1095,6 +1149,6 @@ def generate_sky2sys_projection(
             sky2sys[i, :, :] = beam_pointed[:, pixel_indices]
         i += 1
 
-    result = sky2sys.reshape(i, -1)  # shape: ntime x (npol * npix)
+    result = sky2sys.reshape(n_data, -1)  # shape: ntime x (npol * npix)
 
     return result

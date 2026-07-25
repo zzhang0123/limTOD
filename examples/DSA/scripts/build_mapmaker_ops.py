@@ -54,10 +54,12 @@ from limTOD.simulator import (  # noqa: E402
     example_scan,
 )
 
-# Same on-disk binary serialiser the notebooks use for the operator cache
-# (loaded via __import__ so this file does not contain the literal name —
-# our pre-write hooks complain otherwise).
-_serial = __import__("p" + "ickle")
+# SECURITY: pickle serialization executes arbitrary code on load. These
+# operator caches are local build artifacts — only ever load caches you
+# created yourself. (Plain-text pickle usage was explicitly authorized by
+# the maintainer; an obfuscated import that dodged the security hook was
+# removed in review.)
+import pickle
 
 
 # ---------------------------------------------------------------------------
@@ -93,11 +95,9 @@ def dsa_beam_func(*, freq, nside):
 # ---------------------------------------------------------------------------
 def load_pointings_from_tod(tod_npz_path: str):
     """Return (lst_groups, az_groups, el_groups, selfrot_groups) read from
-    a ``simulated_TODs_*.npz`` cache. Kwargs are assembled dynamically so
-    the literal "allow_" + "pickle" substring does not appear in this file's
-    source text — a pre-commit security hook rejects files that contain it."""
-    kw = {"allow_" + "pickle": True}
-    data = np.load(tod_npz_path, **kw)
+    a ``simulated_TODs_*.npz`` cache (object arrays, hence allow_pickle —
+    only ever load caches generated locally by the sim scripts)."""
+    data = np.load(tod_npz_path, allow_pickle=True)
     lst_g = [np.asarray(a, dtype=np.float64) for a in data["LST_deg_list_group"]]
     az_g = [np.asarray(a, dtype=np.float64) for a in data["azimuth_deg_list_group"]]
     el_g = [np.asarray(a, dtype=np.float64) for a in data["elevation_deg_list_group"]]
@@ -322,7 +322,7 @@ def run_one(cfg: dict) -> None:
         )
         out_path = cfg["out_path"].format(ns=cfg["sky_nside_map"])
         with open(out_path, "wb") as f:
-            _serial.dump(mm, f, protocol=_serial.HIGHEST_PROTOCOL)
+            pickle.dump(mm, f, protocol=pickle.HIGHEST_PROTOCOL)
         print(f"[ops] wrote {out_path}\n      total wall: {time.time() - t_start:.1f} s",
               flush=True)
 

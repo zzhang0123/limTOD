@@ -56,9 +56,11 @@ rotations:
    the beam's alm coefficients (`healpy.rotate_alm`) and synthesizes the
    pointed beam map — no per-pixel interpolation.
 5. **Horizontal mask (optional).** A mask defined in horizontal
-   coordinates is rotated with the pointing-independent part of the chain
-   (azimuth = 0, elevation = 0 ⇒ ψ′ = α, θ′ = β, φ′ = 0), thresholded at
-   0.5, and applied to the pointed beam.
+   coordinates (pole at the zenith) is rotated with the pointing-independent
+   part of the chain — the zenith pointing azimuth = 0, elevation = 90, for
+   which δ = 0 and the rotation reduces to ψ′ = α, θ′ = β, φ′ = 0 — then
+   thresholded at 0.5 and applied to the pointed beam. (Before v1.3.0 the
+   code used elevation = 0 here, tipping the mask 90° onto the horizon.)
 6. **Sky integration.** `_beam_weighted_sum` forms the pixel dot product —
    one TOD sample per pointing.
 

@@ -116,22 +116,25 @@ def wiener_filter_map(TOD, operator, noise_variance=None, prior_inv_cov=None, gu
         # Simple estimate: variance of high-pass filtered residuals
         residual = TOD - operator @ np.linalg.pinv(operator) @ TOD
         if rolling_variance:
-            window_size = 100
+            # Cap the window at the TOD length: with the fixed window of 100
+            # samples, shorter TODs used to produce a truncated variance
+            # vector and an opaque matmul shape error downstream.
+            window_size = min(100, n_time)
             half_window = window_size // 2
-            
+
             # Pad with first N and last N samples (reflected)
             # This provides smoother boundaries than just repeating edge value
             left_pad = residual[:half_window][::-1]  # First N samples, reversed
             right_pad = residual[-half_window:][::-1]  # Last N samples, reversed
             padded_residual = np.concatenate([left_pad, residual, right_pad])
-            
+
             # Apply rolling window to squared residuals
             noise_variance = np.convolve(
                 padded_residual**2,
                 np.ones(window_size)/window_size,
                 mode='valid'
             )
-            
+
             # Trim to exact length if needed
             if len(noise_variance) > len(residual):
                 # Take the middle portion
@@ -147,8 +150,14 @@ def wiener_filter_map(TOD, operator, noise_variance=None, prior_inv_cov=None, gu
     if np.isscalar(noise_variance):
         N_inv = np.eye(n_time) / noise_variance
     else:
+        noise_variance = np.asarray(noise_variance)
+        if len(noise_variance) != n_time:
+            raise ValueError(
+                f"noise_variance has length {len(noise_variance)} but the TOD "
+                f"has {n_time} samples"
+            )
         # Convert to dense diagonal matrix for consistent matrix operations
-        N_inv = np.diag(1.0 / np.asarray(noise_variance))
+        N_inv = np.diag(1.0 / noise_variance)
     
     # Create signal inverse covariance matrix
     if prior_inv_cov is None:
@@ -319,8 +328,11 @@ class HPW_mapmaking:
         # If LST_deg_list_group[0] is a list, flatten it.
         if isinstance(LST_deg_list_group[0], (list, np.ndarray)):
             self.num_tods = len(LST_deg_list_group)
-            assert self.num_tods == len(azimuth_deg_list_group) == len(elevation_deg_list_group), \
-                "Length of LST_deg_list_group, azimuth_deg_list_group, elevation_deg_list_group must be the same."
+            if not (self.num_tods == len(azimuth_deg_list_group) == len(elevation_deg_list_group)):
+                raise ValueError(
+                    "Length of LST_deg_list_group, azimuth_deg_list_group, "
+                    "elevation_deg_list_group must be the same."
+                )
             LST_deg_list = np.concatenate(LST_deg_list_group)
             azimuth_deg_list = np.concatenate(azimuth_deg_list_group)
             elevation_deg_list = np.concatenate(elevation_deg_list_group)
@@ -563,12 +575,15 @@ class HPW_mapmaking:
         # Construct prior mean for all parameters
         Tsys_prior_mean = np.zeros(self.nparams)
         if Tsky_prior_mean is not None:
-            assert len(Tsky_prior_mean) == self.nsky_params, "Length of Tsky_prior_mean must match number of sky parameters."
+            if len(Tsky_prior_mean) != self.nsky_params:
+                raise ValueError("Length of Tsky_prior_mean must match number of sky parameters.")
             Tsys_prior_mean[:self.nsky_params] = Tsky_prior_mean
         counter = self.nsky_params
         if Tsys_other_prior_mean_group is not None:
-            assert self.Tsys_others, "Tsys_others_operator must be provided in initialization if Tsys_other_prior_mean_group is provided."
-            assert len(Tsys_other_prior_mean_group) == self.num_tods, "Length of Tsys_other_prior_mean_group must match number of TODs."
+            if not self.Tsys_others:
+                raise ValueError("Tsys_others_operator must be provided in initialization if Tsys_other_prior_mean_group is provided.")
+            if len(Tsys_other_prior_mean_group) != self.num_tods:
+                raise ValueError("Length of Tsys_other_prior_mean_group must match number of TODs.")
             for Tsys_other_prior_mean_i in Tsys_other_prior_mean_group:
                 Tsys_prior_mean[counter:counter+len(Tsys_other_prior_mean_i)] = Tsys_other_prior_mean_i
                 counter += len(Tsys_other_prior_mean_i)
@@ -577,20 +592,27 @@ class HPW_mapmaking:
         Tsys_prior_inv_cov = np.zeros((self.nparams, self.nparams)) 
         if Tsky_prior_inv_cov_diag is not None:
             Tsky_prior_inv_cov_diag = np.asarray(Tsky_prior_inv_cov_diag).reshape(-1) # flatten
-            assert len(Tsky_prior_inv_cov_diag) == self.nsky_params, "Length of Tsky_prior_inv_cov_diag must match number of sky parameters."
+            if len(Tsky_prior_inv_cov_diag) != self.nsky_params:
+                raise ValueError("Length of Tsky_prior_inv_cov_diag must match number of sky parameters.")
             Tsys_prior_inv_cov[:self.nsky_params, :self.nsky_params] = np.diag(Tsky_prior_inv_cov_diag)
 
         counter = self.nsky_params
         if Tsys_other_prior_inv_cov_group is not None:
-            assert self.Tsys_others, "Tsys_others_operator must be provided in initialization if Tsys_other_prior_inv_cov_group is provided."
-            assert len(Tsys_other_prior_inv_cov_group) == self.num_tods, "Length of Tsys_other_prior_inv_cov_group must match number of TODs."
+            if not self.Tsys_others:
+                raise ValueError("Tsys_others_operator must be provided in initialization if Tsys_other_prior_inv_cov_group is provided.")
+            if len(Tsys_other_prior_inv_cov_group) != self.num_tods:
+                raise ValueError("Length of Tsys_other_prior_inv_cov_group must match number of TODs.")
             
             for Tsys_other_prior_inv_cov_i in Tsys_other_prior_inv_cov_group:
-                if Tsys_other_prior_inv_cov_group[0].ndim == 1:
+                # Branch on THIS element's ndim: checking group[0] here used to
+                # misroute mixed 1D/2D groups, silently np.diag-ing a 2D
+                # covariance and discarding its off-diagonal entries.
+                Tsys_other_prior_inv_cov_i = np.asarray(Tsys_other_prior_inv_cov_i)
+                if Tsys_other_prior_inv_cov_i.ndim == 1:
                     n_others = len(Tsys_other_prior_inv_cov_i)
                     Tsys_prior_inv_cov[counter:counter+n_others, counter:counter+n_others] = np.diag(Tsys_other_prior_inv_cov_i)
                     counter += n_others
-                elif Tsys_other_prior_inv_cov_group[0].ndim == 2:
+                elif Tsys_other_prior_inv_cov_i.ndim == 2:
                     n_others = Tsys_other_prior_inv_cov_i.shape[0]
                     Tsys_prior_inv_cov[counter:counter+n_others, counter:counter+n_others] = Tsys_other_prior_inv_cov_i
                     counter += n_others
@@ -602,9 +624,10 @@ class HPW_mapmaking:
         # Accepts: None / scalar / 1D array / list-of-(scalar|1D-array).
         nv = noise_variance
         if isinstance(nv, (list, tuple)):
-            assert len(nv) == self.num_tods, (
-                f"noise_variance list length {len(nv)} != num_tods {self.num_tods}"
-            )
+            if len(nv) != self.num_tods:
+                raise ValueError(
+                    f"noise_variance list length {len(nv)} != num_tods {self.num_tods}"
+                )
             tod_lengths = [len(TOD_group[i]) for i in range(self.num_tods)] \
                 if self.num_tods > 1 else [len(HP_cal_TOD_overall)]
             pieces = []
@@ -613,9 +636,10 @@ class HPW_mapmaking:
                     pieces.append(np.full(tod_lengths[i], float(nv_i)))
                 else:
                     nv_i = np.asarray(nv_i, dtype=float)
-                    assert nv_i.shape == (tod_lengths[i],), (
-                        f"noise_variance[{i}] shape {nv_i.shape} != ({tod_lengths[i]},)"
-                    )
+                    if nv_i.shape != (tod_lengths[i],):
+                        raise ValueError(
+                            f"noise_variance[{i}] shape {nv_i.shape} != ({tod_lengths[i]},)"
+                        )
                     pieces.append(nv_i)
             nv = np.concatenate(pieces)
 

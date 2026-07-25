@@ -79,13 +79,19 @@ def generate_gaussian_field(
         maps (array_like):
             Array of Healpix maps, of shape `(Nfreqs, Npix)`.
     """
-    # Set random seed
-    np.random.seed(seed)
+    # Seed only when explicitly requested: np.random.seed(None) would RESEED
+    # the global RNG from OS entropy, clobbering any reproducibility seeding
+    # the caller has already done.
+    if seed is not None:
+        np.random.seed(seed)
 
     # Set f_ell function
     if f_ell is None:
-        f_ell = lambda ell: (ell / ell_ref) ** alpha
-    assert callable(f_ell), "f_ell must be a callable function of ell"
+        def f_ell(ell):
+            return (ell / ell_ref) ** alpha
+
+    if not callable(f_ell):
+        raise TypeError("f_ell must be a callable function of ell")
 
     # Set of ell values and ell-dependent covariance factor
     ell_max = 3 * nside - 1  # This is the correct value for a band-limited field
