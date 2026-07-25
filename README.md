@@ -130,6 +130,6 @@ MIT License — see
 [LICENSE](https://github.com/zzhang0123/limTOD/blob/main/LICENSE).
 
 limTOD is developed and maintained by Zheng Zhang (University of
-Manchester), with active help and advice from members of the MeerKLASS
+Manchester), with help and advice from members of the MeerKLASS
 and RHINO collaborations — including Phil Bull, Piyanat Kittiwisit,
 Geoff Murphy, and Mario Santos.
