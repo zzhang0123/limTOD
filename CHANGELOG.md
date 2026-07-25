@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-07-25
+
+### Documentation
+
+- 🧭 **Beam convention restated in fully coordinate-anchored language**
+  (`docs/theory.md`): the tangent basis is now *defined* by coordinate
+  derivatives — `ê_el ≡ ∂b̂/∂e` (increasing elevation) and
+  `ê_az ≡ (1/cos e) ∂b̂/∂A` (increasing azimuth) — with explicit
+  East/North/Up component formulas, so the statement is closed under
+  the horizontal system alone. Observer-dependent words ("up/right")
+  are removed from every convention statement (docs, docstrings,
+  tests): they depend on the facing direction — a φ = 90° feature maps
+  toward East when pointing at azimuth 0° but toward **West** at
+  azimuth 180° — which is spelled out as a worked anchor. The
+  identity/unrotated case is additionally phrased as the
+  North-Pole-zenith reading (beam of an antenna at the terrestrial
+  North Pole pointing at the NCP, φ = 0 along the LST = 0 meridian
+  toward decreasing declination, φ = 90° along RA = 90°).
+- README now opens with the documentation link
+  (https://limtod.readthedocs.io).
+
 ## [1.5.1] - 2026-07-25
 
 ### Documentation

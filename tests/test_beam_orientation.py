@@ -10,11 +10,12 @@ push it through the full pointing chain (``pointing_beam_in_eq_sys``),
 and compare the landing direction against the exact expectation
 
     v_expect = cos(theta0) * b_hat + sin(theta0) * t_hat,
-    t_hat    = cos(phi_b + psi) * e_up + sin(phi_b + psi) * e_right,
+    t_hat    = cos(phi_b + psi) * e_el + sin(phi_b + psi) * e_az,
 
-with the site at (lat = 0, LST = 0) so the horizontal->equatorial part
-is trivial: zenith = (RA 0, Dec 0), North horizon = NCP, East point =
-(RA 90, Dec 0).
+where e_el = d(b_hat)/d(el) is the increasing-elevation tangent and
+e_az the increasing-azimuth tangent (docs/theory.md). The site is at
+(lat = 0, LST = 0) so the horizontal->equatorial part is trivial:
+zenith = (RA 0, Dec 0), North horizon = NCP, East point = (RA 90, Dec 0).
 """
 
 import healpy as hp
@@ -53,9 +54,9 @@ def _landing_vec(phi_b_deg: float, az: float, el: float, selfrot: float = 0.0) -
     return np.asarray(hp.pix2vec(NSIDE, int(np.argmax(out))))
 
 
-def _expected_vec(b_hat, e_up, e_right, phi_b_deg: float, psi_deg: float = 0.0):
+def _expected_vec(b_hat, e_el, e_az, phi_b_deg: float, psi_deg: float = 0.0):
     ang = np.deg2rad(phi_b_deg + psi_deg)
-    t_hat = np.cos(ang) * e_up + np.sin(ang) * e_right
+    t_hat = np.cos(ang) * e_el + np.sin(ang) * e_az
     return np.cos(THETA0) * b_hat + np.sin(THETA0) * t_hat
 
 
@@ -65,9 +66,9 @@ def _sep_deg(u, v) -> float:
 
 @pytest.mark.integration
 class TestBeamOrientation:
-    """phi = 0 -> up, phi = 90 -> right, at two independent pointings."""
+    """phi=0 -> e_el, phi=90 -> e_az, at two independent pointings."""
 
-    # Pointing az=0 (North horizon): b = NCP, e_up = ZENITH, e_right = EAST.
+    # Pointing az=0 (North horizon): b = NCP, e_el = ZENITH, e_az = EAST.
     @pytest.mark.parametrize("phi_b", [0.0, 90.0, 180.0, 270.0])
     def test_identity_pointing_reads_map_as_equatorial(self, phi_b):
         """lat=0, LST=0, az=0, el=0 is the identity of the chain: the map
@@ -76,20 +77,19 @@ class TestBeamOrientation:
         expected = _expected_vec(NCP, ZENITH, EAST, phi_b)
         assert _sep_deg(got, expected) < TOL_DEG
 
-    # Pointing az=90 (East horizon): b = EAST point, e_up = ZENITH,
-    # e_right = increasing azimuth = South = -NCP-side horizon = along -z? No:
-    # facing East at the horizon, increasing azimuth heads toward South,
-    # i.e. along the horizon great circle from (RA 90, Dec 0) toward the SCP.
+    # Pointing az=90 (East horizon): b = EAST point, e_el = ZENITH,
+    # e_az (increasing azimuth) = the horizon great-circle direction from
+    # (RA 90, Dec 0) toward the SCP.
     @pytest.mark.parametrize("phi_b", [0.0, 90.0, 270.0])
-    def test_east_pointing_up_and_right_sides(self, phi_b):
+    def test_east_pointing_e_el_and_e_az(self, phi_b):
         got = _landing_vec(phi_b, az=90.0, el=0.0)
-        e_right = np.array([0.0, 0.0, -1.0])  # toward the SCP (South)
-        expected = _expected_vec(EAST, ZENITH, e_right, phi_b)
+        e_az = np.array([0.0, 0.0, -1.0])  # toward the SCP
+        expected = _expected_vec(EAST, ZENITH, e_az, phi_b)
         assert _sep_deg(got, expected) < TOL_DEG
 
-    def test_selfrot_rotates_up_toward_right(self):
+    def test_selfrot_rotates_e_el_toward_e_az(self):
         """Positive selfrot carries the phi = 0 feature toward phi = +90
-        (up -> right), by the selfrot angle."""
+        (from e_el toward e_az), by the selfrot angle."""
         got = _landing_vec(0.0, az=0.0, el=0.0, selfrot=30.0)
         expected = _expected_vec(NCP, ZENITH, EAST, 0.0, psi_deg=30.0)
         assert _sep_deg(got, expected) < TOL_DEG
@@ -98,7 +98,7 @@ class TestBeamOrientation:
         assert _sep_deg(got, mirror) > 4.0 * TOL_DEG
 
     def test_mirror_convention_rejected(self):
-        """phi = 90 landing on the LEFT (the mirrored convention) must be
+        """phi = 90 landing along -e_az (the mirrored convention) must be
         far off — this is the case a symmetric beam can never detect."""
         got = _landing_vec(90.0, az=0.0, el=0.0)
         mirrored = _expected_vec(NCP, ZENITH, -EAST, 90.0)

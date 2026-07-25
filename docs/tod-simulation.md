@@ -50,11 +50,11 @@ two of which must be `freq` and `nside`, returning a HEALPix map:
 **Beam orientation.** The beam map must follow the
 [beam coordinate convention](theory.md#beam-coordinate-convention):
 boresight at the map's north pole (θ = 0); the φ = 0 meridian is
-carried to the pointing's **up** side (increasing elevation) and
-φ = 90° to its **right** side (increasing azimuth), with positive
-`selfrot_deg` rotating the pattern from up toward right. Symmetric
-beams are unaffected; for asymmetric or polarized beams this is
-load-bearing.
+carried to the direction of **increasing elevation** (ê_el ≡ ∂b̂/∂e)
+and φ = 90° to the direction of **increasing azimuth** (ê_az) at the
+pointing, with positive `selfrot_deg` rotating the pattern from ê_el
+toward ê_az. Symmetric beams are unaffected; for asymmetric or
+polarized beams this is load-bearing.
 
 Built-ins: `example_beam_map` (elliptical Gaussian),
 `example_symm_beam_map` (symmetric Gaussian), `GDSM_sky_model`

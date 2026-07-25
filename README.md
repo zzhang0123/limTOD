@@ -3,6 +3,8 @@
 **Time-Ordered Data simulator for single-dish (autocorrelation) radio
 intensity mapping — with a differentiable pure-JAX port.**
 
+📖 **Documentation: <https://limtod.readthedocs.io>**
+
 limTOD simulates the time-ordered data (TOD) of a single-dish telescope
 scanning a HEALPix sky with an arbitrary (asymmetric) beam: the beam is
 rotated to each pointing in spherical-harmonic space and dotted with the

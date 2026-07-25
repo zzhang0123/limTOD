@@ -25,10 +25,10 @@ limTOD usage is unaffected.
    project onto the pointing's tangent plane (SIN projection). The
    direction-cosine axes follow the
    [beam coordinate convention](theory.md#beam-coordinate-convention):
-   `l` along **increasing azimuth** (the beam's right side) and `m`
-   along **increasing elevation** (the up side) — for a north-facing
-   pointing, `l` = East. The beam cube's `(l, m)` axes are assumed to
-   follow the same convention.
+   `l` along ê_az (**increasing azimuth**) and `m` along ê_el
+   (**increasing elevation**) — e.g. for a pointing at azimuth 0°,
+   `l` is toward East; at azimuth 180°, toward West. The beam cube's
+   `(l, m)` axes are assumed to follow the same convention.
 3. Bilinearly interpolate the beam power cube at those `(l, m)` — the
    weights are computed once per pointing and applied vectorially across
    the whole frequency axis.

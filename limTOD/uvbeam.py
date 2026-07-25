@@ -23,13 +23,14 @@ Conventions
   frame (x = East, y = North, z = boresight) with az measured from East
   toward North ("az runs from East to North") — pyuvdata does not define
   how that frame rotates with pointing. limTOD's beam-map phi is instead
-  anchored to the pointing: phi = 0 tracks the beam's UP side (increasing
-  elevation), phi = pi/2 its RIGHT side (increasing azimuth); see
-  docs/theory.md ("Beam coordinate convention"). The adapter identifies
-  the two via ``az_uvbeam = pi/2 - phi_healpix`` — UVBeam's North axis
-  becomes the up side, its East axis (the X feed for
-  x_orientation="east") the right side; the sign flip reflects the two
-  azimuths increasing in opposite senses. This mapping is LOCKED
+  anchored to the pointing: phi = 0 is carried to the direction of
+  increasing elevation (e_el) and phi = pi/2 to the direction of
+  increasing azimuth (e_az); see docs/theory.md ("Beam coordinate
+  convention"). The adapter identifies the two via
+  ``az_uvbeam = pi/2 - phi_healpix`` — UVBeam's North axis lands on the
+  phi = 0 meridian (-> e_el), its East axis (the X feed for
+  x_orientation="east") on phi = pi/2 (-> e_az); the sign flip reflects
+  the two azimuths increasing in opposite senses. This mapping is LOCKED
   NUMERICALLY by the three-way orientation test in ``tests/test_uvbeam.py``
   (HEALPix path vs the patch-beam (l, m) disc path, discrimination via a
   strongly displaced beam: winner 0.5% agreement, all other candidate
@@ -37,9 +38,9 @@ Conventions
   the hand derivation of this mapping had a handedness error that only
   the numerical lock caught.
 * Direction cosines for the patch bridge: ``l = sin(za) cos(az_uvbeam)``
-  (UVBeam East -> patch "right" axis), ``m = sin(za) sin(az_uvbeam)``
-  (UVBeam North -> patch "up" axis) — the SIN convention of
-  :mod:`limTOD.patchbeam.projection`.
+  (UVBeam East -> patch l axis, along e_az), ``m = sin(za)
+  sin(az_uvbeam)`` (UVBeam North -> patch m axis, along e_el) — the SIN
+  convention of :mod:`limTOD.patchbeam.projection`.
 * Pixels beyond the UVBeam's zenith-angle coverage are filled with
   ``fill_value`` (default 0 — no response outside the measured domain).
 
@@ -78,10 +79,11 @@ def healpix_phi_to_uvbeam_az(phi_rad: np.ndarray) -> np.ndarray:
     """HEALPix beam-map azimuth -> UVBeam azimuth [radians].
 
     ``az_uvbeam = pi/2 - phi_healpix``: UVBeam's North axis (az = pi/2)
-    maps to the beam-map meridian phi = 0 (the beam's up side), its East
-    axis (az = 0) to phi = pi/2 (the right side). Locked by the
-    three-way orientation test in ``tests/test_uvbeam.py``; see the
-    module docstring and docs/theory.md.
+    maps to the beam-map meridian phi = 0 (carried to the direction of
+    increasing elevation at the pointing), its East axis (az = 0) to
+    phi = pi/2 (increasing azimuth). Locked by the three-way orientation
+    test in ``tests/test_uvbeam.py``; see the module docstring and
+    docs/theory.md.
     """
     return (0.5 * np.pi - np.asarray(phi_rad, dtype=np.float64)) % (2.0 * np.pi)
 

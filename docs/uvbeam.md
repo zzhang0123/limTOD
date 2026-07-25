@@ -65,9 +65,10 @@ job.
 
 **limTOD's frame**
 ([theory](theory.md#beam-coordinate-convention)) is anchored to the
-*pointing*, not to fixed compass labels: the beam-map meridian φ = 0
-tracks the **up** side (increasing elevation) and φ = 90° the **right**
-side (increasing azimuth), at every pointing.
+*pointing*, not to fixed compass labels: the beam-map meridian φ = 0 is
+carried to the direction of **increasing elevation**
+(ê_el ≡ ∂b̂/∂e) and φ = 90° to the direction of **increasing azimuth**
+(ê_az), at every pointing.
 
 **The adapter** supplies the missing rotation rule through one
 identification, applied when the UVBeam is sampled onto the beam map:
@@ -76,11 +77,11 @@ identification, applied when the UVBeam is sampled onto the beam map:
 healpix (θ, φ)   ←   UVBeam (za = θ,  az = 90° − φ)
 ```
 
-In axis language: **UVBeam's North axis becomes the beam's up side
-(φ = 0), and UVBeam's East axis (the X feed for `x_orientation="east"`)
-becomes the right side (φ = 90°)**. Note the minus sign: the two
-azimuths increase in *opposite* senses (`az`: East → North; φ:
-up → right, i.e. North-image → East-image), so the identification is
+In axis language: **UVBeam's North axis lands on the beam-map meridian
+φ = 0 (carried to ê_el), and UVBeam's East axis (the X feed for
+`x_orientation="east"`) on φ = 90° (carried to ê_az)**. Note the minus
+sign: the two azimuths increase in *opposite* senses (`az`:
+East → North; φ: North-image → East-image), so the identification is
 orientation-reversing at the chart level. This is exactly the kind of
 statement hand derivations get wrong — an earlier one had a handedness
 error — so the mapping was **locked numerically**: a strongly displaced
@@ -92,7 +93,8 @@ both directions).
 `uvbeam_to_patch_beam` applies the same identification via direction
 cosines: the UVBeam components
 `(sin za · cos az, sin za · sin az) = (East, North)` map onto the patch
-grid's `(l, m) = (right, up)` axes.
+grid's `(l, m)` axes — `(l, m)` being the components along
+`(ê_az, ê_el)`.
 
 If your beam file was produced under a different physical mounting
 convention (e.g. the feed frame rotated relative to the E/N axes),
