@@ -97,6 +97,67 @@ def test_limtod_runs_without_mpi4py_and_pygdsm():
     assert "OPTIONAL-DEPS OK" in out.stdout
 
 
+_LAUNCHER_PROBE = r"""
+import sys
+import importlib.abc
+
+
+class Blocker(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        if fullname.split(".")[0] == "mpi4py":
+            raise ImportError("mpi4py blocked to simulate a missing optional dep")
+        return None
+
+
+sys.meta_path.insert(0, Blocker())
+import limTOD.mpiutil as mpiutil  # noqa: F401
+
+print("IMPORTED size=%d" % mpiutil.size)
+"""
+
+
+def _run_launcher_probe(extra_env):
+    import os
+
+    env = dict(os.environ)
+    # Scrub launcher variables inherited from the test runner's own context.
+    for var in (
+        "OMPI_COMM_WORLD_SIZE", "PMI_SIZE", "MV2_COMM_WORLD_SIZE",
+        "SLURM_NTASKS", "LIMTOD_FORCE_SERIAL",
+    ):
+        env.pop(var, None)
+    env.update(extra_env)
+    return subprocess.run(
+        [sys.executable, "-c", _LAUNCHER_PROBE],
+        capture_output=True,
+        text=True,
+        timeout=600,
+        env=env,
+    )
+
+
+def test_mpi_launcher_without_mpi4py_fails_loudly():
+    """mpirun -n N without mpi4py must not silently duplicate the workload."""
+    out = _run_launcher_probe({"OMPI_COMM_WORLD_SIZE": "4"})
+    assert out.returncode != 0
+    assert "RuntimeError" in out.stderr and 'limTOD[mpi]' in out.stderr
+
+
+def test_mpi_launcher_guard_escape_hatch():
+    out = _run_launcher_probe(
+        {"OMPI_COMM_WORLD_SIZE": "4", "LIMTOD_FORCE_SERIAL": "1"}
+    )
+    assert out.returncode == 0, out.stderr[-2000:]
+    assert "IMPORTED size=1" in out.stdout
+
+
+def test_single_task_launcher_is_not_flagged():
+    """mpirun -n 1 (or plain srun with one task) stays valid serial usage."""
+    out = _run_launcher_probe({"OMPI_COMM_WORLD_SIZE": "1", "SLURM_NTASKS": "1"})
+    assert out.returncode == 0, out.stderr[-2000:]
+    assert "IMPORTED size=1" in out.stdout
+
+
 def test_mpi_path_unchanged_when_mpi4py_present():
     """With mpi4py installed (this process), mpiutil exposes a real communicator."""
     import importlib.util
