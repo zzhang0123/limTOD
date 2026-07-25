@@ -1,3 +1,5 @@
+from typing import Optional
+
 import healpy as hp
 import numpy as np
 
@@ -10,33 +12,33 @@ except ImportError as exc:  # pragma: no cover — matplotlib is not a base dep
     ) from exc
 
 
-def view_patch_map(map, pixel_indices):
+def view_patch_map(map: np.ndarray, pixel_indices: np.ndarray) -> np.ndarray:
     # Create a new map with just the patch (other pixels set to UNSEEN)
     patch_only_map = np.full(len(map), hp.UNSEEN)
     patch_only_map[pixel_indices] = map[pixel_indices]
     return patch_only_map
 
 def gnomview_patch(*,
-                   map, 
-                   nside,
-                   pixel_indices, 
-                   sky_min=None, 
-                   sky_max=None,
-                   res=5,
-                   title=" ",
-                   save_path=None, 
-                   cmap='jet',
-                   cbar=True,
-                   xtick=False,
-                   ytick=False,
-                   unit='K',
-                   turn_into_map=True,
-                   fts=16,
-                   xsize=None,
-                   ysize=None,
-                   xlabel=None, 
-                   ylabel=None,
-                   ):
+                   map: np.ndarray,
+                   nside: int,
+                   pixel_indices: np.ndarray,
+                   sky_min: Optional[float] = None,
+                   sky_max: Optional[float] = None,
+                   res: float = 5,
+                   title: str = " ",
+                   save_path: Optional[str] = None,
+                   cmap: str = 'jet',
+                   cbar: bool = True,
+                   xtick: bool = False,
+                   ytick: bool = False,
+                   unit: str = 'K',
+                   turn_into_map: bool = True,
+                   fts: float = 16,
+                   xsize: Optional[int] = None,
+                   ysize: Optional[int] = None,
+                   xlabel: Optional[str] = None,
+                   ylabel: Optional[str] = None,
+                   ) -> None:
     NPIX = hp.nside2npix(nside)
     if turn_into_map:
         aux_map = np.zeros(NPIX, dtype=float)

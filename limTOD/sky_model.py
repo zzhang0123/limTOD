@@ -1,3 +1,5 @@
+from typing import Callable, Optional
+
 import healpy as hp
 import numpy as np
 
@@ -23,19 +25,19 @@ def GDSM_sky_model(*, freq: float, nside: int) -> np.ndarray:
 # Example script to generate Gaussian random fields with a given covariance
 # Credits: Katrine Alice Glasscock, Philip Bull
 def generate_gaussian_field(
-    freqs,
-    nside,
-    amp,
-    alpha=1.0,
-    beta=1.0,
-    xi=1.0,
-    f_ell=None,
-    nu_ref=300.0,
-    ell_ref=100.0,
-    fwhm=0.0,
-    seed=None,
-    min_eigval=1e-10,
-):
+    freqs: np.ndarray,
+    nside: int,
+    amp: float,
+    alpha: float = 1.0,
+    beta: float = 1.0,
+    xi: float = 1.0,
+    f_ell: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+    nu_ref: float = 300.0,
+    ell_ref: float = 100.0,
+    fwhm: float = 0.0,
+    seed: Optional[int] = None,
+    min_eigval: float = 1e-10,
+) -> np.ndarray:
     """
     Generate a random realisation of a Gaussian field as a series of correlated
     Healpix maps. The field is drawn from a covariance matrix model of the form:
@@ -87,7 +89,7 @@ def generate_gaussian_field(
 
     # Set f_ell function
     if f_ell is None:
-        def f_ell(ell):
+        def f_ell(ell: np.ndarray) -> np.ndarray:
             return (ell / ell_ref) ** alpha
 
     if not callable(f_ell):

@@ -1,10 +1,15 @@
+import logging
+from typing import Any, List, Optional, Sequence, SupportsFloat, Tuple, Union, cast
+
 import numpy as np
 from scipy import signal
 from scipy.linalg import solve, LinAlgError
 from limTOD.simulator import truncate_stacked_beam, generate_sky2sys_projection
 
+logger = logging.getLogger(__name__)
 
-def get_filtfilt_matrix(n_samples, b, a):
+
+def get_filtfilt_matrix(n_samples: int, b: np.ndarray, a: np.ndarray) -> np.ndarray:
     """
     More accurate matrix representation of filtfilt operation.
     """
@@ -19,8 +24,9 @@ def get_filtfilt_matrix(n_samples, b, a):
     
     return H
 
-def HP_filter_TOD(n_samples, dtime, cutoff_freq=0.001, filter_order=4,
-                  preserve_dc=False):
+def HP_filter_TOD(n_samples: int, dtime: float, cutoff_freq: float = 0.001,
+                  filter_order: int = 4,
+                  preserve_dc: bool = False) -> np.ndarray:
     """
     Apply high-pass Butterworth filter to the TOD.
     Parameters:
@@ -76,8 +82,16 @@ def HP_filter_TOD(n_samples, dtime, cutoff_freq=0.001, filter_order=4,
     return H_exact
 
 
-def wiener_filter_map(TOD, operator, noise_variance=None, prior_inv_cov=None, guess=None,
-                      regularization=1e-12, return_full_cov=False, rolling_variance=True):
+def wiener_filter_map(
+    TOD: np.ndarray,
+    operator: np.ndarray,
+    noise_variance: Optional[Union[float, np.floating, np.ndarray]] = None,
+    prior_inv_cov: Optional[Union[float, np.ndarray]] = None,
+    guess: Optional[np.ndarray] = None,
+    regularization: float = 1e-12,
+    return_full_cov: bool = False,
+    rolling_variance: bool = True,
+) -> Union[Tuple[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray, np.ndarray]]:
     """
     Apply Wiener filtering for mapmaking from time-ordered data.
     
@@ -143,12 +157,12 @@ def wiener_filter_map(TOD, operator, noise_variance=None, prior_inv_cov=None, gu
                 noise_variance = noise_variance[start:start+len(residual)]
         else:
             noise_variance = np.var(residual)
-            print(f"Estimated noise variance: {noise_variance:.6f}")
+            logger.info("Estimated noise variance: %.6f", noise_variance)
 
 
     # Create noise inverse covariance matrix (assume diagonal)
     if np.isscalar(noise_variance):
-        N_inv = np.eye(n_time) / noise_variance
+        N_inv = np.eye(n_time) / cast(float, noise_variance)
     else:
         noise_variance = np.asarray(noise_variance)
         if len(noise_variance) != n_time:
@@ -161,13 +175,13 @@ def wiener_filter_map(TOD, operator, noise_variance=None, prior_inv_cov=None, gu
     
     # Create signal inverse covariance matrix
     if prior_inv_cov is None:
-        S_inv = np.zeros((n_pixels, n_pixels))  # Uninformative prior
+        S_inv: np.ndarray = np.zeros((n_pixels, n_pixels))  # Uninformative prior
     elif np.isscalar(prior_inv_cov):
-        S_inv = np.eye(n_pixels) * prior_inv_cov
-    elif prior_inv_cov.ndim == 1:
+        S_inv = np.eye(n_pixels) * cast(float, prior_inv_cov)
+    elif cast(np.ndarray, prior_inv_cov).ndim == 1:
         # Convert to dense diagonal matrix for consistent matrix operations
         S_inv = np.diag(np.asarray(prior_inv_cov))
-    elif prior_inv_cov.ndim == 2:
+    elif cast(np.ndarray, prior_inv_cov).ndim == 2:
         S_inv = np.asarray(prior_inv_cov)
     else:
         raise ValueError("prior_inv_cov must be a scalar, 1D array, or 2D array.")
@@ -196,25 +210,36 @@ def wiener_filter_map(TOD, operator, noise_variance=None, prior_inv_cov=None, gu
     # Right-hand side: A^T N^-1 d +  S^-1 mu
     rhs = AtN @ TOD + S_inv @ guess 
 
+    posterior_cov = None
     try:
         # Solve the linear system: (A^T N^-1 A + S^-1) x = A^T N^-1 d +  S^-1 mu
         sky_map = solve(covariance_inv, rhs, assume_a='pos')
-        
+
         # Compute uncertainties (diagonal of posterior covariance)
         try:
             posterior_cov = np.linalg.inv(covariance_inv)
             uncertainty = np.sqrt(np.diag(posterior_cov))
         except (LinAlgError, np.linalg.LinAlgError):
-            print("Warning: Could not compute full covariance matrix. Using diagonal approximation.")
+            logger.warning(
+                "Could not compute full covariance matrix; using diagonal approximation."
+            )
             uncertainty = 1.0 / np.sqrt(np.diag(covariance_inv))
-            
+
     except (LinAlgError, np.linalg.LinAlgError) as e:
-        print(f"Linear algebra error: {e}")
-        print("Falling back to pseudo-inverse solution...")
+        logger.warning("Linear algebra error: %s; falling back to pseudo-inverse solution.", e)
         sky_map = np.linalg.pinv(operator) @ TOD
         uncertainty = np.ones(n_pixels) * np.nan
-    
+
     if return_full_cov:
+        # posterior_cov stayed None on the degraded paths (inv failure or the
+        # pseudo-inverse fallback) — returning it unbound used to NameError.
+        if posterior_cov is None:
+            raise np.linalg.LinAlgError(
+                "return_full_cov=True but the posterior covariance could not "
+                "be computed (the normal-equations matrix is numerically "
+                "singular); rerun with return_full_cov=False or increase "
+                "regularization/priors."
+            )
         return sky_map, uncertainty, posterior_cov
     else:
         return sky_map, uncertainty
@@ -223,7 +248,11 @@ def wiener_filter_map(TOD, operator, noise_variance=None, prior_inv_cov=None, gu
 
 
 # Alternative simplified version for quick mapmaking
-def simple_wiener_map(TOD, operator, noise_var=None):
+def simple_wiener_map(
+    TOD: np.ndarray,
+    operator: np.ndarray,
+    noise_var: Optional[Union[float, np.floating]] = None,
+) -> np.ndarray:
     """
     Simplified Wiener filter assuming uninformative signal prior.
     Equivalent to: (A^T A + lambda*I)^-1 A^T d
@@ -254,18 +283,18 @@ class HPW_mapmaking:
     def __init__(
         self,
         *,
-        beam_map, 
-        LST_deg_list_group, 
-        lat_deg, 
-        azimuth_deg_list_group, 
-        elevation_deg_list_group, 
-        selfrot_deg_list_group=None,
-        threshold=0.01,
-        Tsys_others_operator_group=None,
-        nside_hires=None,
-        nside_target=None,
-        beam_truncate_frac_thres=None
-    ):
+        beam_map: np.ndarray,
+        LST_deg_list_group: Union[np.ndarray, Sequence[np.ndarray]],
+        lat_deg: float,
+        azimuth_deg_list_group: Union[np.ndarray, Sequence[np.ndarray]],
+        elevation_deg_list_group: Union[np.ndarray, Sequence[np.ndarray]],
+        selfrot_deg_list_group: Optional[Union[np.ndarray, Sequence[np.ndarray]]] = None,
+        threshold: float = 0.01,
+        Tsys_others_operator_group: Optional[Sequence[np.ndarray]] = None,
+        nside_hires: Optional[int] = None,
+        nside_target: Optional[int] = None,
+        beam_truncate_frac_thres: Optional[float] = None
+    ) -> None:
         """
         Initialize the HPW_mapmaking class.
 
@@ -342,11 +371,14 @@ class HPW_mapmaking:
                 selfrot_deg_list = np.zeros_like(LST_deg_list)
         else:
             self.num_tods = 1
-            LST_deg_list = LST_deg_list_group
-            azimuth_deg_list = azimuth_deg_list_group
-            elevation_deg_list = elevation_deg_list_group
+            # In this branch the groups are flat per-sample arrays (their
+            # first element is a scalar); the casts only narrow the static
+            # Union type and are identity operations at runtime.
+            LST_deg_list = cast(np.ndarray, LST_deg_list_group)
+            azimuth_deg_list = cast(np.ndarray, azimuth_deg_list_group)
+            elevation_deg_list = cast(np.ndarray, elevation_deg_list_group)
             if selfrot_deg_list_group is not None:
-                selfrot_deg_list = selfrot_deg_list_group
+                selfrot_deg_list = cast(np.ndarray, selfrot_deg_list_group)
             else:
                 selfrot_deg_list = np.zeros_like(LST_deg_list)
 
@@ -358,6 +390,17 @@ class HPW_mapmaking:
             raise ValueError("beam_map must be a 1D or 2D array.")
 
         if Tsys_others_operator_group is not None:
+            # Canonicalize to a list of per-TOD 2D operators: the docstring
+            # accepts "an array or a list of arrays", but a bare 2D array
+            # used to crash ([0] indexed a row) and the single-TOD
+            # concatenation mishandled the list form.
+            if isinstance(Tsys_others_operator_group, np.ndarray) and Tsys_others_operator_group.ndim == 2:
+                Tsys_others_operator_group = [Tsys_others_operator_group]
+            if len(Tsys_others_operator_group) != self.num_tods:
+                raise ValueError(
+                    f"Tsys_others_operator_group has {len(Tsys_others_operator_group)} "
+                    f"entries but there are {self.num_tods} TODs."
+                )
             self.Tsys_others = True
             self.n_params_others = Tsys_others_operator_group[0].shape[1]
         else:
@@ -380,7 +423,9 @@ class HPW_mapmaking:
         
         if self.num_tods > 1:
 
-            self.Tsys_operators = []
+            # List[np.ndarray] here (one operator per TOD); a single stacked
+            # ndarray in the num_tods == 1 branch below — hence Any.
+            self.Tsys_operators: Any = []
 
             for i in range(self.num_tods):
                 LST_deg_list_i = LST_deg_list_group[i]
@@ -418,29 +463,191 @@ class HPW_mapmaking:
                 truncate_frac_thres=beam_truncate_frac_thres
             )
             if Tsys_others_operator_group is not None:
-                self.Tsys_operators = np.concatenate([sky_operators, Tsys_others_operator_group], axis=1)
+                self.Tsys_operators = np.concatenate(
+                    [sky_operators] + list(Tsys_others_operator_group), axis=1
+                )
             else:
                 self.Tsys_operators = sky_operators
 
+    def _filter_and_stack(
+        self,
+        TOD_group: Union[np.ndarray, Sequence[np.ndarray]],
+        dtime: float,
+        cutoff_freq_group: Optional[Union[float, Sequence[float]]],
+        gain_group: Union[float, np.ndarray, Sequence[Union[float, np.ndarray]]],
+        known_injection_group: Optional[Union[np.ndarray, Sequence[np.ndarray]]],
+        filter_order: int,
+        preserve_dc: bool,
+        use_high_pass: bool,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Calibrate, optionally high-pass filter, and stack every TOD and
+        its system operator into one overall linear system.
+
+        Returns ``(HP_cal_TOD_overall, HP_Tsys_operator_overall)`` and
+        records the per-TOD filter matrices in ``self.HP_exact``.
+        """
+
+        def make_tod_filter(n_samples: int, cutoff_freq: Optional[float]) -> np.ndarray:
+            if not use_high_pass:
+                return np.eye(n_samples)
+            if cutoff_freq is None:
+                raise ValueError("cutoff_freq_group must be provided when use_high_pass=True.")
+            return HP_filter_TOD(
+                n_samples,
+                dtime,
+                cutoff_freq=cutoff_freq,
+                filter_order=filter_order,
+                preserve_dc=preserve_dc,
+            )
+
+        self.HP_exact: List[np.ndarray] = []
+        if self.num_tods > 1:
+
+            for i in range(self.num_tods):
+                # The multi-TOD path requires per-TOD sequences; the casts
+                # narrow the scalar-or-sequence Unions (identity at runtime).
+                cutoff_freq = None if cutoff_freq_group is None else cast(Sequence[float], cutoff_freq_group)[i]
+                hp_filter_mat = make_tod_filter(len(TOD_group[i]), cutoff_freq)
+                self.HP_exact.append(hp_filter_mat)
+                calibrated_TOD_i = np.asarray(TOD_group[i]) / cast(Sequence[Any], gain_group)[i]
+                if known_injection_group is not None:
+                    calibrated_TOD_i -= known_injection_group[i]
+                hp_cal_TOD_i = hp_filter_mat @ calibrated_TOD_i
+                hp_Tsys_operator_i = hp_filter_mat @ self.Tsys_operators[i]
+
+                if i == 0:
+                    HP_Tsys_operator_overall = hp_Tsys_operator_i
+                    HP_cal_TOD_overall = hp_cal_TOD_i
+                else:
+                    HP_Tsys_operator_overall = np.concatenate([HP_Tsys_operator_overall, hp_Tsys_operator_i])
+                    HP_cal_TOD_overall = np.concatenate([HP_cal_TOD_overall, hp_cal_TOD_i])
+
+        elif self.num_tods == 1:
+            TOD = TOD_group if isinstance(TOD_group, np.ndarray) and TOD_group.ndim == 1 else TOD_group[0]
+            cutoff_freq = cutoff_freq_group if isinstance(cutoff_freq_group, (int, float)) else (
+                None if cutoff_freq_group is None else cutoff_freq_group[0]
+            )
+            gain = gain_group if isinstance(gain_group, (int, float)) else gain_group[0]
+            calibrated_TOD = np.asarray(TOD) / gain
+            if known_injection_group is not None:
+                known_injection = known_injection_group if isinstance(known_injection_group, np.ndarray) and known_injection_group.ndim == 1 else known_injection_group[0]
+                calibrated_TOD -= known_injection
+            hp_filter_mat = make_tod_filter(len(TOD), cutoff_freq)
+            HP_cal_TOD_overall = hp_filter_mat @ calibrated_TOD
+            HP_Tsys_operator_overall = hp_filter_mat @ self.Tsys_operators
+
+        return HP_cal_TOD_overall, HP_Tsys_operator_overall
+
+    def _build_priors(
+        self,
+        Tsky_prior_mean: Optional[np.ndarray],
+        Tsys_other_prior_mean_group: Optional[Sequence[np.ndarray]],
+        Tsky_prior_inv_cov_diag: Optional[np.ndarray],
+        Tsys_other_prior_inv_cov_group: Optional[Sequence[np.ndarray]],
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Assemble the joint prior mean vector and prior inverse-covariance
+        matrix over (sky pixels + other-Tsys parameters). Requires
+        ``self.nparams`` to be set."""
+        Tsys_prior_mean = np.zeros(self.nparams)
+        if Tsky_prior_mean is not None:
+            if len(Tsky_prior_mean) != self.nsky_params:
+                raise ValueError("Length of Tsky_prior_mean must match number of sky parameters.")
+            Tsys_prior_mean[:self.nsky_params] = Tsky_prior_mean
+        counter = self.nsky_params
+        if Tsys_other_prior_mean_group is not None:
+            if not self.Tsys_others:
+                raise ValueError("Tsys_others_operator must be provided in initialization if Tsys_other_prior_mean_group is provided.")
+            if len(Tsys_other_prior_mean_group) != self.num_tods:
+                raise ValueError("Length of Tsys_other_prior_mean_group must match number of TODs.")
+            for Tsys_other_prior_mean_i in Tsys_other_prior_mean_group:
+                Tsys_prior_mean[counter:counter+len(Tsys_other_prior_mean_i)] = Tsys_other_prior_mean_i
+                counter += len(Tsys_other_prior_mean_i)
+
+        Tsys_prior_inv_cov = np.zeros((self.nparams, self.nparams))
+        if Tsky_prior_inv_cov_diag is not None:
+            Tsky_prior_inv_cov_diag = np.asarray(Tsky_prior_inv_cov_diag).reshape(-1) # flatten
+            if len(Tsky_prior_inv_cov_diag) != self.nsky_params:
+                raise ValueError("Length of Tsky_prior_inv_cov_diag must match number of sky parameters.")
+            Tsys_prior_inv_cov[:self.nsky_params, :self.nsky_params] = np.diag(Tsky_prior_inv_cov_diag)
+
+        counter = self.nsky_params
+        if Tsys_other_prior_inv_cov_group is not None:
+            if not self.Tsys_others:
+                raise ValueError("Tsys_others_operator must be provided in initialization if Tsys_other_prior_inv_cov_group is provided.")
+            if len(Tsys_other_prior_inv_cov_group) != self.num_tods:
+                raise ValueError("Length of Tsys_other_prior_inv_cov_group must match number of TODs.")
+
+            for Tsys_other_prior_inv_cov_i in Tsys_other_prior_inv_cov_group:
+                # Branch on THIS element's ndim: checking group[0] here used to
+                # misroute mixed 1D/2D groups, silently np.diag-ing a 2D
+                # covariance and discarding its off-diagonal entries.
+                Tsys_other_prior_inv_cov_i = np.asarray(Tsys_other_prior_inv_cov_i)
+                if Tsys_other_prior_inv_cov_i.ndim == 1:
+                    n_others = len(Tsys_other_prior_inv_cov_i)
+                    Tsys_prior_inv_cov[counter:counter+n_others, counter:counter+n_others] = np.diag(Tsys_other_prior_inv_cov_i)
+                    counter += n_others
+                elif Tsys_other_prior_inv_cov_i.ndim == 2:
+                    n_others = Tsys_other_prior_inv_cov_i.shape[0]
+                    Tsys_prior_inv_cov[counter:counter+n_others, counter:counter+n_others] = Tsys_other_prior_inv_cov_i
+                    counter += n_others
+                else:
+                    raise ValueError("Each element in Tsys_other_prior_inv_cov_group must be a 1D or 2D array.")
+
+        return Tsys_prior_mean, Tsys_prior_inv_cov
+
+    def _normalize_noise_variance(
+        self,
+        noise_variance: Optional[Union[float, np.ndarray, List[Union[float, np.ndarray]], Tuple[Union[float, np.ndarray], ...]]],
+        TOD_group: Union[np.ndarray, Sequence[np.ndarray]],
+        n_overall: int,
+    ) -> Optional[Union[float, np.ndarray]]:
+        """Normalise per-TOD noise_variance into the 1D/scalar/None form
+        wiener_filter_map expects. Accepts None / scalar / 1D array /
+        list-of-(scalar|1D-array)."""
+        nv = noise_variance
+        if isinstance(nv, (list, tuple)):
+            if len(nv) != self.num_tods:
+                raise ValueError(
+                    f"noise_variance list length {len(nv)} != num_tods {self.num_tods}"
+                )
+            tod_lengths = [len(TOD_group[i]) for i in range(self.num_tods)] \
+                if self.num_tods > 1 else [n_overall]
+            pieces: List[np.ndarray] = []
+            for i, nv_i in enumerate(nv):
+                if np.isscalar(nv_i):
+                    pieces.append(np.full(tod_lengths[i], float(cast(SupportsFloat, nv_i))))
+                else:
+                    nv_i = np.asarray(nv_i, dtype=float)
+                    if nv_i.shape != (tod_lengths[i],):
+                        raise ValueError(
+                            f"noise_variance[{i}] shape {nv_i.shape} != ({tod_lengths[i]},)"
+                        )
+                    pieces.append(nv_i)
+            nv = np.concatenate(pieces)
+        return nv
+
     def __call__(
-        self,  
-        *,       
-        TOD_group,
-        dtime,
-        cutoff_freq_group=None,
-        gain_group=None,
-        known_injection_group=None,
-        Tsky_prior_mean=None,
-        Tsky_prior_inv_cov_diag=None,
-        Tsys_other_prior_mean_group=None,
-        Tsys_other_prior_inv_cov_group=None,
-        noise_variance=None,
-        regularization=1e-12,
-        return_full_cov=False,
-        filter_order=4,
-        preserve_dc=False,
-        use_high_pass=False,
-    ):
+        self,
+        *,
+        TOD_group: Union[np.ndarray, Sequence[np.ndarray]],
+        dtime: float,
+        cutoff_freq_group: Optional[Union[float, Sequence[float]]] = None,
+        gain_group: Optional[Union[float, np.ndarray, Sequence[Union[float, np.ndarray]]]] = None,
+        known_injection_group: Optional[Union[np.ndarray, Sequence[np.ndarray]]] = None,
+        Tsky_prior_mean: Optional[np.ndarray] = None,
+        Tsky_prior_inv_cov_diag: Optional[np.ndarray] = None,
+        Tsys_other_prior_mean_group: Optional[Sequence[np.ndarray]] = None,
+        Tsys_other_prior_inv_cov_group: Optional[Sequence[np.ndarray]] = None,
+        noise_variance: Optional[Union[float, np.ndarray, List[Union[float, np.ndarray]], Tuple[Union[float, np.ndarray], ...]]] = None,
+        regularization: float = 1e-12,
+        return_full_cov: bool = False,
+        filter_order: int = 4,
+        preserve_dc: bool = False,
+        use_high_pass: bool = False,
+    ) -> Union[
+        Tuple[np.ndarray, np.ndarray],
+        Tuple[np.ndarray, np.ndarray, List[np.ndarray], List[np.ndarray]],
+    ]:
         """
         TOD_group : a TOD array or a list of TOD arrays at the same frequency channel.
             e.g. [TOD_1, TOD_2, ...]
@@ -517,134 +724,25 @@ class HPW_mapmaking:
         if gain_group is None:
             gain_group = [1.0]*self.num_tods
 
-        def make_tod_filter(n_samples, cutoff_freq):
-            if not use_high_pass:
-                return np.eye(n_samples)
-            if cutoff_freq is None:
-                raise ValueError("cutoff_freq_group must be provided when use_high_pass=True.")
-            return HP_filter_TOD(
-                n_samples,
-                dtime,
-                cutoff_freq=cutoff_freq,
-                filter_order=filter_order,
-                preserve_dc=preserve_dc,
-            )
-
-        self.HP_exact = []
-        if self.num_tods > 1:
-
-            for i in range(self.num_tods):
-                cutoff_freq = None if cutoff_freq_group is None else cutoff_freq_group[i]
-                hp_filter_mat = make_tod_filter(len(TOD_group[i]), cutoff_freq)
-                self.HP_exact.append(hp_filter_mat)
-                calibrated_TOD_i = np.asarray(TOD_group[i]) / gain_group[i] 
-                if known_injection_group is not None:
-                    calibrated_TOD_i -= known_injection_group[i]
-                hp_cal_TOD_i = hp_filter_mat @ calibrated_TOD_i
-                hp_Tsys_operator_i = hp_filter_mat @ self.Tsys_operators[i]
-
-                if i == 0:
-                    HP_Tsys_operator_overall = hp_Tsys_operator_i
-                    HP_cal_TOD_overall = hp_cal_TOD_i
-                else:
-                    HP_Tsys_operator_overall = np.concatenate([HP_Tsys_operator_overall, hp_Tsys_operator_i])
-                    HP_cal_TOD_overall = np.concatenate([HP_cal_TOD_overall, hp_cal_TOD_i])
-
-        elif self.num_tods == 1:
-            TOD = TOD_group if isinstance(TOD_group, np.ndarray) and TOD_group.ndim == 1 else TOD_group[0]
-            cutoff_freq = cutoff_freq_group if isinstance(cutoff_freq_group, (int, float)) else (
-                None if cutoff_freq_group is None else cutoff_freq_group[0]
-            )
-            gain = gain_group if isinstance(gain_group, (int, float)) else gain_group[0]
-            calibrated_TOD = np.asarray(TOD) / gain
-            if known_injection_group is not None:
-                known_injection = known_injection_group if isinstance(known_injection_group, np.ndarray) and known_injection_group.ndim == 1 else known_injection_group[0]
-                calibrated_TOD -= known_injection
-            hp_filter_mat = make_tod_filter(len(TOD), cutoff_freq)
-            HP_cal_TOD_overall = hp_filter_mat @ calibrated_TOD
-            HP_Tsys_operator_overall = hp_filter_mat @ self.Tsys_operators
+        HP_cal_TOD_overall, HP_Tsys_operator_overall = self._filter_and_stack(
+            TOD_group, dtime, cutoff_freq_group, gain_group,
+            known_injection_group, filter_order, preserve_dc, use_high_pass,
+        )
 
         # # Debug: print the shape of the overall operator
-        # print(f"Overall HP_Tsys_operator shape: {HP_Tsys_operator_overall.shape}")
-        # # Debug: check the rank of the overall operator
-        # rank = np.linalg.matrix_rank(HP_Tsys_operator_overall)
-        # print(f"Rank of overall HP_Tsys_operator: {rank}")
-
         self.nparams = HP_Tsys_operator_overall.shape[1]
 
-        # Construct prior mean for all parameters
-        Tsys_prior_mean = np.zeros(self.nparams)
-        if Tsky_prior_mean is not None:
-            if len(Tsky_prior_mean) != self.nsky_params:
-                raise ValueError("Length of Tsky_prior_mean must match number of sky parameters.")
-            Tsys_prior_mean[:self.nsky_params] = Tsky_prior_mean
-        counter = self.nsky_params
-        if Tsys_other_prior_mean_group is not None:
-            if not self.Tsys_others:
-                raise ValueError("Tsys_others_operator must be provided in initialization if Tsys_other_prior_mean_group is provided.")
-            if len(Tsys_other_prior_mean_group) != self.num_tods:
-                raise ValueError("Length of Tsys_other_prior_mean_group must match number of TODs.")
-            for Tsys_other_prior_mean_i in Tsys_other_prior_mean_group:
-                Tsys_prior_mean[counter:counter+len(Tsys_other_prior_mean_i)] = Tsys_other_prior_mean_i
-                counter += len(Tsys_other_prior_mean_i)
+        Tsys_prior_mean, Tsys_prior_inv_cov = self._build_priors(
+            Tsky_prior_mean, Tsys_other_prior_mean_group,
+            Tsky_prior_inv_cov_diag, Tsys_other_prior_inv_cov_group,
+        )
 
-        # Construct prior inverse covariance matrix for all parameters
-        Tsys_prior_inv_cov = np.zeros((self.nparams, self.nparams)) 
-        if Tsky_prior_inv_cov_diag is not None:
-            Tsky_prior_inv_cov_diag = np.asarray(Tsky_prior_inv_cov_diag).reshape(-1) # flatten
-            if len(Tsky_prior_inv_cov_diag) != self.nsky_params:
-                raise ValueError("Length of Tsky_prior_inv_cov_diag must match number of sky parameters.")
-            Tsys_prior_inv_cov[:self.nsky_params, :self.nsky_params] = np.diag(Tsky_prior_inv_cov_diag)
-
-        counter = self.nsky_params
-        if Tsys_other_prior_inv_cov_group is not None:
-            if not self.Tsys_others:
-                raise ValueError("Tsys_others_operator must be provided in initialization if Tsys_other_prior_inv_cov_group is provided.")
-            if len(Tsys_other_prior_inv_cov_group) != self.num_tods:
-                raise ValueError("Length of Tsys_other_prior_inv_cov_group must match number of TODs.")
-            
-            for Tsys_other_prior_inv_cov_i in Tsys_other_prior_inv_cov_group:
-                # Branch on THIS element's ndim: checking group[0] here used to
-                # misroute mixed 1D/2D groups, silently np.diag-ing a 2D
-                # covariance and discarding its off-diagonal entries.
-                Tsys_other_prior_inv_cov_i = np.asarray(Tsys_other_prior_inv_cov_i)
-                if Tsys_other_prior_inv_cov_i.ndim == 1:
-                    n_others = len(Tsys_other_prior_inv_cov_i)
-                    Tsys_prior_inv_cov[counter:counter+n_others, counter:counter+n_others] = np.diag(Tsys_other_prior_inv_cov_i)
-                    counter += n_others
-                elif Tsys_other_prior_inv_cov_i.ndim == 2:
-                    n_others = Tsys_other_prior_inv_cov_i.shape[0]
-                    Tsys_prior_inv_cov[counter:counter+n_others, counter:counter+n_others] = Tsys_other_prior_inv_cov_i
-                    counter += n_others
-                else:
-                    raise ValueError("Each element in Tsys_other_prior_inv_cov_group must be a 1D or 2D array.")
-
-    
-        # Normalise per-TOD noise_variance into the form wiener_filter_map expects.
-        # Accepts: None / scalar / 1D array / list-of-(scalar|1D-array).
-        nv = noise_variance
-        if isinstance(nv, (list, tuple)):
-            if len(nv) != self.num_tods:
-                raise ValueError(
-                    f"noise_variance list length {len(nv)} != num_tods {self.num_tods}"
-                )
-            tod_lengths = [len(TOD_group[i]) for i in range(self.num_tods)] \
-                if self.num_tods > 1 else [len(HP_cal_TOD_overall)]
-            pieces = []
-            for i, nv_i in enumerate(nv):
-                if np.isscalar(nv_i):
-                    pieces.append(np.full(tod_lengths[i], float(nv_i)))
-                else:
-                    nv_i = np.asarray(nv_i, dtype=float)
-                    if nv_i.shape != (tod_lengths[i],):
-                        raise ValueError(
-                            f"noise_variance[{i}] shape {nv_i.shape} != ({tod_lengths[i]},)"
-                        )
-                    pieces.append(nv_i)
-            nv = np.concatenate(pieces)
+        nv = self._normalize_noise_variance(
+            noise_variance, TOD_group, len(HP_cal_TOD_overall)
+        )
 
         # Apply Wiener filter with the overall operator
-        estmation, uncertainty = wiener_filter_map(
+        result = wiener_filter_map(
             HP_cal_TOD_overall,
             HP_Tsys_operator_overall,
             noise_variance=nv,  # explicit if provided, else auto-estimated inside
@@ -653,6 +751,16 @@ class HPW_mapmaking:
             regularization=regularization,
             return_full_cov=return_full_cov,
         )
+        # wiener_filter_map returns a 3-tuple when return_full_cov=True; the
+        # posterior covariance is appended to this method's return values
+        # (a 2-name unpacking here used to crash on that flag).
+        if return_full_cov:
+            estmation, uncertainty, posterior_cov = cast(
+                Tuple[np.ndarray, np.ndarray, np.ndarray], result
+            )
+        else:
+            estmation, uncertainty = cast(Tuple[np.ndarray, np.ndarray], result)
+            posterior_cov = None
 
         sky_estimation = estmation[:self.nsky_params]
         sky_uncertainty = uncertainty[:self.nsky_params]
@@ -661,6 +769,7 @@ class HPW_mapmaking:
             sky_estimation = sky_estimation.reshape(self.npol, self.num_pixels)
             sky_uncertainty = sky_uncertainty.reshape(self.npol, self.num_pixels)
 
+        outputs: Tuple[Any, ...] = (sky_estimation, sky_uncertainty)
         if self.Tsys_others:
             Tsys_others_estimation_group = []
             Tsys_others_uncertainty_group = []
@@ -669,7 +778,8 @@ class HPW_mapmaking:
                 Tsys_others_estimation_group.append(estmation[counter:counter+self.n_params_others])
                 Tsys_others_uncertainty_group.append(uncertainty[counter:counter+self.n_params_others])
                 counter += self.n_params_others
-            return sky_estimation, sky_uncertainty, Tsys_others_estimation_group, Tsys_others_uncertainty_group
-        else:
-            return sky_estimation, sky_uncertainty
+            outputs = outputs + (Tsys_others_estimation_group, Tsys_others_uncertainty_group)
+        if return_full_cov:
+            outputs = outputs + (posterior_cov,)
+        return outputs
         

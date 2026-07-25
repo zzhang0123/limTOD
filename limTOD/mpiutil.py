@@ -4,14 +4,21 @@ This module is adapted from https://github.com/radiocosmology/caput/blob/master/
 
 import logging
 import os
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-rank = 0
-size = 1
-_comm = None
-world = None
-rank0 = True
+if TYPE_CHECKING:
+    from mpi4py.MPI import Comm
+
+rank: int = 0
+size: int = 1
+_comm: Optional["Comm"] = None
+# `world` is accessed unguarded (e.g. `mpiutil.world.bcast(...)`) inside
+# `size > 1` blocks that mypy cannot connect to non-None-ness, so it is
+# typed Any rather than Optional["Comm"].
+world: Any = None
+rank0: bool = True
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +29,7 @@ logger = logging.getLogger(__name__)
 _mpi_initialized = False
 
 
-def init_mpi():
+def init_mpi() -> None:
     """Initialize MPI once at module import"""
     global _mpi_initialized
     if not _mpi_initialized:
@@ -43,7 +50,7 @@ _MPI_LAUNCHER_SIZE_VARS = (
 )
 
 
-def _detect_mpi_launcher():
+def _detect_mpi_launcher() -> Optional[str]:
     """Return "VAR=value" if an MPI launcher with >1 tasks is detected, else None."""
     for var in _MPI_LAUNCHER_SIZE_VARS:
         value = os.environ.get(var)
@@ -94,12 +101,14 @@ except ImportError:
 rank0 = rank == 0
 
 
-def partition_list(full_list, i, n, method="con"):
+def partition_list(
+    full_list: Sequence[Any], i: int, n: int, method: str = "con"
+) -> Sequence[Any]:
     """
     Partition a list into `n` pieces. Return the `i`th partition.
     """
 
-    def _partition(N, n, i):
+    def _partition(N: int, n: int, i: int) -> Tuple[int, int]:
         # If partiion `N` numbers into `n` pieces,
         # return the start and stop of the `i` th piece
         base = N // n
@@ -123,7 +132,9 @@ def partition_list(full_list, i, n, method="con"):
         raise ValueError("Unknown partition method %s" % method)
 
 
-def partition_list_mpi(full_list, method="con", comm=_comm):
+def partition_list_mpi(
+    full_list: Sequence[Any], method: str = "con", comm: Optional["Comm"] = _comm
+) -> Sequence[Any]:
     """
     Return the partition of a list specific to the current MPI process.
     """
@@ -138,8 +149,13 @@ def partition_list_mpi(full_list, method="con", comm=_comm):
 
 
 def parallel_map_gather(
-    func, glist, multi_inputs=False, root=None, method="con", comm=_comm
-):
+    func: Callable[..., Any],
+    glist: Sequence[Any],
+    multi_inputs: bool = False,
+    root: Optional[int] = None,
+    method: str = "con",
+    comm: Optional["Comm"] = _comm,
+) -> Optional[List[Any]]:
     """
     Apply a parallel map using MPI.
     Should be called collectively on the same list. All ranks return the full
@@ -210,7 +226,12 @@ def parallel_map_gather(
         return None
 
 
-def parallel_jobs_no_gather_no_return(func, glist, method="con", comm=_comm):
+def parallel_jobs_no_gather_no_return(
+    func: Callable[..., Any],
+    glist: Sequence[Any],
+    method: str = "con",
+    comm: Optional["Comm"] = _comm,
+) -> Optional[List[Any]]:
     """
     Apply a parallel map using MPI.
     Should be called collectively on the same list. All ranks return the full
@@ -252,7 +273,7 @@ def parallel_jobs_no_gather_no_return(func, glist, method="con", comm=_comm):
     return None
 
 
-def barrier(comm=_comm):
+def barrier(comm: Optional["Comm"] = _comm) -> None:
     """
     Synchronize all MPI processes.
     """

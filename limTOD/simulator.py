@@ -4,7 +4,8 @@ limTOD: Time-Ordered Data Simulator for single-dish radio telescopes.
 For comprehensive documentation, see README.md.
 """
 
-from typing import Union, List, Tuple
+import logging
+from typing import Any, Callable, List, Optional, Sequence, Tuple, Union, cast
 
 import numpy as np
 import healpy as hp
@@ -17,6 +18,8 @@ from scipy.spatial.transform import Rotation as R
 import limTOD.mpiutil as mpiutil
 import limTOD.sky_model as sky_model
 from limTOD.flicker_model import sim_noise
+
+logger = logging.getLogger(__name__)
 
 
 # Enhanced type aliases for better code readability
@@ -37,7 +40,9 @@ DEFAULT_WHITE_NOISE_VAR = 2.5e-6  # Typical thermal noise variance
 DEFAULT_GAIN_NOISE_PARAMS = (1.335e-5, 1.099e-3, 2)
 
 
-def example_scan(az_s=-60.3, az_e=-42.3, dt=2.0, n_repeats=5):
+def example_scan(
+    az_s: float = -60.3, az_e: float = -42.3, dt: float = 2.0, n_repeats: int = 5
+) -> Tuple[np.ndarray, np.ndarray]:
     aux = np.linspace(az_s, az_e, 111)
     azimuths = np.concatenate((aux[1:-1][::-1], aux))
     azimuths = np.tile(azimuths, n_repeats)
@@ -49,7 +54,14 @@ def example_scan(az_s=-60.3, az_e=-42.3, dt=2.0, n_repeats=5):
     return t_list, azimuths
 
 
-def zyzyz2zyz(alpha, beta, gamma, delta, chi, output_degrees=False):
+def zyzyz2zyz(
+    alpha: float,
+    beta: float,
+    gamma: float,
+    delta: float,
+    chi: float,
+    output_degrees: bool = False,
+) -> Tuple[float, float, float]:
     """
     Convert "zyzyz" angles to effective "zyz" angles.
     Input angles are in degrees.
@@ -87,7 +99,13 @@ def zyzyz2zyz(alpha, beta, gamma, delta, chi, output_degrees=False):
     return psi, theta, phi
 
 
-def zyz_of_pointing(LST_deg, lat_deg, azimuth_deg, elevation_deg, selfrot_deg):
+def zyz_of_pointing(
+    LST_deg: float,
+    lat_deg: float,
+    azimuth_deg: float,
+    elevation_deg: float,
+    selfrot_deg: float,
+) -> Tuple[float, float, float]:
     """
     This function generates the effective "zyz"-rotation angles (psi, theta, phi)
     from the pointing parameters: LST, latitude, azimuth, and elevation.
@@ -125,12 +143,12 @@ def zyz_of_pointing(LST_deg, lat_deg, azimuth_deg, elevation_deg, selfrot_deg):
 
 
 def generate_LSTs_deg(
-    ant_latitude_deg,
-    ant_longitude_deg,
-    ant_height_m,
-    time_list,
-    start_time_utc="2019-04-23 20:41:56.397",
-):
+    ant_latitude_deg: float,
+    ant_longitude_deg: float,
+    ant_height_m: float,
+    time_list: TimeList,
+    start_time_utc: str = "2019-04-23 20:41:56.397",
+) -> np.ndarray:
     """
     Generate Local Sidereal Time (LST) values in degrees for a list of time offsets.
 
@@ -169,7 +187,12 @@ def generate_LSTs_deg(
     return LST_list_deg
 
 
-def _check_pointing_lengths(LST_deg_list, azimuth_deg_list, elevation_deg_list, selfrot_deg_list):
+def _check_pointing_lengths(
+    LST_deg_list: AngleList,
+    azimuth_deg_list: AngleList,
+    elevation_deg_list: AngleList,
+    selfrot_deg_list: AngleList,
+) -> None:
     """Raise if the per-sample pointing arrays disagree in length (zip would
     otherwise silently truncate to the shortest)."""
     lengths = {
@@ -182,7 +205,14 @@ def _check_pointing_lengths(LST_deg_list, azimuth_deg_list, elevation_deg_list, 
         raise ValueError(f"Pointing arrays must have equal lengths, got {lengths}")
 
 
-def _rotate_healpix_map(alm, psi_rad, theta_rad, phi_rad, nside, return_map=True):
+def _rotate_healpix_map(
+    alm: np.ndarray,
+    psi_rad: float,
+    theta_rad: float,
+    phi_rad: float,
+    nside: int,
+    return_map: bool = True,
+) -> np.ndarray:
     """
     Rotate a Healpix map represented by its alm coefficients using given Euler angles (psi, theta, phi).
     The rotation is performed in-place on a copy of the alm coefficients.
@@ -243,7 +273,7 @@ def _rotate_healpix_map(alm, psi_rad, theta_rad, phi_rad, nside, return_map=True
         return map_pointed
     return alm_rot
 
-def _normalize_map(input_map):
+def _normalize_map(input_map: np.ndarray) -> np.ndarray:
     """
     Normalize a Healpix map to have a sum value of 1.
 
@@ -269,7 +299,7 @@ def _normalize_map(input_map):
         )
     return input_map / total
 
-def _truncate_map(input_map, frac_thres=1e-10):
+def _truncate_map(input_map: np.ndarray, frac_thres: float = 1e-10) -> np.ndarray:
     """
     Truncate a Healpix map by setting all pixels with values below a certain fraction of the maximum pixel value to zero.
 
@@ -299,17 +329,17 @@ def _truncate_map(input_map, frac_thres=1e-10):
     return result
 
 def pointing_beam_in_eq_sys(
-    beam_alm, 
-    LST_deg, 
-    lat_deg, 
-    azimuth_deg, 
-    elevation_deg, 
-    selfrot_deg,
-    nside, 
-    normalize=True, 
-    horizontal_mask=None,
-    truncate_frac_thres=1e-10
-):
+    beam_alm: np.ndarray,
+    LST_deg: float,
+    lat_deg: float,
+    azimuth_deg: float,
+    elevation_deg: float,
+    selfrot_deg: float,
+    nside: int,
+    normalize: bool = True,
+    horizontal_mask: Optional[np.ndarray] = None,
+    truncate_frac_thres: float = 1e-10
+) -> np.ndarray:
     """
     Point the beam in the equatorial coordinate system.
     Parameters:
@@ -389,7 +419,9 @@ def pointing_beam_in_eq_sys(
     return beam_pointed
 
 
-def _beam_weighted_sum(beam_map, sky_map, normalize=False):
+def _beam_weighted_sum(
+    beam_map: np.ndarray, sky_map: np.ndarray, normalize: bool = False
+) -> float:
     """
     Compute the beam-weighted sum of the sky map.
 
@@ -437,12 +469,18 @@ def _beam_weighted_sum(beam_map, sky_map, normalize=False):
 
 
 def generate_TOD_sky(
-    beam_map, sky_map, 
-    LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list, selfrot_deg_list, nside_hires=None,
-    normalize_beam=False,
-    horizontal_mask=None,
-    truncate_frac_thres=1e-10
-):
+    beam_map: np.ndarray,
+    sky_map: np.ndarray,
+    LST_deg_list: AngleList,
+    lat_deg: float,
+    azimuth_deg_list: AngleList,
+    elevation_deg_list: AngleList,
+    selfrot_deg_list: AngleList,
+    nside_hires: Optional[int] = None,
+    normalize_beam: bool = False,
+    horizontal_mask: Optional[np.ndarray] = None,
+    truncate_frac_thres: float = 1e-10
+) -> np.ndarray:
     """
     Generate Time-Ordered Data (TOD) by simulating observations of a sky map with a given beam pattern.
     Note that the TOD represents the beam-weighted sum of the sky map at each pointing.
@@ -529,7 +567,9 @@ def generate_TOD_sky(
     return np.array(tod)
 
 
-def example_beam_map(*, freq, nside, FWHM_major=1.1, FWHM_minor=1.1):
+def example_beam_map(
+    *, freq: float, nside: int, FWHM_major: float = 1.1, FWHM_minor: float = 1.1
+) -> np.ndarray:
     """
     Generate an example Gaussian beam map.
     This toy model is achromatic.
@@ -557,7 +597,7 @@ def example_beam_map(*, freq, nside, FWHM_major=1.1, FWHM_minor=1.1):
     return beam_map
 
 
-def example_symm_beam_map(*, freq, nside, FWHM=1.1):
+def example_symm_beam_map(*, freq: float, nside: int, FWHM: float = 1.1) -> np.ndarray:
     """
     Generate a symmetric Gaussian beam map centered at the pole.
 
@@ -593,14 +633,14 @@ def example_symm_beam_map(*, freq, nside, FWHM=1.1):
 class TODSim:
     def __init__(
         self,
-        ant_latitude_deg=-30.7130,
-        ant_longitude_deg=21.4430,
-        ant_height_m=1054,
-        beam_func=example_beam_map,
-        sky_func=sky_model.GDSM_sky_model,
-        beam_nside=256,
-        sky_nside=256,
-    ):
+        ant_latitude_deg: float = -30.7130,
+        ant_longitude_deg: float = 21.4430,
+        ant_height_m: float = 1054,
+        beam_func: Callable[..., np.ndarray] = example_beam_map,
+        sky_func: Callable[..., np.ndarray] = sky_model.GDSM_sky_model,
+        beam_nside: int = 256,
+        sky_nside: int = 256,
+    ) -> None:
         """
         Initialize the limTODsim class.
         Parameters:
@@ -640,18 +680,18 @@ class TODSim:
 
     def simulate_sky_TOD(
         self,
-        freq_list,
-        time_list,
-        azimuth_deg_list,
-        elevation_deg,
-        selfrot_deg_list=None,
-        start_time_utc="2019-04-23 20:41:56.397",
-        return_LSTs=False,
-        nside_hires=None,
-        normalize_beam=False,
-        horizontal_mask=None,
-        truncate_frac_thres=1e-10
-    ):
+        freq_list: FrequencyList,
+        time_list: TimeList,
+        azimuth_deg_list: AngleList,
+        elevation_deg: Union[float, AngleList],
+        selfrot_deg_list: Optional[AngleList] = None,
+        start_time_utc: str = "2019-04-23 20:41:56.397",
+        return_LSTs: bool = False,
+        nside_hires: Optional[int] = None,
+        normalize_beam: bool = False,
+        horizontal_mask: Optional[np.ndarray] = None,
+        truncate_frac_thres: float = 1e-10
+    ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         """
         Simulate sky TOD (beam-weighted sum of sky map) for a list of frequencies and time offsets.
 
@@ -708,7 +748,7 @@ class TODSim:
         nfreq = len(freq_list)
 
         if isinstance(elevation_deg, (int, float)):
-            elevation_deg_list = np.full(ntime, elevation_deg)
+            elevation_deg_list: np.ndarray = np.full(ntime, elevation_deg)
         else:
             elevation_deg_list = np.asarray(elevation_deg)
 
@@ -774,23 +814,28 @@ class TODSim:
 
     def generate_TOD(
         self,
-        freq_list,
-        time_list,
-        azimuth_deg_list,
-        selfrot_deg_list=None,
-        elevation_deg=41.5,
-        start_time_utc="2019-04-23 20:41:56.397",
-        Tsys_others_TOD=None,
-        background_gain_TOD=None,
-        gain_noise_TOD=None,
-        gain_noise_params=DEFAULT_GAIN_NOISE_PARAMS,
-        white_noise_var=None,
-        return_LSTs=False,
-        nside_hires=None,
-        normalize_beam=False,
-        horizontal_mask=None,
-        truncate_frac_thres=1e-10
-    ):
+        freq_list: FrequencyList,
+        time_list: TimeList,
+        azimuth_deg_list: AngleList,
+        selfrot_deg_list: Optional[AngleList] = None,
+        elevation_deg: Union[float, AngleList] = 41.5,
+        start_time_utc: str = "2019-04-23 20:41:56.397",
+        Tsys_others_TOD: Optional[Union[float, np.ndarray]] = None,
+        background_gain_TOD: Optional[Union[float, np.ndarray]] = None,
+        # Typed Any (not Optional[float | ndarray]): the rank-0/bcast dance
+        # below means mypy cannot prove it is non-None where it is consumed.
+        gain_noise_TOD: Any = None,
+        gain_noise_params: Optional[Sequence[float]] = DEFAULT_GAIN_NOISE_PARAMS,
+        white_noise_var: Optional[float] = None,
+        return_LSTs: bool = False,
+        nside_hires: Optional[int] = None,
+        normalize_beam: bool = False,
+        horizontal_mask: Optional[np.ndarray] = None,
+        truncate_frac_thres: float = 1e-10
+    ) -> Union[
+        Tuple[np.ndarray, np.ndarray, Union[np.ndarray, float]],
+        Tuple[np.ndarray, np.ndarray, Union[np.ndarray, float], np.ndarray],
+    ]:
         """
         Generate overall TOD including sky signal and other components.
 
@@ -859,8 +904,9 @@ class TODSim:
             background_gain_TOD = 1.0
         if white_noise_var is None:
             if mpiutil.rank0:
-                print(
-                    "No white noise variance is specified!! Using default value of 2.5e-6 (Dimensionless fractional noise)"
+                logger.info(
+                    "No white noise variance specified; using the default "
+                    "2.5e-6 (dimensionless fractional noise)."
                 )
             white_noise_var = 2.5e-6
 
@@ -873,15 +919,17 @@ class TODSim:
                 gain_noise_TOD = 0.0
             else:
                 if mpiutil.rank0:
-                    print(
-                        "Generating gain noise with parameters: "
-                        f"f0={gain_noise_params[0]}, fc={gain_noise_params[1]}, "
-                        f"alpha={gain_noise_params[2]}."
-                        "\nNote that these 1/f noise are uncorrelated in frequencies."
+                    logger.info(
+                        "Generating gain noise with parameters f0=%s, fc=%s, "
+                        "alpha=%s (1/f realizations are uncorrelated across "
+                        "frequencies).",
+                        gain_noise_params[0], gain_noise_params[1],
+                        gain_noise_params[2],
                     )
                     f0, fc, alpha = gain_noise_params
                     gain_noise_TOD = sim_noise(
-                        f0, fc, alpha, time_list, n_samples=nfreq,
+                        f0, fc, alpha, cast(np.ndarray, time_list),
+                        n_samples=nfreq,
                         white_n_variance=0.0,
                     )
                 else:
@@ -891,14 +939,16 @@ class TODSim:
                         gain_noise_TOD, root=0)
         elif gain_noise_params is not None:
             if mpiutil.rank0:
-                print(
-                    "Warning: Both gain_noise_TOD and gain_noise_params are provided. Ignoring gain_noise_params."
+                logger.warning(
+                    "Both gain_noise_TOD and gain_noise_params were provided; "
+                    "ignoring gain_noise_params."
                 )
 
         # White noise follows the same rank-0-then-bcast pattern. Without
         # the broadcast each rank draws from its own (different) RNG state
         # and overall_TOD would differ by rank after the multiplicative
         # combine below.
+        white_noise_TOD: Any  # non-rank0 implies size > 1, so the bcast below always replaces the None
         if mpiutil.rank0:
             white_noise_TOD = np.random.normal(
                 0, np.sqrt(white_noise_var), size=(nfreq, ntime),
@@ -934,17 +984,17 @@ class TODSim:
 
 
 def truncate_stacked_beam(
-    beam_map,
-    LST_deg_list,
-    lat_deg,
-    azimuth_deg_list,
-    elevation_deg_list,
-    selfrot_deg_list,
-    horizontal_mask=None,
-    threshold=0.0111,
-    nside_hires=None,
-    nside_target=None,
-):
+    beam_map: np.ndarray,
+    LST_deg_list: AngleList,
+    lat_deg: float,
+    azimuth_deg_list: AngleList,
+    elevation_deg_list: AngleList,
+    selfrot_deg_list: AngleList,
+    horizontal_mask: Optional[np.ndarray] = None,
+    threshold: float = 0.0111,
+    nside_hires: Optional[int] = None,
+    nside_target: Optional[int] = None,
+) -> np.ndarray:
     """
     Generate the selected pixel indices based on beam sensitivity.
     The selected pixels are those with beam response above a given threshold in the stacked abs(beam) map.
@@ -993,7 +1043,7 @@ def truncate_stacked_beam(
     if nside_target is None:
         nside_target = nside_beam
         if mpiutil.rank0:
-            print("nside_target is not provided, using beam map nside as target nside.")
+            logger.info("nside_target not provided; using the beam map nside as target.")
 
 
     # Convert beam map to alm coefficients
@@ -1014,7 +1064,7 @@ def truncate_stacked_beam(
     # Integrate the beam map as the sum map, select pixels above threshold
 
     if mpiutil.rank0:
-        print("\nStep 1: Generating the stacked abs(beam) map ... \n")
+        logger.info("Step 1: generating the stacked abs(beam) map ...")
     # Generate a initial boolean map with all pixels zero
     bool_map = np.zeros(hp.nside2npix(nside_target), dtype=bool)
 
@@ -1031,10 +1081,10 @@ def truncate_stacked_beam(
             beam_pointed = beam_pointed / norm
             bool_map = np.logical_or(bool_map, beam_pointed > threshold)
         else:
-            print("Warning: Beam has zero maximum value at this pointing!")
+            logger.warning("Beam has zero maximum value at this pointing.")
 
     if mpiutil.rank0:
-        print("\nStep 2: Selecting pixels above threshold sensitivity ... \n")
+        logger.info("Step 2: selecting pixels above threshold sensitivity ...")
     if bool_map.ndim == 2:
         bool_map = np.any(bool_map, axis=0)
     pixel_indices = np.where(bool_map)[0]
@@ -1043,19 +1093,19 @@ def truncate_stacked_beam(
 
 
 def generate_sky2sys_projection(
-    beam_map,
-    LST_deg_list,
-    lat_deg,
-    azimuth_deg_list,
-    elevation_deg_list,
-    selfrot_deg_list,
-    pixel_indices,
-    horizontal_mask=None,
-    normalize_beam=False,
-    nside_hires=None,
-    nside_target=None,
-    truncate_frac_thres=1e-10
-):
+    beam_map: np.ndarray,
+    LST_deg_list: AngleList,
+    lat_deg: float,
+    azimuth_deg_list: AngleList,
+    elevation_deg_list: AngleList,
+    selfrot_deg_list: AngleList,
+    pixel_indices: np.ndarray,
+    horizontal_mask: Optional[np.ndarray] = None,
+    normalize_beam: bool = False,
+    nside_hires: Optional[int] = None,
+    nside_target: Optional[int] = None,
+    truncate_frac_thres: float = 1e-10
+) -> np.ndarray:
     """
     Generate the sky-to-Tsys projection matrix and the selected pixel indices based on beam sensitivity.
     The projection matrix maps the sky pixels to the system temperature.
@@ -1124,11 +1174,11 @@ def generate_sky2sys_projection(
     n_data = len(LST_deg_list)
     n_pixels = len(pixel_indices)
     if mpiutil.rank0:
-        print(f"Number of data points: {n_data}")
-        print(f"Number of selected pixels: {n_pixels}")
+        logger.info("Number of data points: %d", n_data)
+        logger.info("Number of selected pixels: %d", n_pixels)
 
     if beam_map.ndim == 1:
-        sky2sys = np.zeros((n_data, n_pixels))
+        sky2sys: np.ndarray = np.zeros((n_data, n_pixels))
     else:
         sky2sys = np.zeros((n_data, beam_map.shape[0], n_pixels))
 
