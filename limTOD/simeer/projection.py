@@ -22,9 +22,13 @@ radians.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import healpy as hp
 import numpy as np
-from numpy.typing import ArrayLike
+
+if TYPE_CHECKING:  # numpy.typing needs numpy>=1.20; annotations are lazy here
+    from numpy.typing import ArrayLike
 
 
 def horizon_to_equatorial(

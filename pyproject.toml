@@ -62,7 +62,8 @@ gdsm = [
     "pygdsm>=1.2.0",
 ]
 # pyuvdata UVBeam support (limTOD.uvbeam): beam_func adapters for TODSim
-# and the limTOD.simeer patch-beam path.
+# and the limTOD.simeer patch-beam path. Current pyuvdata releases require
+# Python >= 3.11; the base package stays >= 3.8.
 uvbeam = [
     "pyuvdata>=3.0",
 ]

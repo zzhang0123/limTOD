@@ -89,6 +89,26 @@ def _validate_az_za(uvb: Any) -> None:
         )
 
 
+def _validate_domain(uvb: Any) -> None:
+    """The zero-fill contract assumes the grid starts at za=0 and covers the
+    full azimuth circle; anything else would silently reach pyuvdata's own
+    domain error instead of the documented fill behaviour."""
+    az = np.asarray(uvb.axis1_array, dtype=np.float64)
+    za = np.asarray(uvb.axis2_array, dtype=np.float64)
+    if za[0] > 1e-6:
+        raise ValueError(
+            f"UVBeam zenith-angle grid starts at {za[0]:.4f} rad, not 0; "
+            "limTOD.uvbeam assumes boresight coverage."
+        )
+    span = float(az.max() - az.min())
+    step = float(np.median(np.diff(az))) if az.size > 1 else 0.0
+    if span < 2.0 * np.pi - 2.0 * step - 1e-9:
+        raise ValueError(
+            f"UVBeam azimuth grid spans only {span:.4f} rad; limTOD.uvbeam "
+            "assumes full 2*pi azimuth coverage."
+        )
+
+
 def _stokes_tuple(stokes: str) -> Sequence[str]:
     if stokes == "I":
         return ("I",)
@@ -149,6 +169,11 @@ def _interp_beam(
     """Interpolate a power beam; returns real values, shape (npol, nfreq, npts)."""
     from pyuvdata import utils as _uvutils
 
+    if int(wb.Naxes_vec) != 1:
+        raise ValueError(
+            f"Expected a power beam with Naxes_vec=1, got {wb.Naxes_vec}; "
+            "vector-valued power beams are not supported."
+        )
     kwargs: Dict[str, Any] = {} if interp_kwargs is None else dict(interp_kwargs)
     # UVBeam.interp's `polarizations` selector takes polarization STRINGS
     # ('xx', 'pI', ...), not AIPS numbers.
@@ -211,9 +236,30 @@ def uvbeam_to_healpix_maps(
     """
     _require_pyuvdata()
     _validate_az_za(uvb)
-    wants = _stokes_tuple(stokes)
+    _validate_domain(uvb)
     wb, pol_nums, average = _prepare_stokes_beam(uvb, stokes, peak_normalize)
+    return _sample_healpix(
+        wb, pol_nums, average, stokes,
+        freq_MHz=freq_MHz, nside=nside,
+        freq_interp_kind=freq_interp_kind,
+        fill_value=fill_value, interp_kwargs=interp_kwargs,
+    )
 
+
+def _sample_healpix(
+    wb: Any,
+    pol_nums: Sequence[int],
+    average: bool,
+    stokes: str,
+    *,
+    freq_MHz: float,
+    nside: int,
+    freq_interp_kind: str,
+    fill_value: float,
+    interp_kwargs: Optional[Dict[str, Any]],
+) -> np.ndarray:
+    """Sampling kernel over an already-prepared power beam."""
+    wants = _stokes_tuple(stokes)
     npix = hp.nside2npix(nside)
     theta, phi = hp.pix2ang(nside, np.arange(npix))
     az_uv = healpix_phi_to_uvbeam_az(phi)
@@ -261,19 +307,20 @@ def uvbeam_beam_func(
         sim = TODSim(beam_func=uvbeam_beam_func(uvb), sky_func=..., ...)
 
     Configuration errors (wrong grid type, unsupported Stokes request)
-    surface at construction time rather than at the first call.
+    surface at construction time rather than at the first call — and the
+    (possibly expensive) efield conversion / peak normalization runs ONCE
+    here, not once per frequency channel of the simulation.
     """
     _require_pyuvdata()
     _validate_az_za(uvb)
-    _prepare_stokes_beam(uvb, stokes, peak_normalize=False)  # validate early
+    _validate_domain(uvb)
+    wb, pol_nums, average = _prepare_stokes_beam(uvb, stokes, peak_normalize)
 
     def beam_func(*, freq: float, nside: int) -> np.ndarray:
-        return uvbeam_to_healpix_maps(
-            uvb,
+        return _sample_healpix(
+            wb, pol_nums, average, stokes,
             freq_MHz=freq,
             nside=nside,
-            stokes=stokes,
-            peak_normalize=peak_normalize,
             freq_interp_kind=freq_interp_kind,
             fill_value=fill_value,
             interp_kwargs=interp_kwargs,
@@ -327,6 +374,7 @@ def uvbeam_to_patch_beam(
     from limTOD.simeer.beam import MeerKLASSBeam
 
     _validate_az_za(uvb)
+    _validate_domain(uvb)
     pol = polarization.upper()
     if pol not in _PATCH_POL:
         raise ValueError(f"polarization must be one of {tuple(_PATCH_POL)}, got {polarization!r}")

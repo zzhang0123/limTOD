@@ -31,9 +31,7 @@ import numpy as np
 
 from . import _parallel, disc, interpolation, projection, stokes
 from .beam import MeerKLASSBeam
-
-# Stokes modes currently supported (Q/U/V tracked in follow-up #1).
-SUPPORTED_STOKES = ("I",)
+from .stokes import SUPPORTED_STOKES
 
 
 # ---------------------------------------------------------------------- #
@@ -121,7 +119,7 @@ def integrate_sample(
     default to ``None`` and are recomputed from ``beam`` on demand,
     which is the right behaviour for one-off calls.
     """
-    if stokes_modes != ("I",):
+    if tuple(stokes_modes) != SUPPORTED_STOKES:
         raise NotImplementedError(
             f"Only Stokes I is supported in v0.1; got stokes_modes={stokes_modes!r}. "
             "Track follow-up #1 in the README for the Q/U/V roadmap."

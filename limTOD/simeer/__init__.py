@@ -53,6 +53,7 @@ from .sky_integrator import (
 )
 
 __all__ = [
+    "SimeerTODSim",
     "MeerKLASSBeam",
     "synthetic_gaussian_beam",
     "integrate_sample",
@@ -71,7 +72,7 @@ __email__ = "zheng.zhang@manchester.ac.uk"
 __license__ = "MIT"
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> object:
     """Lazy import of :class:`SimeerTODSim` (defers the simulator module,
     and with it astropy, until the class is actually referenced)."""
     if name == "SimeerTODSim":
@@ -79,3 +80,7 @@ def __getattr__(name: str):
 
         return _S
     raise AttributeError(name)
+
+
+def __dir__() -> list:
+    return sorted(set(globals()) | set(__all__))

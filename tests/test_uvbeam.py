@@ -176,6 +176,44 @@ class TestHealpixMaps:
         assert np.all(m_mid[probe] >= m_hi[probe] - 1e-12)
 
 
+class TestIQUVRowOrder:
+    """Rows of stokes='IQUV' output must be [pI, pQ, pU, pV] in that order —
+    pinned against a power beam whose four pseudo-Stokes products are
+    numerically distinguishable constants times a Gaussian."""
+
+    SCALES = {"pI": 1.0, "pQ": 0.5, "pU": 0.25, "pV": 0.125}
+
+    def _pstokes_beam(self):
+        sig = np.deg2rad(2.0)
+        az = np.linspace(0.0, 2 * np.pi, 181)[:-1]
+        za = np.linspace(0.0, np.deg2rad(10.0), 81)
+        AZ, ZA = np.meshgrid(az, za, indexing="xy")
+        base = np.exp(-np.sin(ZA) ** 2 / sig**2)
+        # (Naxes_vec=1, Npol=4, Nfreq=1, Nza, Naz)
+        data = np.stack([c * base for c in self.SCALES.values()])[None, :, None, :, :]
+        return UVBeam.new(
+            telescope_name="test",
+            data_normalization="physical",
+            freq_array=np.array([1e9]),
+            feed_name="f", feed_version="0",
+            model_name="pstokes", model_version="0",
+            polarization_array=np.array([1, 2, 3, 4]),  # pI, pQ, pU, pV
+            feed_array=np.array(["x", "y"]),
+            feed_angle=np.array([np.pi / 2, 0.0]),
+            pixel_coordinate_system="az_za",
+            axis1_array=az, axis2_array=za,
+            data_array=data,
+        )
+
+    def test_rows_in_iquv_order(self):
+        uvb = self._pstokes_beam()
+        maps = uvbeam_to_healpix_maps(uvb, freq_MHz=1000.0, nside=16, stokes="IQUV")
+        pole_pix = 0  # near boresight, base ~ 1
+        vals = maps[:, pole_pix]
+        ratios = vals / vals[0]
+        np.testing.assert_allclose(ratios, [1.0, 0.5, 0.25, 0.125], rtol=1e-6)
+
+
 class TestOrientationLock:
     """The az-convention lock: displaced circular beam, three-way agreement.
 

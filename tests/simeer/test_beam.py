@@ -125,3 +125,37 @@ def test_unknown_polarization_raises():
             margin_deg=np.linspace(-1, 1, 3),
             power={"XX": np.ones((1, 3, 3), dtype=np.float32)},
         )
+
+
+@pytest.mark.unit
+def test_npz_file_loader_roundtrip(tmp_path):
+    """The real NPZ constructor path (previously only from_arrays was
+    covered): antenna selection, pol materialization, power = |Jones|^2."""
+    rng = np.random.default_rng(0)
+    n_freq, n_grid, n_ant = 2, 9, 3
+    margin = np.linspace(-2.0, 2.0, n_grid)
+    freq = np.array([950.0, 1050.0])
+    jones = rng.standard_normal((4, n_ant, n_freq, n_grid, n_grid)) + 1j * rng.standard_normal(
+        (4, n_ant, n_freq, n_grid, n_grid)
+    )
+    path = tmp_path / "beam.npz"
+    np.savez(
+        path,
+        beam=jones,
+        pols=np.array([b"HH", b"HV", b"VH", b"VV"]),
+        antnames=np.array([b"m000", b"array_average", b"m001"]),
+        freq_MHz=freq,
+        margin_deg=margin,
+    )
+
+    beam = MeerKLASSBeam(path, antenna="array_average", polarizations=("HH",))
+    np.testing.assert_allclose(np.asarray(beam.freq_MHz), freq)
+    np.testing.assert_allclose(np.asarray(beam.margin_deg), margin)
+    expected = np.abs(jones[0, 1]) ** 2  # HH is Jones index 0; ant index 1
+    np.testing.assert_allclose(
+        beam.power_cube("HH"), expected.astype(np.float32), rtol=1e-6
+    )
+    with pytest.raises(KeyError):
+        beam.power_cube("VV")  # not materialised
+    with pytest.raises(ValueError, match="not found"):
+        MeerKLASSBeam(path, antenna="nonexistent")

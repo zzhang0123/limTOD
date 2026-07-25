@@ -7,8 +7,13 @@ regular ``(n_freq, n_m, n_l)`` grid in direction cosine space (the
 ``l`` axes). The dataset is large (tens of GB for the raw cube), so this
 module:
 
-*   loads only the requested antenna entry (typically ``array_average``)
-    and the requested linear polarisations (default HH and VV);
+*   RETAINS only the requested antenna entry (typically
+    ``array_average``) and the requested linear polarisations (default HH
+    and VV). NOTE: NPZ archives cannot be read partially, so ``__init__``
+    still decompresses the full ``beam`` array once — peak memory during
+    loading is the whole file; the memory saving applies to the
+    steady-state working set only. (A partial-read container such as HDF5
+    would be needed to bound peak memory too.)
 *   stores the **power** ``|Jones|^2`` in ``float32`` once at
     construction time, so the working cube is ~1/4 the size of the raw
     complex Jones for the selected antenna;
@@ -26,9 +31,12 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 import numpy as np
-from numpy.typing import DTypeLike
+
+if TYPE_CHECKING:  # numpy.typing needs numpy>=1.20; annotations are lazy here
+    from numpy.typing import DTypeLike
 
 _VALID_POLS = ("HH", "VV")
 _POL_INDEX = {"HH": 0, "VV": 3}  # indices into the Jones matrix axis

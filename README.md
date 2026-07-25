@@ -40,7 +40,7 @@ are opt-in extras:
 | `[mpi]` | mpi4py | MPI-parallel simulation (`mpirun -n N ...`). Without it limTOD runs serially; launching under `mpirun` *without* mpi4py fails loudly instead of silently duplicating work. |
 | `[gdsm]` | pygdsm | The `GDSM_sky_model` sky function (Global Sky Model). Everything else works without it. |
 | `[jax]` | jax, s2fft | The `limtod_jax` package (Python ≥ 3.11). |
-| `[uvbeam]` | pyuvdata | `limTOD.uvbeam`: use pyuvdata `UVBeam` objects as beams. |
+| `[uvbeam]` | pyuvdata | `limTOD.uvbeam`: use pyuvdata `UVBeam` objects as beams (Python ≥ 3.11). |
 | `[parallel]` | joblib | Parallel sample loop in `limTOD.simeer` (`n_jobs != 1`). |
 | `[full]` | all of the above | The complete setup. |
 

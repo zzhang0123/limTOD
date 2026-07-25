@@ -89,13 +89,19 @@ class SimeerTODSim(_BaseTODSim):
             ant_height_m=ant_height_m,
             beam_func=_unused_beam_func,
             sky_func=sky_func,
-            beam_nside=sky_nside,  # unused but limTOD validates
+            beam_nside=sky_nside,  # unused by the simeer path
             sky_nside=sky_nside,
         )
 
         self.beam = beam
         self.disc_radius_deg = float(disc_radius_deg)
         self.polarization = polarization.upper()
+        if self.polarization not in beam.polarizations:
+            raise ValueError(
+                f"polarization {polarization!r} was not materialised in the "
+                f"beam (available: {beam.polarizations}); construct the beam "
+                "with the polarizations you intend to simulate."
+            )
         self.n_jobs = int(n_jobs)
 
     # ------------------------------------------------------------------ #
