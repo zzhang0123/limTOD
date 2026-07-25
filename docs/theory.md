@@ -36,12 +36,40 @@ the plain pixel sum, without a solid-angle factor — pair it with
 The beam enters limTOD as a HEALPix map (RING ordering;
 `(θ, φ) = healpy.pix2ang`). A beam's orientation is only meaningful
 relative to the **local horizontal system**, so the convention is
-defined through it — using only the coordinate functions azimuth and
-elevation, never observer-dependent words like "left/right/up/down"
-(which compass direction a beam meridian maps to depends on the
-pointing). Every claim below is pinned numerically by
+stated through it — first as a physical mount motion, then as formulas
+(the formulas are normative). Every claim is pinned numerically by
 [`tests/test_beam_orientation.py`](https://github.com/zzhang0123/limTOD/blob/main/tests/test_beam_orientation.py)
 (displaced-blob probes through the full pointing chain).
+
+### The convention as a mount motion
+
+Park the dish at the zenith with the azimuth drive reading $0°$. The
+beam map is then a chart of the sky around the zenith with its
+meridians on the compass:
+
+$$
+\varphi = 0,\; 90°,\; 180°,\; 270°
+\;\;\longrightarrow\;\;
+\text{south, east, north, west points of the horizon,}
+$$
+
+and $\theta$ the angle from the zenith. Driving the mount to a
+pointing $(A, e, \psi)$ carries the pattern rigidly in three steps:
+
+1. rotate about the vertical by $A$ in the azimuth-increasing sense
+   (north → east);
+2. tilt the boresight down from the zenith by $90° − e$ — it descends
+   along the vertical circle toward compass azimuth $A$, and the
+   $\varphi = 0$ side of the chart now faces the direction of
+   increasing elevation;
+3. rotate by $\psi$ (`selfrot_deg`) about the boresight, in the
+   $\varphi$-increasing sense.
+
+![The beam coordinate convention: bird's-eye view of the horizontal
+system, the vertical plane through the pointing, and the beam
+chart.](_static/beam-convention.svg)
+
+### Formal definition (normative)
 
 **Horizontal system.** Right-handed Cartesian basis
 $(\hat E, \hat N, \hat U)$: $\hat E$ toward East, $\hat N$ toward
@@ -105,6 +133,19 @@ $\varphi$-increasing sense: the feature at meridian $\varphi$ is
 carried to $\hat t$ evaluated at $\varphi + \psi$ (from
 $\hat e_{\mathrm{el}}$ toward $\hat e_{\mathrm{az}}$).
 
+The mount-motion narrative and the figure are exactly equivalent to
+this definition; wherever wording could be read two ways, the formulas
+win.
+
+### Practical reading
+
+Beam-map pixel $(\theta, \varphi = 0)$ holds the response to a source
+at the **same azimuth and elevation $e + \theta$**; pixel
+$(\theta, \varphi = 90°)$ to a source at the **same elevation and
+larger azimuth** (offset $\approx \theta / \cos e$ for small
+$\theta$; exactly, source offsets SIN-project onto
+$(\hat e_{\mathrm{az}}, \hat e_{\mathrm{el}})$).
+
 **Worked anchors.** Pointing $A = 0°, e = 0°$: $\hat b = \hat N$,
 $\hat e_{\mathrm{el}} = \hat U$, $\hat e_{\mathrm{az}} = \hat E$ — the
 $\varphi = 0$ meridian is carried toward the zenith, $\varphi = 90°$
@@ -133,15 +174,11 @@ rather than compass or left/right words.
   $\hat e_{\mathrm{az}} = \cos A\, \hat E - \sin A\, \hat N$ (unchanged)
   and $\hat e_{\mathrm{el}}(A, 90°) = -(\sin A\, \hat E + \cos A\, \hat N)$,
   the continuous carry-over of the mount's approach azimuth.
-- **Parked configuration** ($A = 0°, e = 90°$ — the rotation chain with
-  only its site steps applied): the beam axes land on
-  $(\varphi{=}0, \varphi{=}90°, \text{boresight}) \to$ (**south point**
-  of the horizon, **east point**, **zenith**) — the standard alt-az
-  Cartesian triad $(\hat S, \hat E, \hat U)$, right-handed since
-  $\hat S \times \hat E = \hat U$. This is just the general formulas at
-  $A = 0°, e = 90°$: $\hat e_{\mathrm{el}} = -\hat N = \hat S$,
-  $\hat e_{\mathrm{az}} = \hat E$. Verified through the chain at
-  several (latitude, LST) combinations.
+- **Parked configuration** ($A = 0°, e = 90°$): the compass reading
+  used as the anchor of the mount-motion statement above —
+  $\varphi = 0, 90°, 180°, 270° \to$ south, east, north, west
+  points; equal to the general formulas at $A = 0°, e = 90°$ and
+  pinned directly by the parked tests.
 - **Symmetric beams** are insensitive to $\varphi$ entirely — which is
   why this section matters only for asymmetric beams and polarization
   work (and why the orientation went unstated for so long: symmetric
