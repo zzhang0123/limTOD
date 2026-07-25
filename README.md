@@ -29,14 +29,22 @@ A simple (but sophisticated) map-making class, `HPW_mapmaking` is also provided 
 If you use limTOD in your research, please cite:
 
 ```bibtex
-@misc{zhang2026jointbayesiancalibrationmapmaking,
-      title={Joint Bayesian calibration and map-making for intensity mapping experiments}, 
-      author={Zheng Zhang and Philip Bull and Mario G. Santos and Ainulnabilah Nasirudin},
-      year={2026},
-      eprint={2509.10992},
-      archivePrefix={arXiv},
-      primaryClass={astro-ph.IM},
-      url={https://arxiv.org/abs/2509.10992}, 
+@ARTICLE{2026RASTI...5ag024Z,
+       author = {{Zhang}, Zheng and {Bull}, Philip and {Santos}, Mario G. and {Nasirudin}, Ainulnabilah},
+        title = "{Joint Bayesian calibration and map-making for intensity mapping experiments}",
+      journal = {RAS Techniques and Instruments},
+     keywords = {Data Methods, methods: data analysis, techniques: spectroscopic, radio lines: general, Instrumentation and Methods for Astrophysics},
+         year = 2026,
+        month = jan,
+       volume = {5},
+          eid = {rzag024},
+        pages = {rzag024},
+          doi = {10.1093/rasti/rzag024},
+archivePrefix = {arXiv},
+       eprint = {2509.10992},
+ primaryClass = {astro-ph.IM},
+       adsurl = {https://ui.adsabs.harvard.edu/abs/2026RASTI...5ag024Z},
+      adsnote = {Provided by the SAO/NASA Astrophysics Data System}
 }
 ```
 
