@@ -29,6 +29,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `LIMTOD_FORCE_SERIAL=1`.
 - 🚢 **First PyPI release**: `pip install limTOD`.
 
+### Code quality (post-review polish)
+
+- ✅ **New test suites**: full-Stokes physical invariants (spin structure,
+  1D/3-row/4-row consistency, linearity, normalization) pin the polarized
+  chain the Stokes-I oracle never covered; a flicker-noise boundary sweep
+  over (alpha, fc, tau) corners; and an independent end-to-end
+  `HPW_mapmaking` oracle that rebuilds the regularized normal equations in
+  the test (unfiltered, priors, per-TOD noise variance, high-pass
+  consistency, gain/injection calibration).
+- 🧾 **Type annotations** across the numpy package (`mypy
+  --disallow-untyped-defs` clean); the previously dead ArrayLike aliases
+  are now used.
+- 🪵 **Logging**: all library `print()` calls migrated to module loggers
+  (`logging.getLogger`); informational output is now opt-in via standard
+  logging configuration instead of unconditional stdout, and MPI ranks no
+  longer duplicate messages.
+- 🧩 **`HPW_mapmaking.__call__` decomposed** into `_filter_and_stack`,
+  `_build_priors`, and `_normalize_noise_variance` (behavior pinned
+  bit-exact by the new oracle tests before refactoring).
+- 📓 Notebooks that require external, non-shipped data
+  (`demonstration.ipynb`, `RotatingBeam/baseSim*.ipynb`) now carry a
+  warning cell up top instead of failing with a bare `FileNotFoundError`.
+
 ### Documentation
 
 - 📚 **Restructured**: README is now a concise landing page (install,
@@ -96,6 +119,14 @@ caught and fixed, with regression tests for each:
 - 🐛 **`generate_gaussian_field(seed=None)`** no longer reseeds the global
   NumPy RNG from OS entropy (which clobbered callers' reproducibility
   seeding); it only seeds when a seed is given.
+- 🐛 **Bugs surfaced by the typing pass** (all regression-tested):
+  `HPW_mapmaking(return_full_cov=True)` crashed unpacking
+  `wiener_filter_map`'s 3-tuple — the posterior covariance is now returned
+  as the final element; `wiener_filter_map` no longer hits a `NameError`
+  when the covariance is uncomputable (clear `LinAlgError` instead);
+  `Tsys_others_operator_group` accepts the documented bare-2D-array form
+  (and validates its length against the number of TODs);
+  `sim_noise` accepts a plain Python list `time_list` as documented.
 - Pointing-array length mismatches now raise upfront (zip previously
   truncated silently); MPI-unsafe unconditional prints are rank-0-gated;
   `HPW_mapmaking` argument validation raises `ValueError` instead of

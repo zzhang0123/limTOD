@@ -3,7 +3,7 @@ from mpmath import gammainc
 from scipy.linalg import toeplitz
 
 
-def aux_int(mu, u):
+def aux_int(mu: float, u: float) -> float:
     """Auxiliary incomplete-gamma integral for the flicker-noise correlation.
 
     Raises RuntimeError (with the offending mu/u) if mpmath cannot evaluate
@@ -20,7 +20,9 @@ def aux_int(mu, u):
         ) from e
 
 
-def flicker_corr(tau, f0, fc, alpha, var_w=0.0):
+def flicker_corr(
+    tau: float, f0: float, fc: float, alpha: float, var_w: float = 0.0
+) -> float:
     """Flicker (1/f) noise autocorrelation at lag ``tau``.
 
     Note that f0 and fc are in unit of angular frequency, differently from
@@ -46,12 +48,20 @@ def flicker_corr(tau, f0, fc, alpha, var_w=0.0):
     return result * norm
 
 
-def sim_noise(f0, fc, alpha, time_list, n_samples=1, white_n_variance=5e-6):
+def sim_noise(
+    f0: float,
+    fc: float,
+    alpha: float,
+    time_list: np.ndarray,
+    n_samples: int = 1,
+    white_n_variance: float = 5e-6,
+) -> np.ndarray:
     """Draw flicker-noise realizations with autocorrelation ``flicker_corr``.
 
     Returns an array of shape ``(n_samples, len(time_list))``. ``f0``/``fc``
     are angular frequencies; ``alpha`` must differ from 1 (see flicker_corr).
     """
+    time_list = np.asarray(time_list, dtype=float)
     lags = time_list - time_list[0]
     corr_list = [flicker_corr(t, f0, fc, alpha, var_w=white_n_variance) for t in lags]
     covmat = toeplitz(corr_list)
