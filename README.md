@@ -11,6 +11,12 @@ ships:
 
 - **`HPW_mapmaking`** — high-pass + Wiener-filter map-making from TOD back
   to sky maps;
+- **`limTOD.simeer`** — a MeerKLASS-optimal sky-TOD path that keeps
+  narrow, finely-gridded beams on their native (l, m) grid and integrates
+  disc-restricted sky patches (no harmonic rotation);
+- **`limTOD.uvbeam`** — adapters for
+  [pyuvdata `UVBeam`](https://pyuvdata.readthedocs.io/en/latest/uvbeam.html)
+  objects, feeding measured/simulated beams into either path;
 - **`limtod_jax`** — a pure-JAX, jit/vmap/grad-safe port of the sky→TOD
   chain, verified against the numpy implementation to ~1e-12 in float64.
   It powers the differentiable pipeline of
@@ -34,6 +40,8 @@ are opt-in extras:
 | `[mpi]` | mpi4py | MPI-parallel simulation (`mpirun -n N ...`). Without it limTOD runs serially; launching under `mpirun` *without* mpi4py fails loudly instead of silently duplicating work. |
 | `[gdsm]` | pygdsm | The `GDSM_sky_model` sky function (Global Sky Model). Everything else works without it. |
 | `[jax]` | jax, s2fft | The `limtod_jax` package (Python ≥ 3.11). |
+| `[uvbeam]` | pyuvdata | `limTOD.uvbeam`: use pyuvdata `UVBeam` objects as beams. |
+| `[parallel]` | joblib | Parallel sample loop in `limTOD.simeer` (`n_jobs != 1`). |
 | `[full]` | all of the above | The complete setup. |
 
 ```bash
@@ -88,6 +96,8 @@ grad = jax.grad(lambda b: ltj.generate_tod_sky(
 | Page | Contents |
 |------|----------|
 | [TOD simulation](https://github.com/zzhang0123/limTOD/blob/main/docs/tod-simulation.md) | `TODSim` guide: inputs, outputs, noise model, MPI, troubleshooting |
+| [Patch-beam path](https://github.com/zzhang0123/limTOD/blob/main/docs/simeer.md) | `limTOD.simeer`: disc-restricted (l, m) beam interpolation |
+| [UVBeam support](https://github.com/zzhang0123/limTOD/blob/main/docs/uvbeam.md) | pyuvdata beams as `beam_func` or patch beams |
 | [Map-making](https://github.com/zzhang0123/limTOD/blob/main/docs/mapmaking.md) | `HPW_mapmaking`: high-pass + Wiener filtering |
 | [Theory & conventions](https://github.com/zzhang0123/limTOD/blob/main/docs/theory.md) | Signal model, coordinate chain, Euler-angle conventions |
 | [API reference](https://github.com/zzhang0123/limTOD/blob/main/docs/api-reference.md) | Public numpy API signatures |

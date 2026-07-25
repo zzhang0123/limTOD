@@ -261,7 +261,7 @@ def integrate_tod(
     lat_deg: float,
     beam: MeerKLASSBeam,
     sky_maps: np.ndarray,
-    freq_MHz: Sequence[float],
+    freq_MHz: Sequence[float] | np.ndarray,
     disc_radius_deg: float,
     polarization: str = "HH",
     horizontal_mask: np.ndarray | None = None,
@@ -380,7 +380,7 @@ SkyFunc = Callable[..., np.ndarray]
 
 def materialize_sky_cube(
     sky_func: SkyFunc,
-    freq_MHz: Sequence[float],
+    freq_MHz: Sequence[float] | np.ndarray,
     nside: int,
 ) -> np.ndarray:
     """Evaluate ``sky_func`` at every requested frequency.

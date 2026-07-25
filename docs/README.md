@@ -3,6 +3,8 @@
 | Page | Contents |
 |------|----------|
 | [TOD simulation](tod-simulation.md) | `TODSim` user guide: inputs, outputs, noise model, examples, troubleshooting |
+| [Patch-beam path](simeer.md) | `limTOD.simeer`: MeerKLASS-optimal disc-restricted (l, m) beam interpolation |
+| [UVBeam support](uvbeam.md) | `limTOD.uvbeam`: pyuvdata beams as `beam_func` or patch beams |
 | [Map-making](mapmaking.md) | `HPW_mapmaking`: high-pass + Wiener filtering from TOD to sky maps |
 | [Theory & conventions](theory.md) | Signal model, coordinate transformations, Euler-angle conventions, workflow |
 | [API reference](api-reference.md) | Signatures and parameters of the public numpy API |

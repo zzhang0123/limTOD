@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-25
+
+### Added
+
+- 📡 **`limTOD.simeer` subpackage** — the MeerKLASS-optimal sky-TOD path
+  (merged from the standalone Simeer package, same author/license): the
+  beam stays on its native (l, m) direction-cosine grid and each pointing
+  integrates only a HEALPix disc of sky pixels, avoiding the harmonic
+  rotation that narrow, finely-gridded beams make expensive.
+  `SimeerTODSim` subclasses `TODSim` (identical noise model and
+  `generate_TOD` API, only the sky step differs); `MeerKLASSBeam` loads
+  the holographic NPZ format. 44 tests migrated, including the
+  cross-validation against the classic HEALPix path. Purely additive —
+  classic limTOD usage is unchanged, and the standalone Simeer package
+  remains available. Parallelism (`n_jobs != 1`) uses the new optional
+  `[parallel]` extra (joblib); the serial default needs nothing.
+- 🛰️ **`limTOD.uvbeam` module** (`[uvbeam]` extra, pyuvdata): use
+  measured/simulated `UVBeam` objects in either simulation path —
+  `uvbeam_beam_func` satisfies `TODSim`'s `beam_func` contract
+  (Stokes I or full pseudo-Stokes IQUV via pyuvdata's own conversions,
+  chromatic frequency interpolation), and `uvbeam_to_patch_beam` samples
+  a UVBeam onto the simeer (l, m) grid. The azimuth convention
+  (``az_uvbeam = π/2 − φ_healpix``) was locked NUMERICALLY by a
+  three-way test (HEALPix path vs simeer disc path on a strongly
+  displaced beam: winner 0.5%, all other candidate mappings 66–90% off) —
+  the hand-derived mapping had a handedness error only the numerical
+  lock caught. Out-of-coverage pixels zero-fill; error paths tested.
+
+### Changed
+
+- The companion digital-twin project formerly known as e-RHINO is now
+  [replicant-telescope](https://github.com/zzhang0123/replicant-telescope)
+  (Python package `replicant`); references updated. Historical changelog
+  entries keep the old name.
+
 ## [1.3.0] - 2026-07-25
 
 ### Added
