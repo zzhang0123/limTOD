@@ -87,7 +87,8 @@ Notes:
 
 ## JAX alternative
 
-For differentiable map-making inside a JAX pipeline, e-RHINO's
+For differentiable map-making inside a JAX pipeline,
+[replicant-telescope](https://github.com/zzhang0123/replicant-telescope)'s
 `SkySpaceFilter` implements the same normal-equations solve with
 matrix-free conjugate gradients on top of the
 [limtod_jax](limtod-jax.md) projector.

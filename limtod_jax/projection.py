@@ -3,7 +3,7 @@
 JAX port of the linear part of ``limTOD.simulator.generate_sky2sys_projection``
 (Stokes I): each row is the beam rotated to one pointing, synthesized on the
 HEALPix grid, and sampled at the selected pixels. The output feeds
-e-RHINO's ``MatrixProjector`` (fixed-pointing differentiable projector).
+replicant-telescope's ``MatrixProjector`` (fixed-pointing differentiable projector).
 
 Pixel SELECTION stays in numpy limTOD (``truncate_stacked_beam``) — it is a
 discrete, non-differentiable choice made offline; this module consumes the

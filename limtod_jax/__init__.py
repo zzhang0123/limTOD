@@ -3,7 +3,7 @@ limtod_jax: pure-JAX port of limTOD's sky -> TOD machinery.
 
 Differentiable, jit/vmap-safe reimplementation of the beam-rotation TOD
 simulator (``limTOD.simulator``) in harmonic space, per the port contract
-in e-RHINO ``docs/limtod-port-contract.md``:
+in replicant-telescope (formerly e-RHINO) ``docs/limtod-port-contract.md``:
 
 * pointing -> ZYZ Euler angles      (:mod:`limtod_jax.angles`)
 * Wigner rotation of packed alms    (:mod:`limtod_jax.wigner`, :mod:`limtod_jax.core`)
