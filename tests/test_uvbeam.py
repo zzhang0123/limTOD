@@ -3,7 +3,7 @@
 The az-convention lock follows the house methodology: the mapping
 ``az_uvbeam = pi/2 - phi_healpix`` was selected by a numerical probe
 (strongly displaced circular beam, three-way comparison against the
-simeer (l, m) disc path) with the winner at ~0.5% and every other
+patch-beam (l, m) disc path) with the winner at ~0.5% and every other
 candidate mapping 66-90% off; this suite keeps both directions pinned.
 """
 
@@ -18,8 +18,8 @@ pyuvdata = pytest.importorskip("pyuvdata")
 from pyuvdata import UVBeam  # noqa: E402
 from pyuvdata.analytic_beam import GaussianBeam  # noqa: E402
 
-from limTOD.simeer import SimeerTODSim  # noqa: E402
-from limTOD.simeer.beam import MeerKLASSBeam  # noqa: E402
+from limTOD.patchbeam import PatchBeamTODSim  # noqa: E402
+from limTOD.patchbeam.beam import MeerKLASSBeam  # noqa: E402
 from limTOD.simulator import TODSim  # noqa: E402
 from limTOD.uvbeam import (  # noqa: E402
     healpix_phi_to_uvbeam_az,
@@ -253,14 +253,14 @@ class TestOrientationLock:
         }
 
     @pytest.fixture(scope="class")
-    def tod_simeer(self, scan):
+    def tod_patch(self, scan):
         margin = np.linspace(-6.0, 6.0, 481)
         MM, LL = np.meshgrid(np.deg2rad(margin), np.deg2rad(margin), indexing="ij")
         cube = self._b(LL, MM)[None, :, :].astype(np.float32)
         patch = MeerKLASSBeam.from_arrays(
             freq_MHz=self.FREQ_HZ / 1e6, margin_deg=margin, power={"HH": cube}
         )
-        sim = SimeerTODSim(
+        sim = PatchBeamTODSim(
             beam=patch, sky_func=scan["sky_func"], sky_nside=self.NSIDE,
             disc_radius_deg=9.0, polarization="HH",
             ant_latitude_deg=scan["lat"],
@@ -291,17 +291,17 @@ class TestOrientationLock:
         finally:
             luv.healpix_phi_to_uvbeam_az = orig
 
-    def test_frozen_mapping_agrees_with_simeer_path(self, scan, tod_simeer):
+    def test_frozen_mapping_agrees_with_patch_path(self, scan, tod_patch):
         tod_l = self._tod_healpix(scan, healpix_phi_to_uvbeam_az)
-        rel = np.max(np.abs(tod_l - tod_simeer) / np.abs(tod_simeer))
+        rel = np.max(np.abs(tod_l - tod_patch) / np.abs(tod_patch))
         assert rel < 0.02, f"frozen mapping disagrees with the disc path: {rel:.3f}"
 
-    def test_mirror_mapping_still_rejected(self, scan, tod_simeer):
+    def test_mirror_mapping_still_rejected(self, scan, tod_patch):
         """If the mirrored mapping ever starts matching, the beam-map
         handedness moved somewhere in the chain."""
         mirror = lambda p: (np.asarray(p) - 0.5 * np.pi) % (2 * np.pi)  # noqa: E731
         tod_l = self._tod_healpix(scan, mirror)
-        rel = np.max(np.abs(tod_l - tod_simeer) / np.abs(tod_simeer))
+        rel = np.max(np.abs(tod_l - tod_patch) / np.abs(tod_patch))
         assert rel > 0.2, f"mirror mapping unexpectedly close: {rel:.3f}"
 
     def test_frozen_mapping_values(self):
@@ -330,12 +330,12 @@ class TestPatchBridge:
         cube = patch.power_cube("VV")
         assert np.all(np.isfinite(cube)) and cube.max() > 0
 
-    def test_patch_beam_plugs_into_simeer(self, ):
+    def test_patch_beam_plugs_into_patchbeam(self, ):
         sig = np.deg2rad(2.0)
         uvb = make_power_uvbeam(lambda l, m: np.exp(-(l**2 + m**2) / sig**2))
         patch = uvbeam_to_patch_beam(uvb, margin_deg=np.linspace(-6.0, 6.0, 121))
         sky = np.full(hp.nside2npix(32), 5.0)
-        sim = SimeerTODSim(
+        sim = PatchBeamTODSim(
             beam=patch, sky_func=lambda *, freq, nside: sky, sky_nside=32,
             disc_radius_deg=8.0,
         )

@@ -1,4 +1,4 @@
-"""Integration tests for simeer.sky_integrator."""
+"""Integration tests for limTOD.patchbeam.sky_integrator."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import healpy as hp
 import numpy as np
 import pytest
 
-from limTOD.simeer import disc as disc_mod
-from limTOD.simeer import integrate_sample, integrate_tod, synthetic_gaussian_beam
+from limTOD.patchbeam import disc as disc_mod
+from limTOD.patchbeam import integrate_sample, integrate_tod, synthetic_gaussian_beam
 
 
 @pytest.fixture(autouse=True)
@@ -67,7 +67,7 @@ def test_point_source_at_pointing(beam):
     sky = np.zeros((1, hp.nside2npix(nside)), dtype=np.float64)
     az_p, el_p, lst, lat = 180.0, 60.0, 180.0, -30.7130
 
-    from limTOD.simeer.projection import (
+    from limTOD.patchbeam.projection import (
         direction_cosines,
         equatorial_to_horizon,
         horizon_to_equatorial,

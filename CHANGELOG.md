@@ -11,12 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- 📡 **`limTOD.simeer` subpackage** — the MeerKLASS-optimal sky-TOD path
+- 📡 **`limTOD.patchbeam` subpackage** — the MeerKLASS-optimal sky-TOD path
   (merged from the standalone Simeer package, same author/license): the
   beam stays on its native (l, m) direction-cosine grid and each pointing
   integrates only a HEALPix disc of sky pixels, avoiding the harmonic
   rotation that narrow, finely-gridded beams make expensive.
-  `SimeerTODSim` subclasses `TODSim` (identical noise model and
+  `PatchBeamTODSim` subclasses `TODSim` (identical noise model and
   `generate_TOD` API, only the sky step differs); `MeerKLASSBeam` loads
   the holographic NPZ format. 44 tests migrated, including the
   cross-validation against the classic HEALPix path. Purely additive —
@@ -28,9 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `uvbeam_beam_func` satisfies `TODSim`'s `beam_func` contract
   (Stokes I or full pseudo-Stokes IQUV via pyuvdata's own conversions,
   chromatic frequency interpolation), and `uvbeam_to_patch_beam` samples
-  a UVBeam onto the simeer (l, m) grid. The azimuth convention
+  a UVBeam onto the patch-beam (l, m) grid. The azimuth convention
   (``az_uvbeam = π/2 − φ_healpix``) was locked NUMERICALLY by a
-  three-way test (HEALPix path vs simeer disc path on a strongly
+  three-way test (HEALPix path vs patch-beam disc path on a strongly
   displaced beam: winner 0.5%, all other candidate mappings 66–90% off) —
   the hand-derived mapping had a handedness error only the numerical
   lock caught. Out-of-coverage pixels zero-fill; error paths tested.

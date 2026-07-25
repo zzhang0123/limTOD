@@ -1,7 +1,7 @@
 """
 Thin parallelism wrapper used by the TOD-sample loop.
 
-The hot loop in :mod:`simeer.sky_integrator` is embarrassingly parallel
+The hot loop in :mod:`limTOD.patchbeam.sky_integrator` is embarrassingly parallel
 over time samples. We default to :mod:`joblib` with the Loky process
 backend because:
 
@@ -76,7 +76,7 @@ def map_samples(
         from joblib import Parallel, delayed  # type: ignore[import-not-found]
     except ImportError as exc:
         raise ImportError(
-            "limTOD.simeer parallel execution (n_jobs != 1) needs the optional "
+            "limTOD.patchbeam parallel execution (n_jobs != 1) needs the optional "
             "joblib package: pip install joblib (or the limTOD[full] extra). "
             "The default n_jobs=1 serial path has no such dependency."
         ) from exc

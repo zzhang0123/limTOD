@@ -10,9 +10,9 @@ Three entry points, all lazy on the optional ``pyuvdata`` dependency
   nside=...)`` callable satisfying :class:`limTOD.TODSim`'s contract
   (chromatic: each frequency interpolates the UVBeam).
 * :func:`uvbeam_to_patch_beam` — sample a UVBeam onto the (l, m)
-  direction-cosine grid of :class:`limTOD.simeer.beam.MeerKLASSBeam`,
+  direction-cosine grid of :class:`limTOD.patchbeam.beam.MeerKLASSBeam`,
   bridging measured beams into the disc-restricted
-  :mod:`limTOD.simeer` path.
+  :mod:`limTOD.patchbeam` path.
 
 Conventions
 -----------
@@ -25,14 +25,14 @@ Conventions
   lands toward local East and ``phi = 0`` toward local North; the
   resulting mapping ``az_uvbeam = pi/2 - phi_healpix`` is LOCKED
   NUMERICALLY by the three-way orientation test in ``tests/test_uvbeam.py``
-  (HEALPix path vs the simeer (l, m) disc path, discrimination via a
+  (HEALPix path vs the patch-beam (l, m) disc path, discrimination via a
   strongly displaced beam: winner 0.5% agreement, all other candidate
   mappings 66-90% off). Conventions are never trusted on paper here —
   the hand derivation of this mapping had a handedness error that only
   the numerical lock caught.
 * Direction cosines for the patch bridge: ``l = sin(za) cos(az_uvbeam)``
   (East), ``m = sin(za) sin(az_uvbeam)`` (North) — the SIN convention of
-  :mod:`limTOD.simeer.projection`.
+  :mod:`limTOD.patchbeam.projection`.
 * Pixels beyond the UVBeam's zenith-angle coverage are filled with
   ``fill_value`` (default 0 — no response outside the measured domain).
 
@@ -52,7 +52,7 @@ import numpy as np
 _PSTOKES_NUM = {"I": 1, "Q": 2, "U": 3, "V": 4}
 # AIPS auto-correlation polarization numbers.
 _POL_XX, _POL_YY = -5, -6
-# simeer patch-beam polarization label -> UVBeam power polarization.
+# patch-beam polarization label -> UVBeam power polarization.
 _PATCH_POL = {"HH": _POL_XX, "VV": _POL_YY}
 
 
@@ -340,12 +340,12 @@ def uvbeam_to_patch_beam(
     fill_value: float = 0.0,
     interp_kwargs: Optional[Dict[str, Any]] = None,
 ) -> Any:
-    """Sample a UVBeam onto a (l, m) grid as a simeer patch beam.
+    """Sample a UVBeam onto a (l, m) grid as a patch beam.
 
     Bridges measured/simulated UVBeams into the disc-restricted
-    :mod:`limTOD.simeer` path: the returned
-    :class:`limTOD.simeer.beam.MeerKLASSBeam` plugs straight into
-    :class:`limTOD.simeer.SimeerTODSim`.
+    :mod:`limTOD.patchbeam` path: the returned
+    :class:`limTOD.patchbeam.beam.MeerKLASSBeam` plugs straight into
+    :class:`limTOD.patchbeam.PatchBeamTODSim`.
 
     Parameters
     ----------
@@ -368,10 +368,10 @@ def uvbeam_to_patch_beam(
 
     Returns
     -------
-    limTOD.simeer.beam.MeerKLASSBeam
+    limTOD.patchbeam.beam.MeerKLASSBeam
     """
     _require_pyuvdata()
-    from limTOD.simeer.beam import MeerKLASSBeam
+    from limTOD.patchbeam.beam import MeerKLASSBeam
 
     _validate_az_za(uvb)
     _validate_domain(uvb)

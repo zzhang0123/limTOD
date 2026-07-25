@@ -1,11 +1,11 @@
-"""Unit tests for simeer.projection."""
+"""Unit tests for limTOD.patchbeam.projection."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from limTOD.simeer import projection
+from limTOD.patchbeam import projection
 
 
 @pytest.mark.unit

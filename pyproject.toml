@@ -62,12 +62,12 @@ gdsm = [
     "pygdsm>=1.2.0",
 ]
 # pyuvdata UVBeam support (limTOD.uvbeam): beam_func adapters for TODSim
-# and the limTOD.simeer patch-beam path. Current pyuvdata releases require
+# and the limTOD.patchbeam patch-beam path. Current pyuvdata releases require
 # Python >= 3.11; the base package stays >= 3.8.
 uvbeam = [
     "pyuvdata>=3.0",
 ]
-# Parallel sample loop in limTOD.simeer (n_jobs != 1); the serial default
+# Parallel sample loop in limTOD.patchbeam (n_jobs != 1); the serial default
 # needs nothing extra.
 parallel = [
     "joblib>=1.2",

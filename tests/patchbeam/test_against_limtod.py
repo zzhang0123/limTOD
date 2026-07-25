@@ -1,13 +1,9 @@
-"""Cross-check Simeer's (l, m) disc integrator against limTOD's HEALPix-SH path.
+"""Cross-check the patch-beam (l, m) disc integrator against limTOD's HEALPix-SH path.
 
 For a symmetric Gaussian *power* beam, both pipelines compute the same
 beam-weighted sky integral and so should agree to a few percent (limited
-by HEALPix discretisation on the limTOD side and bilinear interpolation
-on the Simeer side).
-
-These tests require ``limTOD`` to be installed in the same Python
-environment as Simeer. ``pytest.importorskip`` skips the whole module
-when limTOD is absent.
+by HEALPix discretisation on the classic side and bilinear interpolation
+on the patch-beam side).
 
 Boundary-validation methodology (per ``rules/common/boundary-validation.md``):
 the parametrisation sweeps the dispatch boundaries where each pipeline's
@@ -24,7 +20,7 @@ import pytest
 limtod = pytest.importorskip("limTOD")  # noqa: F841
 from limTOD.simulator import generate_TOD_sky  # noqa: E402
 
-from limTOD.simeer import (  # noqa: E402
+from limTOD.patchbeam import (  # noqa: E402
     disc as disc_mod,
     integrate_tod,
     synthetic_gaussian_beam,
@@ -50,8 +46,8 @@ def _limtod_gaussian_beam(*, fwhm_deg: float, nside: int) -> np.ndarray:
     return beam
 
 
-def _simeer_gaussian_beam(*, fwhm_deg: float, margin_deg_n: int = 121):
-    """Same power FWHM, on the Simeer (l, m) grid."""
+def _patch_gaussian_beam(*, fwhm_deg: float, margin_deg_n: int = 121):
+    """Same power FWHM, on the patch-beam (l, m) grid."""
     return synthetic_gaussian_beam(
         freq_MHz=np.array([1000.0]),
         margin_deg=np.linspace(-6, 6, margin_deg_n),
@@ -75,9 +71,9 @@ def _run_pair(
     az_deg: np.ndarray,
     el_deg: np.ndarray,
 ):
-    """Return (tod_limtod, tod_simeer) for one configuration."""
+    """Return (tod_limtod, tod_patch) for one configuration."""
     limtod_beam = _limtod_gaussian_beam(fwhm_deg=fwhm_deg, nside=sky_nside)
-    simeer_beam = _simeer_gaussian_beam(fwhm_deg=fwhm_deg)
+    patch_beam = _patch_gaussian_beam(fwhm_deg=fwhm_deg)
 
     selfrot = np.zeros_like(lst_deg)
 
@@ -91,17 +87,17 @@ def _run_pair(
         selfrot_deg_list=selfrot,
     )
 
-    tod_simeer = integrate_tod(
+    tod_patch = integrate_tod(
         lst_deg_list=lst_deg,
         az_deg_list=az_deg,
         el_deg_list=el_deg,
         lat_deg=MEERKAT_LAT,
-        beam=simeer_beam,
+        beam=patch_beam,
         sky_maps=sky_map[None, :],
         freq_MHz=[1000.0],
         disc_radius_deg=8.0,
     )
-    return tod_limtod, tod_simeer[0]
+    return tod_limtod, tod_patch[0]
 
 
 # ---------------------------------------------------------------------- #
@@ -204,21 +200,21 @@ def test_azimuth_raster_uniform():
 
 
 # ---------------------------------------------------------------------- #
-# SimeerTODSim end-to-end (Full TOD path inherited from limTOD.TODSim)   #
+# PatchBeamTODSim end-to-end (Full TOD path inherited from limTOD.TODSim)   #
 # ---------------------------------------------------------------------- #
 @pytest.mark.integration
-def test_simeer_tod_sim_simulate_sky_tod_uniform():
-    """SimeerTODSim.simulate_sky_TOD on a uniform sky recovers T0."""
-    from limTOD.simeer import SimeerTODSim
+def test_patch_beam_tod_sim_simulate_sky_tod_uniform():
+    """PatchBeamTODSim.simulate_sky_TOD on a uniform sky recovers T0."""
+    from limTOD.patchbeam import PatchBeamTODSim
 
-    beam = _simeer_gaussian_beam(fwhm_deg=2.5)
+    beam = _patch_gaussian_beam(fwhm_deg=2.5)
     sky_nside = 128
     T0 = 5.0
 
     def sky_func(*, freq, nside):
         return np.full(hp.nside2npix(nside), T0)
 
-    sim = SimeerTODSim(
+    sim = PatchBeamTODSim(
         beam=beam,
         sky_func=sky_func,
         sky_nside=sky_nside,
@@ -242,22 +238,22 @@ def test_simeer_tod_sim_simulate_sky_tod_uniform():
 
 
 @pytest.mark.integration
-def test_simeer_tod_sim_generate_TOD_uniform():
-    """SimeerTODSim.generate_TOD (Full TOD with gain + noise) end-to-end.
+def test_patch_beam_tod_sim_generate_TOD_uniform():
+    """PatchBeamTODSim.generate_TOD (Full TOD with gain + noise) end-to-end.
 
     Verifies the limTOD-inherited assembly works: shape of all returned
     arrays, sky_TOD ~ T0, overall_TOD non-zero and finite.
     """
-    from limTOD.simeer import SimeerTODSim
+    from limTOD.patchbeam import PatchBeamTODSim
 
-    beam = _simeer_gaussian_beam(fwhm_deg=2.5)
+    beam = _patch_gaussian_beam(fwhm_deg=2.5)
     sky_nside = 64
     T0 = 5.0
 
     def sky_func(*, freq, nside):
         return np.full(hp.nside2npix(nside), T0)
 
-    sim = SimeerTODSim(
+    sim = PatchBeamTODSim(
         beam=beam,
         sky_func=sky_func,
         sky_nside=sky_nside,

@@ -31,21 +31,21 @@ pseudo-Stokes beam rows (efield beams are converted with pyuvdata's own
 power beams carrying XX and YY (averaged to Stokes I). One-off maps:
 `uvbeam_to_healpix_maps(uvb, freq_MHz=..., nside=...)`.
 
-## 2. As a patch beam for the `limTOD.simeer` disc path
+## 2. As a patch beam for the `limTOD.patchbeam` disc path
 
 ```python
 import numpy as np
-from limTOD.simeer import SimeerTODSim
+from limTOD.patchbeam import PatchBeamTODSim
 from limTOD.uvbeam import uvbeam_to_patch_beam
 
 patch = uvbeam_to_patch_beam(
     uvb, margin_deg=np.linspace(-6.0, 6.0, 481), polarization="HH",
 )
-sim = SimeerTODSim(beam=patch, sky_func=my_sky_func, sky_nside=256)
+sim = PatchBeamTODSim(beam=patch, sky_func=my_sky_func, sky_nside=256)
 ```
 
 This samples the UVBeam onto the `(l, m)` direction-cosine grid of
-[`MeerKLASSBeam`](simeer.md) — the right choice for narrow beams.
+[`MeerKLASSBeam`](patchbeam.md) — the right choice for narrow beams.
 
 ## Conventions (numerically locked)
 
@@ -55,7 +55,7 @@ This samples the UVBeam onto the `(l, m)` direction-cosine grid of
   counterclockwise) maps to the HEALPix beam-map azimuth as
   ``az_uvbeam = π/2 − φ_healpix``. This mapping was **locked
   numerically** — a strongly displaced test beam pushed through the
-  HEALPix path and the independent `limTOD.simeer` disc path agrees at
+  HEALPix path and the independent `limTOD.patchbeam` disc path agrees at
   0.5%, while every other candidate mapping is 66–90% off
   (`tests/test_uvbeam.py::TestOrientationLock` keeps both directions
   pinned). Hand derivations of such conventions are not trusted in this
