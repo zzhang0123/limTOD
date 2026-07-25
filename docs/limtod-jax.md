@@ -4,9 +4,10 @@
 (pointing → ZYZ Euler angles → Wigner rotation of beam alms →
 beam-weighted sum) in pure JAX: **jit/vmap/grad-safe and differentiable
 with respect to both the sky and the beam**. It was built to the port
-contract of the [e-RHINO](https://github.com/zzhang0123/e-RHINO)
-digital-twin project, whose `NativeLimTODProjector` and CG map-making run
-on top of it.
+contract of the
+[replicant-telescope](https://github.com/zzhang0123/replicant-telescope)
+digital-twin project (formerly e-RHINO; Python package `replicant`), whose
+`NativeLimTODProjector` and CG map-making run on top of it.
 
 ```bash
 pip install "limTOD[jax]"     # requires Python >= 3.11 (s2fft floor)
@@ -98,7 +99,7 @@ way: the denominator `Σ_p B_rot(p)` is `⟨R b, ones_quadrature_alm⟩`.
 **Out of scope** (deliberately): `truncate_frac_thres` (a *nonlinear*
 cleanup of synthesis ringing — the port is the linear chain; compare
 against the oracle with `truncate_frac_thres=0.0`), horizontal masks,
-full-Stokes beams, noise generation, and map-making (e-RHINO's
+full-Stokes beams, noise generation, and map-making (replicant-telescope's
 `SkySpaceFilter` covers that in JAX).
 
 ## Precision: enable x64
