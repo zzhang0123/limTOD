@@ -9,6 +9,10 @@ primary beam (±6°, tens of GB on disk) being the motivating case — where
 the classic HEALPix spherical-harmonic path would need very high nside
 to preserve precision.
 
+Release 1.4.0 briefly shipped this subpackage as `limTOD.simeer`
+(`SimeerTODSim`); those import paths still work as a deprecated alias
+and will be removed in 2.0.
+
 Merged from the standalone [Simeer](https://github.com/zzhang0123/Simeer)
 package; this subpackage is the maintained home going forward. Classic
 limTOD usage is unaffected.

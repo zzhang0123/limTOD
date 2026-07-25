@@ -7,16 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-25
+
+### Added
+
+- 🗺️ **`GLS_mapmaking`** (`limTOD.gls_mapmaking`) — a generalised-least-
+  squares map-maker ported from hydra-tod's iterative GLS
+  (Zhang et al. 2026, RASTI rzag024, §3.2), serial, no extra
+  dependencies. Weights the TOD with the inverse of the full
+  1/f + white time-time covariance (`flicker_noise_cov`, exactly the
+  matrix `sim_noise` draws limTOD's noise from) under the multiplicative
+  model of `generate_TOD`, iterating the reweighted solve; a
+  `noise_model="additive"` single-solve mode covers externally
+  calibrated data (it warns when falling back to the fractional-noise
+  parametric covariance). Same constructor as `HPW_mapmaking` (shared
+  operator construction via the new `_MapmakingBase`), same return
+  conventions, priors, and `return_full_cov`. 29 tests including an
+  independent-IRLS oracle, a forced-non-convergence uncertainty pin,
+  and an end-to-end where the GLS beats uniform weighting 4x under
+  intra-chunk red noise. The faithful single-TOD solver is exported as
+  `iterative_gls`.
+- 📚 **Sphinx documentation** (`docs/`, MyST-Markdown) with autodoc API
+  reference, deployed via ReadTheDocs (`.readthedocs.yaml`,
+  https://limtod.readthedocs.io); the `[docs]` extra now installs the
+  Sphinx toolchain.
+
+### Changed
+
+- ✏️ **Renamed `limTOD.simeer` → `limTOD.patchbeam`**
+  (`SimeerTODSim` → `PatchBeamTODSim`): the disc-restricted (l, m)
+  tangent-plane path is not MeerKAT-specific, so the subpackage now
+  carries the generic name the docs already used. The `simeer` name
+  shipped only in 1.4.0 (same day); `limTOD.simeer` remains available
+  as a deprecated alias (top-level API, old class name, and submodule
+  paths all keep working with a `DeprecationWarning`) and will be
+  removed in 2.0.
+- `HPW_mapmaking`'s operator construction and prior assembly moved into
+  the shared `_MapmakingBase` base class (behavior unchanged — the
+  oracle suite pins the outputs); the hand-written
+  `docs/api-reference.md` is superseded by the generated API pages.
+
 ## [1.4.0] - 2026-07-25
 
 ### Added
 
-- 📡 **`limTOD.patchbeam` subpackage** — the MeerKLASS-optimal sky-TOD path
+- 📡 **`limTOD.simeer` subpackage** — the MeerKLASS-optimal sky-TOD path
   (merged from the standalone Simeer package, same author/license): the
   beam stays on its native (l, m) direction-cosine grid and each pointing
   integrates only a HEALPix disc of sky pixels, avoiding the harmonic
   rotation that narrow, finely-gridded beams make expensive.
-  `PatchBeamTODSim` subclasses `TODSim` (identical noise model and
+  `SimeerTODSim` subclasses `TODSim` (identical noise model and
   `generate_TOD` API, only the sky step differs); `MeerKLASSBeam` loads
   the holographic NPZ format. 44 tests migrated, including the
   cross-validation against the classic HEALPix path. Purely additive —
@@ -28,29 +68,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `uvbeam_beam_func` satisfies `TODSim`'s `beam_func` contract
   (Stokes I or full pseudo-Stokes IQUV via pyuvdata's own conversions,
   chromatic frequency interpolation), and `uvbeam_to_patch_beam` samples
-  a UVBeam onto the patch-beam (l, m) grid. The azimuth convention
+  a UVBeam onto the simeer (l, m) grid. The azimuth convention
   (``az_uvbeam = π/2 − φ_healpix``) was locked NUMERICALLY by a
-  three-way test (HEALPix path vs patch-beam disc path on a strongly
+  three-way test (HEALPix path vs simeer disc path on a strongly
   displaced beam: winner 0.5%, all other candidate mappings 66–90% off) —
   the hand-derived mapping had a handedness error only the numerical
   lock caught. Out-of-coverage pixels zero-fill; error paths tested.
-- 🗺️ **`GLS_mapmaking`** (`limTOD.gls_mapmaking`) — a generalised-least-
-  squares map-maker ported from hydra-tod's iterative GLS
-  (Zhang et al. 2026, RASTI rzag024, §3.2), serial, no extra
-  dependencies. Weights the TOD with the inverse of the full
-  1/f + white time-time covariance (`flicker_noise_cov`, exactly the
-  matrix `sim_noise` draws limTOD's noise from) under the multiplicative
-  model of `generate_TOD`, iterating the reweighted solve; a
-  `noise_model="additive"` single-solve mode covers externally
-  calibrated data. Same constructor as `HPW_mapmaking` (shared operator
-  construction via the new `_MapmakingBase`), same return conventions,
-  priors, and `return_full_cov`. 26 tests including an independent-IRLS
-  oracle and an end-to-end where the GLS beats uniform weighting 4x
-  under intra-chunk red noise. The faithful single-TOD solver is
-  exported as `iterative_gls`.
-- 📚 **Sphinx documentation** (`docs/`, MyST-Markdown) with autodoc API
-  reference, ready for ReadTheDocs (`.readthedocs.yaml`); the `[docs]`
-  extra now installs the Sphinx toolchain.
 
 ### Changed
 
@@ -58,10 +81,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [replicant-telescope](https://github.com/zzhang0123/replicant-telescope)
   (Python package `replicant`); references updated. Historical changelog
   entries keep the old name.
-- `HPW_mapmaking`'s operator construction and prior assembly moved into
-  the shared `_MapmakingBase` base class (behavior unchanged — the
-  oracle suite pins the outputs); the hand-written
-  `docs/api-reference.md` is superseded by the generated API pages.
 
 ## [1.3.0] - 2026-07-25
 
