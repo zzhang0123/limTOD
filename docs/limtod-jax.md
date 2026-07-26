@@ -118,6 +118,16 @@ So for any quantitative work:
 jax.config.update("jax_enable_x64", True)
 ```
 
+## Drift scans: skip the per-sample rotation
+
+For a genuine drift scan (fixed az/el/selfrot, only LST advancing) the
+per-sample Wigner rotation is unnecessary: the m-mode path
+([drift scans in harmonic space](driftscan.md)) reproduces
+`generate_tod_sky` to roundoff with **one** rotation total plus per-m
+phases — $O(\ell_\mathrm{max}^3 + n_t\,\ell_\mathrm{max})$ instead of
+$O(n_t\,\ell_\mathrm{max}^3)$ — and exposes the m-modes and a horizon
+mask along the way.
+
 ## Performance notes
 
 - `generate_tod_sky` iterates pointings sequentially (`lax.map`): the

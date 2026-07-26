@@ -37,3 +37,10 @@ defining module. Requires the `[jax]` extra.
 .. automodule:: limtod_jax.projection
    :members:
 ```
+
+## Drift-scan m-modes
+
+```{eval-rst}
+.. automodule:: limtod_jax.driftscan
+   :members:
+```

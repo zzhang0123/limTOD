@@ -40,6 +40,7 @@ mapmaking
 patchbeam
 uvbeam
 limtod-jax
+driftscan
 ```
 
 ```{toctree}

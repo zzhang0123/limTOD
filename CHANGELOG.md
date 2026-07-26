@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- 🌀 **Drift-scan m-mode path** (`limtod_jax.driftscan`, pure JAX +
+  equinox): the drift-scan special case of the sky→TOD simulator in
+  harmonic space, following the m-mode formalism of the MmodeNote
+  (MT interpretation, fringe ≡ 1). One Wigner rotation for the whole
+  scan (`beam_alm_at_reference`) plus per-m phases replaces the generic
+  per-sample rotation — O(lmax³ + n_time·lmax) vs O(n_time·lmax³) —
+  and agrees with `generate_tod_sky` (and numpy limTOD) to float64
+  roundoff, `normalize` branch included. Public API: `DriftScanMmode`
+  (an `equinox.Module` operator with `__call__`/`mmodes`/`adjoint`),
+  `mmodes_from_sky`, `tod_from_mmodes`, `mmodes_from_tod`,
+  `driftscan_tod`, `driftscan_tod_adjoint` (exact transpose,
+  O(n_time·lmax)). Phase-sign conventions locked numerically, never on
+  paper. `equinox>=0.13` joins the `[jax]`/`[full]` extras.
+- 🌄 **Horizon mask for drift-scan beams** (`horizon_masked_beam_alm`,
+  `horizon_weights`): the physical below-ground cut applied in the
+  horizontal frame (where the horizon is the pure-colatitude circle
+  θ = 90°), with optional cosine apodization; the masked beam returns
+  in the beam-local frame so it drops into either TOD path.
+  `limtod_jax.hpx.map2alm_iter` added (healpy-equivalent iterative
+  analysis inside JAX). Off by default — numpy limTOD does not mask.
+- 📊 **Ringing study** (`docs/driftscan_ringing_study.py`, results in
+  `docs/driftscan.md`): narrow beams don't need the mask (~1e-6 TOD
+  effect); wide low-elevation beams do (~30%), where a hard cut leaves
+  a ~0.5% TOD error that plateaus with lmax (analysis aliasing) and a
+  2–5° apodization recovers 1–2 orders of magnitude. Pinned as a
+  regression test.
+
+### Documentation
+
+- New user-guide page `docs/driftscan.md` (formalism, usage, mask
+  guidance, generic-vs-m-mode decision table); `limtod_jax.driftscan`
+  section on the API page.
+
 ## [1.5.3] - 2026-07-25
 
 ### Documentation
