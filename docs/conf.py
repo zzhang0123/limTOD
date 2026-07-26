@@ -17,7 +17,7 @@ try:
 
     release = _dist_version("limTOD")
 except Exception:  # pragma: no cover - bare checkout
-    release = "1.5.3"
+    release = "1.6.0"
 version = ".".join(release.split(".")[:2])
 
 extensions = [
