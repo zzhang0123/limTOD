@@ -85,6 +85,99 @@ class TestFullStokesInvariants:
         out = _tod(beam, sky, nside_hires=2 * NSIDE)
         assert np.all(np.isfinite(out)) and out.shape == (4,)
 
+    @staticmethod
+    def _qu_axis_rotation(m: np.ndarray, two_delta: float) -> np.ndarray:
+        """Re-express (Q,U) about a reference axis rotated by delta."""
+        out = m.copy()
+        c, s = np.cos(two_delta), np.sin(two_delta)
+        out[1] = c * m[1] - s * m[2]
+        out[2] = s * m[1] + c * m[2]
+        return out
+
+    @pytest.mark.parametrize("delta_deg", [31.0, -17.0])
+    def test_qu_reference_axis_is_free(self, rng, delta_deg):
+        """docs/theory.md: the (Q,U) reference AXIS is a free choice — any
+        rotation of it, applied consistently to beam and sky, leaves the TOD
+        unchanged. It works because (Q,U) transport is itself a rotation in
+        the (Q,U) plane, and rotations commute."""
+        beam, sky = rng.random((4, NPIX)), rng.random((4, NPIX))
+        two_delta = np.deg2rad(2.0 * delta_deg)
+        rotated = _tod(
+            self._qu_axis_rotation(beam, two_delta),
+            self._qu_axis_rotation(sky, two_delta),
+        )
+        np.testing.assert_allclose(rotated, _tod(beam, sky), rtol=1e-12)
+
+    def test_v_sign_convention_is_free(self, rng):
+        """V is spin-0, so IEEE-vs-IAU circular handedness cannot matter as
+        long as beam and sky agree (exactly invariant, not just to rtol)."""
+        beam, sky = rng.random((4, NPIX)), rng.random((4, NPIX))
+        fb, fs = beam.copy(), sky.copy()
+        fb[3] *= -1.0
+        fs[3] *= -1.0
+        np.testing.assert_allclose(_tod(fb, fs), _tod(beam, sky), rtol=1e-12)
+        # ...and V must actually contribute, or the statement is vacuous
+        fb_only = beam.copy()
+        fb_only[3] *= -1.0
+        base = _tod(beam, sky)
+        assert np.max(np.abs(_tod(fb_only, sky) - base)) > 1e-6 * np.max(np.abs(base))
+
+    @pytest.mark.parametrize("row, name", [(1, "Q"), (2, "U")])
+    def test_qu_handedness_is_NOT_free(self, rng, row, name):
+        """The one polarization convention that is NOT protected, and the
+        reason the docs carry a caller contract: a REFLECTION of (Q,U) does
+        not commute with the transport rotation (F R F = R^-1), so beam and
+        sky built with opposite U-sign (IAU vs CMB) handedness give a wrong
+        TOD even though each is internally consistent.
+
+        Pinned as a POSITIVE assertion — if a future refactor made this
+        invariant, the polarization would have stopped being transported."""
+        beam, sky = rng.random((4, NPIX)), rng.random((4, NPIX))
+        fb, fs = beam.copy(), sky.copy()
+        fb[row] *= -1.0
+        fs[row] *= -1.0
+        base = _tod(beam, sky)
+        rel = np.max(np.abs(_tod(fb, fs) - base)) / np.max(np.abs(base))
+        assert rel > 1e-3, (
+            f"{name} reflection came out harmless (rel {rel:.2e}) — (Q,U) "
+            f"transport has degenerated to something that commutes with a "
+            f"reflection, i.e. the position angle is no longer carried"
+        )
+
+    def test_polarization_position_angle_co_rotates(self):
+        """Spin-2 transport, the other half of the same docs claim: Q/U are
+        carried through map2alm -> rotate -> alm2map as (T,E,B), and E/B
+        rotate as scalars without mixing, so synthesis returns Q/U in the
+        correctly ROTATED local basis. A regression to spin-0 handling (e.g.
+        pol=False slipping into the transform) freezes the position angle
+        while still moving the pattern, and is excluded here by two orders
+        of magnitude."""
+        from limTOD.simulator import _rotate_healpix_map
+
+        nside, lmax = 64, 128
+        theta, phi = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
+        # a RING in theta, so the phi structure survives the rotation
+        ring = np.exp(-((theta - np.deg2rad(20.0)) ** 2) / (2 * np.deg2rad(6.0) ** 2))
+        iqu = np.vstack([ring, 0.5 * ring * np.cos(2 * phi), 0.5 * ring * np.sin(2 * phi)])
+        alm = np.array(hp.map2alm(iqu, lmax=lmax))
+
+        gamma = np.deg2rad(37.0)
+        rot = _rotate_healpix_map(alm, gamma, 0.0, 0.0, nside)
+
+        peak = ring.max()
+        # correct: the whole pattern, position angle included, at phi - gamma
+        good = np.vstack([ring, 0.5 * ring * np.cos(2 * (phi - gamma)),
+                          0.5 * ring * np.sin(2 * (phi - gamma))])
+        # the spin-0 mistake: pattern rotated, polarization angle frozen
+        frozen = np.vstack([ring, 0.5 * ring * np.cos(2 * phi),
+                            0.5 * ring * np.sin(2 * phi)])
+        err_good = np.max(np.abs(rot[1:3] - good[1:3])) / peak
+        err_frozen = np.max(np.abs(rot[1:3] - frozen[1:3])) / peak
+        assert err_good < 2e-2, f"position angle did not co-rotate: {err_good:.2e}"
+        assert err_frozen > 10 * err_good, (
+            f"spin-0 handling not excluded: {err_frozen:.2e} vs {err_good:.2e}"
+        )
+
     def test_pin_values(self, rng):
         """Fixed-seed regression pins for the 3-row chain (guards future
         refactors; values recorded from v1.3.0)."""

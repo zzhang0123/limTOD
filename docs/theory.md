@@ -273,6 +273,47 @@ rather than compass or left/right words.
   work (and why the orientation went unstated for so long: symmetric
   cross-checks cannot detect it).
 
+### Polarization: the basis follows, the handedness does not
+
+Stokes $Q, U$ live in the **same tangent basis** as everything above
+($\varphi = 0 \to \hat e_{\mathrm{el}}$), so fixing the beam convention
+fixes the polarization basis — there is no separate frame to declare. The
+transport is automatic too: a 3- or 4-row beam goes `map2alm` → rotate →
+`alm2map`, and `map2alm` decomposes $(I,Q,U)$ into $(T,E,B)$; under a
+rotation of the sphere $E$ and $B$ transform as ordinary scalar
+$a_{\ell m}$ and do not mix, so synthesis returns $Q, U$ in the correctly
+rotated local basis. Verified — the polarization position angle co-rotates
+with the pattern, and the `spin-0` mistake (a frozen position angle) is
+excluded by two orders of magnitude.
+
+What is *not* automatic is one sign. Because the beam is rotated between
+the caller's choice of convention and the dot product, a convention change
+is harmless only if it **commutes with the transport** — and $(Q,U)$
+transport is itself a rotation in the $(Q,U)$ plane. Measured, with the
+change applied to the beam **and** the sky together:
+
+| convention change | effect on the TOD | |
+|---|---|---|
+| **rotation** of the $(Q,U)$ reference axis | $1.7\times10^{-16}$ | harmless — rotations commute |
+| $U \to -U$ (IAU vs CMB **handedness**) | $4.3\times10^{-2}$ | **matters** — a reflection does not |
+| $V \to -V$ (IEEE vs IAU circular) | $0$ | harmless — $V$ is spin-0 |
+
+So the reference *axis* is free (any choice, consistently applied, gives
+the same answer) but the **handedness of $(Q,U)$ is not**: reflection and
+rotation do not commute ($F R F = R^{-1}$), so a beam and a sky built with
+opposite $U$-sign conventions reverse the sense in which the position angle
+is carried, and the TOD is simply wrong — by $O(\text{polarized fraction})$,
+and invisible to every Stokes-$I$ check. $V$'s sign convention, by
+contrast, genuinely does not matter.
+
+**Caller contract:** the beam's $Q, U$ and the sky's must share a
+handedness. This only bites when mixing provenances — a `pyuvdata` beam
+against an externally generated sky model, say — which is the same class of
+problem as the UVBeam azimuth adapter below, and wants the same treatment:
+lock the relative sign numerically at the boundary. Every number above is
+pinned in
+[`tests/test_stokes_and_boundaries.py`](https://github.com/zzhang0123/limTOD/blob/main/tests/test_stokes_and_boundaries.py).
+
 The patch-beam path uses the same tangent basis: its direction cosines
 are the SIN-projected components $(l, m)$ along
 $(\hat e_{\mathrm{az}}, \hat e_{\mathrm{el}})$ — see

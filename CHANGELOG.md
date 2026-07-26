@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- 🧲 **Polarization: the basis follows from the beam convention, the
+  handedness does not** (`docs/theory.md`, new subsection). Q/U live in
+  the same tangent basis as everything else, so there is no separate frame
+  to declare, and the transport is automatic — `map2alm` decomposes
+  (I,Q,U) into (T,E,B), E/B rotate as scalar alms without mixing, and
+  synthesis returns Q/U in the correctly rotated local basis (the position
+  angle co-rotates; the spin-0 mistake is excluded by two orders of
+  magnitude).
+
+  But a convention change is harmless only if it COMMUTES with that
+  transport, and (Q,U) transport is a rotation in the (Q,U) plane.
+  Measured, applied to beam and sky together: a **rotation** of the
+  reference axis is harmless (1.7e-16) and V's sign is harmless (exactly
+  0, V is spin-0) — while **U → −U handedness (IAU vs CMB) is not**
+  (4.3e-2), because a reflection anticommutes with the rotation
+  (F R F = R⁻¹). So beam and sky must share a handedness; the error is
+  O(polarized fraction) and invisible to every Stokes-I check. Stated as
+  a caller contract, in the same class as the UVBeam azimuth adapter.
+
+### Documentation
+
 - 🧭 **The North-Pole-zenith reading of the identity now states its mount
   azimuth** (`docs/theory.md`): it is `A = 0°`, **not** `A = 180°`, and
   more generally `A = Θ_LST + ψ` (at `lat = 90°, e = 90°` the chain
@@ -42,6 +63,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tests
 
+- Polarization-convention pins (`tests/test_stokes_and_boundaries.py`):
+  the (Q,U) reference axis is free (rotation invariance at two angles),
+  V's sign is free, and — asserted **positively** — a Q or U reflection
+  is NOT free. That last one is the load-bearing test: if a refactor ever
+  made it invariant, (Q,U) would have stopped being transported at all.
+  Each invariance test also checks the row actually contributes, so it
+  cannot pass vacuously.
 - Two North-Pole-zenith pins in `tests/test_beam_orientation.py`: the
   identity holds at `A = 0°` and demonstrably fails at 90/180/270°, and
   the general rule `A = Θ_LST + ψ` holds across four (LST, selfrot)
