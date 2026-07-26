@@ -15,12 +15,17 @@ paper, per the port contract). The TOD then reduces to a Fourier series in Δ:
     ``V(Δ) = Ṽ_0 + 2·Re Σ_{m≥1} Ṽ_m·exp(+i·m·Δ)``,
     ``Ṽ_m = Σ_l conj(B_lm(lst_ref)) · S̃_lm``
 
-— eqns (13)–(15) of Z. Zhang, *M-mode RIME explicit in beam, fringe and sky
-modes* (Jan 2024, https://zh-zhang.com/myNotes/MmodeNote.pdf), in the "MT
-interpretation" with the fringe ≡ 1 (single-dish autocorrelation): the
-modulated beam IS the primary beam. The ``Ṽ_m`` are the **m-modes** — the
-Fourier coefficients of the sidereal-day-periodic TOD — and the projection
-sky → m-modes is a single per-(l,m) product with the reference-frame beam.
+m-mode analysis is the standard harmonic treatment of drift-scan (transit)
+observations; the conventions and equation numbering here follow *M-mode RIME
+explicit in beam, fringe and sky modes* (Jan 2024,
+https://zh-zhang.com/myNotes/MmodeNote.pdf) — the expressions above are its
+eqns (13)–(15) — specialized to that note's "MT interpretation" with the
+fringe ≡ 1 (single-dish autocorrelation): the modulated beam IS the primary
+beam.
+
+The ``Ṽ_m`` are the **m-modes** — the Fourier coefficients of the
+sidereal-day-periodic TOD — and the projection sky → m-modes is a single
+per-(l,m) product with the reference-frame beam.
 
 Cost: ONE Wigner rotation total (O(lmax³)) plus an O(n_time·lmax) phase
 synthesis, against O(n_time·lmax³) for the generic path; equality to the

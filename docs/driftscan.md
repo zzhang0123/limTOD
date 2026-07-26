@@ -14,11 +14,16 @@ pipelines.
 
 ## Formalism
 
-The implementation follows the m-mode formalism of Z. Zhang, *M-mode RIME
-explicit in beam, fringe and sky modes* (Jan 2024,
-[MmodeNote.pdf](https://zh-zhang.com/myNotes/MmodeNote.pdf)), in the "MT
-interpretation" with the fringe term $\equiv 1$: for a single-dish
-autocorrelation the modulated beam **is** the primary beam.
+m-mode analysis is the standard harmonic treatment of drift-scan (transit)
+observations: the scan repeats every sidereal day, so the time-ordered data
+is a Fourier series in LST whose coefficients — the m-modes — are what the
+sky couples to.
+
+The conventions and equation numbering used on this page follow *M-mode RIME
+explicit in beam, fringe and sky modes*
+([reference note](https://zh-zhang.com/myNotes/MmodeNote.pdf), Jan 2024),
+specialized to its "MT interpretation" with the fringe term $\equiv 1$: for
+a single-dish autocorrelation the modulated beam **is** the primary beam.
 
 Earth rotation is a rotation about the celestial pole, so the
 celestial-frame beam coefficients at any LST differ from those at a

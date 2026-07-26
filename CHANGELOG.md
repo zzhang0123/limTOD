@@ -86,8 +86,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 🌀 **Drift-scan m-mode path** (`limtod_jax.driftscan`, pure JAX +
   equinox): the drift-scan special case of the sky→TOD simulator in
-  harmonic space, following the m-mode formalism of the MmodeNote
-  (MT interpretation, fringe ≡ 1). One Wigner rotation for the whole
+  harmonic space, following the standard m-mode formalism in the
+  conventions of the reference note (MT interpretation, fringe ≡ 1).
+  One Wigner rotation for the whole
   scan (`beam_alm_at_reference`) plus per-m phases replaces the generic
   per-sample rotation — O(lmax³ + n_time·lmax) vs O(n_time·lmax³) —
   and agrees with `generate_tod_sky` (and numpy limTOD) to float64
