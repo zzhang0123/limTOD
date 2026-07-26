@@ -109,3 +109,46 @@ def test_jit_and_dtype():
     out2 = f(20.0, 53.24, 12.0, 41.0, 0.0)  # same shapes, no retrace error
     assert all(o.dtype == jnp.float64 for o in out1)
     assert [float(x) for x in out1] != [float(x) for x in out2]
+
+
+def test_ncp_pointing_takes_theta0_gimbal_branch():
+    """az=0, el=lat points the boresight at the NCP: the net rotation is a
+    PURE z-rotation, so the theta~0 gimbal branch is taken. The old corner
+    grid never produced this case (it needs the el=lat pairing), which let
+    an injected sign flip in that branch survive the whole suite
+    (review-confirmed). Matrix-level scipy comparison, several selfrots."""
+    for lat in (53.24, -30.7):
+        for lst in (0.0, 100.0):
+            for sr in (0.0, 30.0):
+                ours = zyz_of_pointing(lst, lat, 0.0, lat, sr)
+                assert float(ours[1]) < 1e-7  # really the gimbal branch
+                ref = sim.zyz_of_pointing(lst, lat, 0.0, lat, sr)
+                np.testing.assert_allclose(
+                    _matrix_of_zyz(*ours), _matrix_of_zyz(*ref), atol=1e-12
+                )
+
+
+def test_gimbal_threshold_boundary():
+    """Boundary-validation methodology: bypass the dispatcher and check the
+    zyz extraction reconstructs the input matrix on BOTH sides of the
+    sin(theta) ~ _GIMBAL_TOL dispatch threshold, for theta near 0 AND near
+    pi, with a nonzero z-rotation to give a sign error something to break."""
+    from limtod_jax.angles import _GIMBAL_TOL, _zyz_from_matrix
+
+    z_angle = 1.3439  # rad; arbitrary nonzero phi+psi
+    for base in (0.0, np.pi):
+        for factor in (0.3, 0.999, 1.001, 3.0, 1e6):
+            theta = _GIMBAL_TOL * factor
+            th = base + theta if base == 0.0 else base - theta
+            r_in = _matrix_of_zyz(0.4321, th, z_angle - 0.4321)
+            psi, th_out, phi = _zyz_from_matrix(jnp.asarray(r_in))
+            # Below theta ~ sqrt(eps) ~ 1.5e-8 the tilt is unrecoverable from
+            # r22 = cos(theta) (rounds to 1.0), so reconstruction error ~theta
+            # is intrinsic; the bug class this guards (branch sign flips) is
+            # O(1), eight orders above the loosest tolerance used here.
+            np.testing.assert_allclose(
+                _matrix_of_zyz(float(psi), float(th_out), float(phi)),
+                r_in,
+                atol=max(1e-12, 3.0 * theta),
+                err_msg=f"base={base} factor={factor}",
+            )
