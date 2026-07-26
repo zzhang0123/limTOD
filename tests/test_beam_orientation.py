@@ -131,6 +131,45 @@ class TestBeamOrientation:
         expected = np.cos(THETA0) * ZENITH + np.sin(THETA0) * t_hat
         assert _sep_deg(got, expected) < TOL_DEG
 
+    # The identity has a second, more intuitive reading: an antenna at the
+    # terrestrial North Pole looking at its zenith. At el=90 the boresight is
+    # the zenith whatever the azimuth, so azimuth only ROLLS the beam about
+    # the boresight — and the roll that leaves the map alone is A=0, NOT the
+    # A=180 that "phi=0 points south" tempts one to answer.
+    @pytest.mark.parametrize("az,is_identity", [(0.0, True), (90.0, False),
+                                               (180.0, False), (270.0, False)])
+    def test_north_pole_zenith_identity_is_azimuth_zero(self, az, is_identity):
+        alm = hp.map2alm(_blob_map(35.0), lmax=LMAX)
+        unrotated = hp.alm2map(alm, NSIDE)
+        rotated = pointing_beam_in_eq_sys(
+            alm, LST_deg=0.0, lat_deg=90.0, azimuth_deg=az, elevation_deg=90.0,
+            selfrot_deg=0.0, nside=NSIDE, normalize=False,
+            # the default 1e-10 truncation is a nonlinear cleanup applied to the
+            # ROTATED map only; comparing maps (not argmax) needs it off
+            truncate_frac_thres=0.0,
+        )
+        rel = float(np.max(np.abs(rotated - unrotated)) / unrotated.max())
+        if is_identity:
+            assert rel < 1e-6, f"azimuth {az} should be the identity, rel {rel:.2e}"
+        else:
+            assert rel > 1e-2, f"azimuth {az} must NOT be the identity, rel {rel:.2e}"
+
+    @pytest.mark.parametrize("lst,selfrot", [(0.0, 0.0), (30.0, 0.0),
+                                             (0.0, 25.0), (137.5, -40.0)])
+    def test_north_pole_zenith_identity_general_rule(self, lst, selfrot):
+        """At lat=90, el=90 the chain collapses to Rz(selfrot - A + LST), so
+        the identity is the one-parameter family A = LST + selfrot — not a
+        coincidence of LST = 0."""
+        alm = hp.map2alm(_blob_map(35.0), lmax=LMAX)
+        unrotated = hp.alm2map(alm, NSIDE)
+        rotated = pointing_beam_in_eq_sys(
+            alm, LST_deg=lst, lat_deg=90.0, azimuth_deg=(lst + selfrot) % 360.0,
+            elevation_deg=90.0, selfrot_deg=selfrot, nside=NSIDE, normalize=False,
+            truncate_frac_thres=0.0,
+        )
+        rel = float(np.max(np.abs(rotated - unrotated)) / unrotated.max())
+        assert rel < 1e-6, f"LST={lst}, selfrot={selfrot}: rel {rel:.2e}"
+
     def test_mirror_convention_rejected(self):
         """phi = 90 landing along -e_az (the mirrored convention) must be
         far off — this is the case a symmetric beam can never detect."""

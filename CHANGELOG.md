@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- 🧭 **The North-Pole-zenith reading of the identity now states its mount
+  azimuth** (`docs/theory.md`): it is `A = 0°`, **not** `A = 180°`, and
+  more generally `A = Θ_LST + ψ` (at `lat = 90°, e = 90°` the chain
+  collapses to `Rz(ψ − A + Θ_LST)`). The docs described this
+  configuration — "an antenna at the terrestrial North Pole pointing at
+  its zenith" — without ever giving the azimuth, which is exactly the
+  gap that makes the question ambiguous: at `e = 90°` the boresight is
+  the zenith whatever `A` is, so azimuth only *rolls* the beam about the
+  boresight. The tempting wrong answer 180° comes from conflating the
+  mount azimuth with the compass direction the `φ = 0` axis lands on
+  (the south point, at `A = 0°`). Multiplying a beam map by a sky map
+  with no rotation is the `A = 0°` configuration; `A = 180°` would
+  rotate the beam by 180° in `φ`.
+
+### Tests
+
+- Two North-Pole-zenith pins in `tests/test_beam_orientation.py`: the
+  identity holds at `A = 0°` and demonstrably fails at 90/180/270°, and
+  the general rule `A = Θ_LST + ψ` holds across four (LST, selfrot)
+  combinations. Map-level comparisons, with the default `1e-10`
+  truncation disabled — it is a nonlinear cleanup applied to the rotated
+  map only, so it breaks a map-vs-map identity check that `argmax`-based
+  pins never notice.
+
 ## [1.7.0] - 2026-07-26
 
 ### Added

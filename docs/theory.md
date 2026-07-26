@@ -168,7 +168,24 @@ rather than compass or left/right words.
   an antenna at the terrestrial North Pole pointing at its zenith
   (the NCP), with the beam's $\varphi = 0$ axis along the
   $\Theta_{\rm LST} = 0$ meridian toward decreasing declination and
-  $\varphi = 90°$ along RA $= 90°$.
+  $\varphi = 90°$ along RA $= 90°$. That second reading is
+  `lat = 90°, e = 90°`, and its mount azimuth is
+  $A = 0°$ — **not** $A = 180°$; more generally the identity there is
+  the one-parameter family $A = \Theta_{\rm LST} + \psi$, since at
+  `lat = 90°, e = 90°` the whole chain collapses to
+  $R_z(\psi - A + \Theta_{\rm LST})$.
+
+  Why the azimuth is easy to get wrong here: at $e = 90°$ the boresight
+  is the zenith **whatever** $A$ is, so azimuth no longer selects a
+  pointing direction — it only *rolls* the beam about the boresight, and
+  the identity is the zero roll. The tempting wrong answer, $A = 180°$,
+  comes from conflating that mount azimuth with the compass direction the
+  $\varphi = 0$ axis lands on: at $A = 0°$ the $\varphi = 0$ axis points
+  toward the **south** point (see the parked configuration below), and
+  "south is azimuth 180°" then invites the substitution. Multiplying a
+  beam map by a sky map with no rotation at all *is* this configuration
+  ($A = 0°$); $A = 180°$ would rotate the beam by 180° in $\varphi$.
+  Both statements are pinned in `tests/test_beam_orientation.py`.
 - **Zenith pointing** ($e = 90°$, reached with mount azimuth $A$): the
   formulas remain valid and unambiguous —
   $\hat e_{\mathrm{az}} = \cos A\, \hat E - \sin A\, \hat N$ (unchanged)
