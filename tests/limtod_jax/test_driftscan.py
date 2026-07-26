@@ -29,6 +29,7 @@ from limtod_jax.core import generate_tod_sky, generate_tod_sky_adjoint, rotate_a
 from limtod_jax.driftscan import (
     DriftScanMmode,
     beam_alm_at_reference,
+    dl_plane_for_pointing,
     driftscan_tod,
     driftscan_tod_adjoint,
     horizon_masked_beam_alm,
@@ -870,3 +871,156 @@ def test_validation_errors(fields):
         )
     with pytest.raises(ValueError, match="ones_alm"):
         DriftScanMmode(beam_ref_alm=beam_ref, dphi=_dphi(), lmax=LMAX, normalize=True)
+
+
+# ---------------------------------------------------------------- dl hoisting
+def test_dl_plane_is_lst_independent_and_bit_exact(fields):
+    """The precomputed Wigner-d plane must reproduce the rotation EXACTLY.
+
+    The plane is built from the pointing alone. That is only legitimate
+    because LST enters the zyz composition in the first-applied slot and so
+    shifts psi, never the polar angle the plane is a function of — so one
+    plane has to serve every LST, bit for bit. Anything less than bitwise
+    would mean the hoist is an approximation, and it is not.
+    """
+    beam_alm = fields[0]
+    dl = dl_plane_for_pointing(LAT, AZ, EL, SELFROT, lmax=LMAX)
+    assert dl.shape == (LMAX + 1, 2 * LMAX + 1, 2 * LMAX + 1)
+    for lst in LSTS:
+        recomputed = beam_alm_at_reference(
+            beam_alm, lst, LAT, AZ, EL, SELFROT, lmax=LMAX
+        )
+        hoisted = beam_alm_at_reference(
+            beam_alm, lst, LAT, AZ, EL, SELFROT, lmax=LMAX, dl_array=dl
+        )
+        assert jnp.array_equal(recomputed, hoisted), f"lst={lst} not bit-exact"
+
+
+def test_dl_plane_dtype_follows_the_angles(fields):
+    """float32 angles give a float32 plane — the caller's choice must win.
+
+    It used to be floored at the session default (float64 under x64), which
+    silently doubled the largest array in the rotation. The Risbo recursion
+    is float32-stable, so the halved plane still agrees to f32 roundoff.
+    """
+    beam_alm = fields[0]
+    dl64 = dl_plane_for_pointing(LAT, AZ, EL, SELFROT, lmax=LMAX)
+    dl32 = dl_plane_for_pointing(
+        np.float32(LAT), np.float32(AZ), np.float32(EL), np.float32(SELFROT),
+        lmax=LMAX,
+    )
+    assert dl32.dtype == jnp.float32
+    assert dl32.nbytes * 2 == dl64.nbytes if dl64.dtype == jnp.float64 else True
+
+    ref = beam_alm_at_reference(beam_alm, 137.5, LAT, AZ, EL, SELFROT, lmax=LMAX)
+    got = beam_alm_at_reference(
+        beam_alm, 137.5, LAT, AZ, EL, SELFROT, lmax=LMAX, dl_array=dl32
+    )
+    rel = float(jnp.max(jnp.abs(got - ref)) / jnp.max(jnp.abs(ref)))
+    assert rel < 1e-4, f"float32 plane drifted by {rel:.2e}"
+
+
+def test_dl_plane_is_differentiable_and_jittable(fields):
+    """Hoisting must not cost the gradient w.r.t. the beam — the whole point
+    is to speed up the case where the BEAM is the fitted parameter."""
+    beam_alm = fields[0]
+    dl = dl_plane_for_pointing(LAT, AZ, EL, SELFROT, lmax=LMAX)
+
+    @jax.jit
+    def loss(alm):
+        out = beam_alm_at_reference(
+            alm, 137.5, LAT, AZ, EL, SELFROT, lmax=LMAX, dl_array=dl
+        )
+        return jnp.sum(jnp.abs(out) ** 2)
+
+    grad = jax.grad(loss)(beam_alm)
+    assert grad.shape == beam_alm.shape
+    assert bool(jnp.all(jnp.isfinite(jnp.abs(grad)))) and bool(jnp.any(grad != 0))
+
+
+# --------------------------------------------- phase-matrix / scan crossover
+@pytest.mark.parametrize("n_time", [64, 257])
+def test_phase_matrix_and_scan_branches_agree(rng, n_time):
+    """The size threshold must be a pure time/memory trade, never a numeric one.
+
+    Both branches of tod_from_mmodes and _zeta are exercised at the same size
+    by moving the threshold, so any divergence is the implementations
+    disagreeing rather than the problem changing underneath them.
+    """
+    from limtod_jax import driftscan as ds
+
+    mm = jnp.asarray(rng.standard_normal(LMAX + 1) + 1j * rng.standard_normal(LMAX + 1))
+    dphi = jnp.asarray(np.linspace(0.0, 2 * np.pi, n_time, endpoint=False))
+    tod = jnp.asarray(rng.standard_normal(n_time))
+
+    def under(threshold, fn, *args):
+        old = ds._PHASE_MATRIX_MAX
+        ds._PHASE_MATRIX_MAX = threshold
+        try:
+            return fn(*args)
+        finally:
+            ds._PHASE_MATRIX_MAX = old
+
+    matmul = under(10**9, ds.tod_from_mmodes, mm, dphi)
+    scan = under(0, ds.tod_from_mmodes, mm, dphi)
+    assert jnp.allclose(matmul, scan, rtol=1e-12, atol=1e-12)
+
+    z_matmul = under(10**9, ds._zeta, tod, dphi, LMAX)
+    z_map = under(0, ds._zeta, tod, dphi, LMAX)
+    assert jnp.allclose(z_matmul, z_map, rtol=1e-12, atol=1e-12)
+
+
+def test_phase_matrix_branch_keeps_the_gradient(rng):
+    """Reverse-mode must survive the branch: the fast path is for inference."""
+    from limtod_jax import driftscan as ds
+
+    n_time = 128
+    dphi = jnp.asarray(np.linspace(0.0, 2 * np.pi, n_time, endpoint=False))
+    re = jnp.asarray(rng.standard_normal(LMAX + 1))
+    im = jnp.asarray(rng.standard_normal(LMAX + 1))
+
+    def loss(r, i):
+        return jnp.sum(ds.tod_from_mmodes(r + 1j * i, dphi) ** 2)
+
+    def under(threshold):
+        old = ds._PHASE_MATRIX_MAX
+        ds._PHASE_MATRIX_MAX = threshold
+        try:
+            return jax.grad(loss, argnums=(0, 1))(re, im)
+        finally:
+            ds._PHASE_MATRIX_MAX = old
+
+    g_matmul, g_scan = under(10**9), under(0)
+    for a, b in zip(g_matmul, g_scan):
+        assert bool(jnp.all(jnp.isfinite(a)))
+        assert jnp.allclose(a, b, rtol=1e-10, atol=1e-10)
+
+
+def test_adjoint_dot_identity_holds_in_both_branches(rng):
+    """<A x, y> == <x, A^T y> must hold whichever branch each side takes —
+    the property map-making depends on, and the reason forward and adjoint
+    switch on the SAME condition."""
+    from limtod_jax import driftscan as ds
+
+    n_time = 96
+    dphi = jnp.asarray(np.linspace(0.0, 2 * np.pi, n_time, endpoint=False))
+    mm = jnp.asarray(rng.standard_normal(LMAX + 1) + 1j * rng.standard_normal(LMAX + 1))
+    y = jnp.asarray(rng.standard_normal(n_time))
+
+    for threshold in (10**9, 0):
+        old = ds._PHASE_MATRIX_MAX
+        ds._PHASE_MATRIX_MAX = threshold
+        try:
+            lhs = jnp.sum(ds.tod_from_mmodes(mm, dphi) * y)
+            zeta = ds._zeta(y, dphi, LMAX)
+            weights = jnp.where(jnp.arange(LMAX + 1) > 0, 2.0, 1.0)
+            # zeta_m = Σ_t y_t cos(mΔ) − i·Σ_t y_t sin(mΔ), so Im(zeta) already
+            # carries the minus sign the forward synthesis applies to Im(V_m):
+            # the two cancel and the pairing is a plain sum.
+            rhs = jnp.sum(
+                weights
+                * (jnp.real(mm) * jnp.real(zeta) + jnp.imag(mm) * jnp.imag(zeta))
+            )
+            assert jnp.allclose(lhs, rhs, rtol=1e-10), f"threshold={threshold}"
+        finally:
+            ds._PHASE_MATRIX_MAX = old

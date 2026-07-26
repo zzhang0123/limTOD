@@ -66,6 +66,16 @@ from limtod_jax.alm import nalm_of_lmax, packed_lm_arrays
 from limtod_jax.angles import zyz_of_pointing, zyzyz2zyz
 from limtod_jax.core import rotate_alm
 from limtod_jax.hpx import alm2map, map2alm_iter, ones_quadrature_alm
+from limtod_jax.wigner import generate_rotate_dls
+
+# Above how many (lmax+1)*n_time phase-matrix entries the non-uniform
+# synthesis and its adjoint stop materializing the matrix and fall back to a
+# sequential accumulation. 10**7 entries is 160 MB in complex128 / 80 MB in
+# float64 — the point where the matrix starts to rival the map<->alm
+# transforms that dominate a realistic peak, while everything below it is
+# small enough that paying 28x the runtime to avoid it is a bad trade.
+# Static: it is compared against shapes, never traced values.
+_PHASE_MATRIX_MAX = 10**7
 
 
 def _validate_alm(name: str, alm: jnp.ndarray, lmax: int) -> None:
@@ -200,16 +210,53 @@ def beam_alm_at_reference(
     selfrot_deg: jnp.ndarray = 0.0,
     *,
     lmax: int,
+    dl_array: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Beam-local packed alms -> celestial-frame packed alms at ``lst_ref``.
 
     The single Wigner rotation of the drift-scan chain (differentiable in
     every angle). Equivalent to what the generic path applies at the sample
     with ``lst = lst_ref``; every other sample follows by phases.
+
+    Args:
+        dl_array: optional precomputed Wigner-d plane, from
+            :func:`dl_plane_for_pointing` with the SAME
+            ``(lat, az, el, selfrot)``. Those four fix the polar angle, and
+            ``lst_ref`` does not enter it — LST lands in the first-applied
+            slot of the zyz composition, so it shifts ``psi`` alone (verified
+            bit-exactly in ``tests/limtod_jax/test_driftscan.py``). A caller
+            with a fixed pointing can therefore build the plane once and skip
+            the Risbo recursion on every evaluation, which is the only way to
+            amortize the rotation when the BEAM is the fitted parameter and
+            the reference-frame trick is unavailable.
     """
     _validate_alm("beam_alm", beam_alm, lmax)
     psi, theta, phi = zyz_of_pointing(lst_ref_deg, lat_deg, az_deg, el_deg, selfrot_deg)
-    return rotate_alm(beam_alm, psi, theta, phi, lmax=lmax)
+    return rotate_alm(beam_alm, psi, theta, phi, lmax=lmax, dl_array=dl_array)
+
+
+def dl_plane_for_pointing(
+    lat_deg: jnp.ndarray,
+    az_deg: jnp.ndarray,
+    el_deg: jnp.ndarray,
+    selfrot_deg: jnp.ndarray = 0.0,
+    *,
+    lmax: int,
+) -> jnp.ndarray:
+    """Wigner-d plane for a fixed drift-scan pointing, for reuse across calls.
+
+    Feed the result to :func:`beam_alm_at_reference` as ``dl_array``. The plane
+    is a function of the pointing ONLY — the reference LST is deliberately not
+    an argument, because it cannot enter: it composes on the right of the zyz
+    rotation and moves ``psi``, never the polar angle the plane is built from.
+
+    Size is ``(lmax+1)·(2lmax+1)²`` reals — 215 MB at lmax=191 in float64, so
+    pass float32 angles if the plane is the memory ceiling (the Risbo
+    recursion is float32-stable to ~2e-6, and the dtype now follows the angles
+    rather than the session default).
+    """
+    _, theta, _ = zyz_of_pointing(0.0, lat_deg, az_deg, el_deg, selfrot_deg)
+    return generate_rotate_dls(lmax + 1, theta)
 
 
 def mmodes_from_sky(
@@ -257,13 +304,25 @@ def tod_from_mmodes(mmodes: jnp.ndarray, dphi: jnp.ndarray) -> jnp.ndarray:
     (13) (phase sign locked numerically against the generic path). ``dphi``
     holds ``lst − lst_ref`` in RADIANS; any sampling, uniform or not.
 
-    Accumulates with ``lax.scan`` over m — memory O(n_time + lmax), never
-    materializing the (n_time, lmax+1) phase matrix — so large TODs at
-    large lmax stay cheap. The scan step is ``jax.checkpoint``-ed so this
-    bound holds under reverse-mode AD too: the backward pass recomputes
-    the per-m cos/sin planes instead of storing them (a ~2x trig-FLOP
-    price; without it, grad residuals are exactly the phase matrix).
-    Differentiable in both arguments.
+    Two implementations, chosen by a STATIC size threshold
+    (``_PHASE_MATRIX_MAX``), because neither wins everywhere:
+
+    * **Small** — form the ``(lmax+1, n_time)`` phase matrix and contract it.
+      One big matmul, which is what the hardware wants. Measured at
+      lmax=191 / n_time=512: **0.56 ms against 15.65 ms** for the scan, and
+      0.60 ms against 19.03 ms under reverse-mode AD. The matrix costs
+      1.5 MB — 1.3 % of that call's 114 MB peak, so the memory the scan
+      protects is not worth 28x the time.
+    * **Large** — accumulate with ``lax.scan`` over m: memory
+      O(n_time + lmax), never materializing the phase matrix. At
+      n_time=86400 / lmax=191 that matrix would be 133 MB and would double
+      the peak; at lmax=1024 it is 708 MB. The scan step is
+      ``jax.checkpoint``-ed so the bound survives reverse-mode AD (the
+      backward pass recomputes the cos/sin planes rather than storing them;
+      without it, the grad residual IS the phase matrix).
+
+    Both are differentiable in both arguments and produce the same numbers to
+    roundoff; only the time/memory trade differs.
     """
     _validate_dphi(dphi)
     n_m = mmodes.shape[-1]
@@ -274,6 +333,14 @@ def tod_from_mmodes(mmodes: jnp.ndarray, dphi: jnp.ndarray) -> jnp.ndarray:
     real_dtype = jnp.result_type(jnp.real(mmodes).dtype, dphi.dtype)
     weights = jnp.asarray(np.where(np.arange(n_m) > 0, 2.0, 1.0), dtype=real_dtype)
     m_values = jnp.arange(n_m, dtype=real_dtype)
+
+    if n_m * dphi.shape[0] <= _PHASE_MATRIX_MAX:
+        phase = m_values[:, None] * dphi[None, :]  # (n_m, n_time)
+        return jnp.einsum(
+            "m,mt->t",
+            weights * jnp.real(mmodes),
+            jnp.cos(phase),
+        ) - jnp.einsum("m,mt->t", weights * jnp.imag(mmodes), jnp.sin(phase))
 
     @jax.checkpoint
     def step(acc, inputs):
@@ -373,23 +440,29 @@ def mmodes_from_tod(tod: jnp.ndarray, dphi: jnp.ndarray, *, lmax: int) -> jnp.nd
             f"tod must be 1D of length n_time={dphi.shape[0]} "
             f"(batch with jax.vmap), got shape {tod.shape}"
         )
-    n_t = dphi.shape[0]
-    real_dtype = jnp.result_type(tod.dtype, dphi.dtype)
-    m_values = jnp.arange(lmax + 1, dtype=real_dtype)
-
-    def one_m(m):
-        phase = m * dphi
-        return (
-            jnp.sum(tod * jnp.cos(phase)) - 1j * jnp.sum(tod * jnp.sin(phase))
-        ) / n_t
-
-    return jax.lax.map(one_m, m_values)
+    return _zeta(tod, dphi, lmax) / dphi.shape[0]
 
 
 def _zeta(tod: jnp.ndarray, dphi: jnp.ndarray, lmax: int) -> jnp.ndarray:
-    """``ζ_m = Σ_t y_t·exp(−i·m·Δ_t)`` for m in [0, lmax] — adjoint phases."""
+    """``ζ_m = Σ_t y_t·exp(−i·m·Δ_t)`` for m in [0, lmax] — adjoint phases.
+
+    Same static size threshold as :func:`tod_from_mmodes`, for the same
+    reason: below it, one matmul against the ``(lmax+1, n_time)`` phase
+    matrix (0.54 ms at lmax=191 / n_time=512); above it, a sequential
+    ``lax.map`` that never materializes the matrix (2.63 ms, but bounded
+    memory). This is the transpose direction, so the two must switch on the
+    SAME condition — otherwise forward and adjoint would have different
+    memory profiles at the same size, which is exactly what a map-making
+    iteration cannot afford.
+    """
     real_dtype = jnp.result_type(tod.dtype, dphi.dtype)
     m_values = jnp.arange(lmax + 1, dtype=real_dtype)
+
+    if (lmax + 1) * dphi.shape[0] <= _PHASE_MATRIX_MAX:
+        phase = m_values[:, None] * dphi[None, :]  # (n_m, n_time)
+        return jnp.einsum("t,mt->m", tod, jnp.cos(phase)) - 1j * jnp.einsum(
+            "t,mt->m", tod, jnp.sin(phase)
+        )
 
     def one_m(m):
         phase = m * dphi

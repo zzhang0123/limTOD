@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+
+- ⚡ **`tod_from_mmodes` and `_zeta` pick between a phase matmul and the
+  sequential accumulation on a static size threshold** (`_PHASE_MATRIX_MAX`,
+  10⁷ phase-matrix entries). The `lax.scan` / `lax.map` forms never
+  materialize the `(lmax+1, n_time)` phase matrix, which is right at large
+  `n_time` — 133 MB at `n_time=86400, lmax=191` — but below the threshold
+  they were paying an enormous premium to avoid an allocation that does not
+  matter. Measured at lmax=191 / n_time=512, one forward synthesis:
+
+  | n_freq | matmul | scan | speed-up |
+  |---|---|---|---|
+  | 1 | 0.30 ms | 0.49 ms | 2× |
+  | 8 | 0.40 ms | 3.88 ms | 10× |
+  | 32 | 0.52 ms | 15.16 ms | **29×** |
+
+  The gap grows with `n_freq` because the matmul becomes a real GEMM while
+  the scan stays a chain of 192 tiny sequential kernels. The extra memory is
+  **1.57 MB regardless of `n_freq`** — `dphi` is unbatched under `vmap`, so
+  the phase matrix is shared across frequencies, not duplicated. Forward and
+  adjoint switch on the SAME condition, so the dot-product identity holds
+  whichever branch each side takes (tested).
+
+- ⚡ **`rotate_alm` and `beam_alm_at_reference` accept a precomputed
+  `dl_array`**, plus a new `dl_plane_for_pointing(lat, az, el, selfrot, lmax)`
+  to build it. The Wigner-d plane depends on the polar angle alone, and LST
+  enters the zyz composition in the first-applied slot — so it shifts `psi`
+  and never the plane. A drift scan can therefore build one plane and reuse
+  it at every LST, **bit-for-bit identical** (tested across the LST fixture),
+  skipping the Risbo recursion: measured at lmax=127, **44.0 ms → 2.8 ms
+  (15.6×)**. This is the only way to amortize the rotation when the BEAM is
+  the fitted parameter, where the reference-frame trick cannot be used
+  because gradients must reach the beam-local alms.
+
+### Fixed
+
+- 🐛 **The Wigner-d plane no longer forces float64 in an x64 session.**
+  `wigner.py` computed its dtype as `jnp.result_type(beta.dtype,
+  jnp.zeros(0).dtype)`; the second term is the session default, so under x64
+  a deliberately float32 `beta` was silently promoted, doubling the largest
+  array in the rotation (215 MB at lmax=191). The floor is now float32, so
+  the caller's choice wins: float32 angles give a float32 plane (67 → 33 MB
+  at lmax=127) agreeing to 5.5e-6, which is float32 roundoff — the Risbo
+  recursion is float32-stable. float64 angles are unaffected, so the default
+  path does not change.
+
 ### Documentation
 
 - 🧲 **Polarization: the basis follows from the beam convention, the

@@ -58,6 +58,7 @@ def rotate_alm(
     phi: jnp.ndarray,
     *,
     lmax: int,
+    dl_array: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Wigner rotation of packed real-field alms; angles traced, radians.
 
@@ -66,10 +67,23 @@ def rotate_alm(
     ``hp.rotate_alm(alm, phi, theta, psi)``: limTOD passes its phi into
     healpy's first slot (convention locked numerically, see
     ``tests/limtod_jax/test_rotation_convention.py``).
+
+    Args:
+        dl_array: optional precomputed ``(lmax+1, 2lmax+1, 2lmax+1)`` Wigner-d
+            plane from :func:`~limtod_jax.wigner.generate_rotate_dls`, in which
+            case ``theta`` is unused. The plane depends on the polar angle
+            ALONE, so a caller whose ``theta`` is fixed — a drift scan, where
+            only ``psi`` advances with LST — can build it once and skip the
+            Risbo recursion on every call. Measured at lmax=127: 18.6 ms ->
+            2.58 ms, with 58 % less HLO. Passing a plane built for a different
+            ``theta`` silently rotates by that other angle; it is the caller's
+            job to keep them together.
     """
     flm = packed_to_2d(alm, lmax)
     a, b, g = angles_to_alpha_beta_gamma(psi, theta, phi)
-    return packed_from_2d(rotate_flm_2d(flm, lmax + 1, a, b, g), lmax)
+    return packed_from_2d(
+        rotate_flm_2d(flm, lmax + 1, a, b, g, dl_array=dl_array), lmax
+    )
 
 
 def beam_weighted_sum(

@@ -57,6 +57,7 @@ from limtod_jax.core import (
 from limtod_jax.driftscan import (
     DriftScanMmode,
     beam_alm_at_reference,
+    dl_plane_for_pointing,
     check_uniform_grid,
     driftscan_tod,
     driftscan_tod_adjoint,
@@ -78,6 +79,7 @@ __all__ = [
     "alm_dot",
     "alm_weights",
     "beam_alm_at_reference",
+    "dl_plane_for_pointing",
     "beam_weighted_sum",
     "check_uniform_grid",
     "driftscan_tod",

@@ -43,6 +43,19 @@ def angles_to_alpha_beta_gamma(
     return psi, theta, phi
 
 
+def _dl_dtype(beta: jnp.ndarray):
+    """Real dtype of the Wigner-d plane: the caller's, floored at float32.
+
+    The floor exists so an integer or float16 ``beta`` still gives a sane
+    plane. It used to be ``jnp.zeros(0).dtype`` — the session default — which
+    in an x64 session is float64, silently OVERRIDING a deliberate float32
+    request and doubling the largest array in the rotation (215 MB at
+    lmax=191). The Risbo recursion is float32-stable (~2e-6 relative), so the
+    caller's choice is the one that should win.
+    """
+    return jnp.result_type(jnp.asarray(beta).dtype, jnp.float32)
+
+
 def generate_rotate_dls(L: int, beta: jnp.ndarray) -> jnp.ndarray:
     """Wigner-d plane ``d^l_{mn}(beta)`` for all l < L; beta is TRACED.
 
@@ -50,8 +63,7 @@ def generate_rotate_dls(L: int, beta: jnp.ndarray) -> jnp.ndarray:
     port of ``s2fft.utils.rotation.generate_rotate_dls``.
     """
     beta = jnp.asarray(beta)
-    dtype = jnp.result_type(beta.dtype, jnp.zeros(0).dtype)
-    dl_iter = jnp.zeros((2 * L - 1, 2 * L - 1), dtype=dtype)
+    dl_iter = jnp.zeros((2 * L - 1, 2 * L - 1), dtype=_dl_dtype(beta))
     dls = []
     for el in range(L):
         dl_iter = compute_full(dl_iter, beta, L, el)
@@ -87,8 +99,7 @@ def rotate_flm_2d(
     flm_rotated = jnp.zeros_like(flm)
     dl_iter = None
     if dl_array is None:
-        dtype = jnp.result_type(jnp.asarray(beta).dtype, jnp.zeros(0).dtype)
-        dl_iter = jnp.zeros((2 * L - 1, 2 * L - 1), dtype=dtype)
+        dl_iter = jnp.zeros((2 * L - 1, 2 * L - 1), dtype=_dl_dtype(beta))
 
     for el in range(L):
         if dl_array is None:
