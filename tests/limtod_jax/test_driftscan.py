@@ -468,6 +468,72 @@ def test_uniform_dtype_matches_direct_path(fields):
     assert tod_from_mmodes_uniform(vm.astype(jnp.complex64), n_t).dtype == jnp.float32
 
 
+def test_uniform_tolerance_boundaries():
+    """Pin the tolerance in the repo that OWNS it, on both sides and in both
+    dtypes. Before this, every call in limTOD's (x64) suite resolved to the
+    old flat 1e-9 floor, so a mutant returning a constant survived the whole
+    suite — only the downstream f32 repo could see the f32 branch."""
+    from limtod_jax.driftscan import _uniform_tolerance, check_uniform_grid
+
+    n_t = 4 * (LMAX + 1)
+    for dtype in (np.float32, np.float64):
+        tol = float(_uniform_tolerance(dtype, 2.0 * np.pi, np))
+        base = 2.0 * np.pi * np.arange(n_t) / n_t
+
+        def perturbed(amplitude):
+            # index 0 must stay put: the checker measures deviation relative
+            # to dphi[0], so perturbing it would double the apparent error
+            j = np.zeros(n_t)
+            j[1::2] = amplitude
+            return (base + j).astype(dtype)
+
+        check_uniform_grid(perturbed(0.5 * tol))  # inside the bound
+        with pytest.raises(ValueError, match="uniform grid"):
+            check_uniform_grid(perturbed(3.0 * tol))
+
+    # the dtype scaling is the point: f32 must be ~1e5x looser than f64
+    ratio = float(_uniform_tolerance(np.float32, 2.0 * np.pi, np)) / float(
+        _uniform_tolerance(np.float64, 2.0 * np.pi, np)
+    )
+    assert 1e4 < ratio < 1e10, f"tolerance stopped tracking dtype (ratio {ratio:.1e})"
+
+    # a genuinely uniform grid built in f32 (deg2rad of degrees) must pass —
+    # its ~3e-7 rad representation error is exactly what the f32 bound exists
+    # for, and it must NOT be checked against the f64 bound
+    lst = np.float32(12.3) + np.arange(n_t, dtype=np.float32) * np.float32(360.0 / n_t)
+    check_uniform_grid(np.deg2rad(lst - np.float32(12.3)))
+
+    # non-floating dphi used to give a silent zero tolerance
+    with pytest.raises(TypeError, match="floating-point"):
+        check_uniform_grid(np.arange(n_t, dtype=np.int64))
+
+
+def test_uniform_grad_is_the_phase0_direction(fields):
+    """The uniform contract pins dphi to the one-parameter family
+    Δ_0 + 2πt/n, so its Jacobian is a SINGLE column at index 0 — and that
+    column must equal the direct path's row sum (the derivative w.r.t. a
+    global LST shift). Documents the semantics and kills a
+    stop_gradient/static-phase0 refactor, which is forward-identical and
+    otherwise invisible."""
+    _, beam_ref, sky_alm, _ = fields
+    n_t = 4 * (LMAX + 1)
+    w = jnp.asarray(np.linspace(0.5, 1.5, n_t))  # asymmetric: no Parseval cancel
+
+    def loss(dphi, uniform):
+        return jnp.sum(w * driftscan_tod(beam_ref, sky_alm, dphi, lmax=LMAX, uniform=uniform))
+
+    dphi = _uniform_dphi(n_t, 0.31)
+    g_fft = jax.grad(lambda d: loss(d, True))(dphi)
+    g_dir = jax.grad(lambda d: loss(d, False))(dphi)
+
+    assert np.nonzero(np.asarray(g_fft))[0].tolist() == [0], "expected a single column"
+    total = float(jnp.sum(g_dir))
+    assert abs(total) > 1e-6, "degenerate probe — the true derivative vanished"
+    assert abs(float(g_fft[0]) - total) < 1e-10 * abs(total), (
+        f"phase0 derivative {float(g_fft[0]):.6e} != direct row sum {total:.6e}"
+    )
+
+
 def test_check_uniform_grid_is_callable_inside_a_trace(fields):
     """The public eager checker must be safe to call from inside somebody
     else's jit trace (it computes its tolerance with numpy, not jnp — a jnp

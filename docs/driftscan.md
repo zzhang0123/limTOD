@@ -131,9 +131,30 @@ of a real observation — produced a 74%-wrong TOD in testing):
    fast path.
 
 The sampling-theorem condition $2\ell_{\max} < n_t$ is always enforced as a
-shape statement, and the uniformity tolerance is scaled to the input dtype
-(a genuinely uniform float32 grid carries ~1e-7 rad of `deg2rad`
-representation error, which must not read as irregular).
+shape statement, and the uniformity tolerance is `64·eps(dtype)·max(2π, |Δ|)`
+— scaled to the input dtype, because a genuinely uniform float32 grid
+carries ~3e-7 rad of `deg2rad` representation error which must not read as
+irregular. Two consequences worth knowing:
+
+* **Never upcast a grid before checking it.** An f32 degree grid cast to
+  f64 deviates ~3e-7 rad — 3·10⁶ times the f64 bound — so the cast turns a
+  legitimate grid into a rejection. Check at the native dtype.
+* **In float32 the tolerance cannot be tight enough to protect the
+  roundoff contract.** The admitted deviation costs ~$\ell_{\max}\cdot$tol
+  radians of phase, so an f32 session can carry ~10⁻³ ($\ell_{\max}$ = 256)
+  to ~10⁻² ($\ell_{\max}$ = 1024) relative TOD error, and ppm-level grid
+  errors sit below its detection floor. That is the same order as the f32
+  transform error the module already warns about — enable x64 for
+  quantitative work.
+
+**LST gradients on the fast path.** The uniform contract pins the grid to
+the one-parameter family $\Delta_0 + 2\pi t/n$, so `dphi`'s Jacobian is a
+single column at index 0, equal to the direct path's row sum — i.e. the
+derivative with respect to a *global* LST shift is exact, while per-sample
+`dphi` derivatives are structurally zero. That is the correct gradient for
+the parametrization, not a loss: an off-grid perturbation is not a smaller
+gradient but a contract violation, rejected or NaN-poisoned. Fit per-sample
+timing models with the direct sum.
 `mmodes_from_tod_uniform` is the matching data-side transform: one FFT
 carries a measured drift-scan TOD into m-space. The functional layer
 ({func}`~limtod_jax.driftscan.mmodes_from_sky`,

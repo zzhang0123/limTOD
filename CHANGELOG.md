@@ -38,6 +38,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   promotion so the FFT path is never less precise than the sum it
   reproduces.
 
+### Fixed
+
+- **Uniformity tolerance: the float64 branch was 1.1e4x too loose.** The
+  `1e-9` absolute floor swamped the dtype-scaled term (`64·eps·2π` =
+  8.9e-14), so an f64 grid with ~1e-9 rad of jitter was accepted and gave
+  up to ~2e-6 relative error in a path documented as float64-roundoff
+  exact. The floor is gone; measured headroom over the worst legitimate
+  representation error is ~100x (f64) and ~40x (f32). A non-floating
+  `dphi` dtype now raises instead of silently yielding a zero tolerance.
+  The docstring's claim that the f32 bound "stays orders below the
+  transform error" is corrected: it reaches ~1e-3 (lmax = 256) to ~1e-2
+  (lmax = 1024), the same order — x64 is required for the roundoff
+  contract. NOTE for downstream adapters: do not upcast a narrower grid
+  before checking, or this bound rejects it (an f32 degree grid upcast to
+  f64 deviates ~3e-7, 3e6x the f64 bound).
+
+### Tests
+
+- The tolerance is now pinned in the repo that owns it, on both sides of
+  the bound and in **both dtypes**: limTOD's suite is x64-only, so every
+  call previously resolved to the old flat floor and a mutant returning a
+  constant survived the whole suite (only the downstream float32 repo could
+  see it).
+- The uniform path's LST gradient is pinned: the contract makes `dphi`'s
+  Jacobian a single column at index 0, which must equal the direct path's
+  row sum (the derivative w.r.t. a global LST shift). This documents the
+  one-parameter semantics and kills a `stop_gradient`/static-phase0
+  refactor, which is forward-identical and was otherwise invisible.
+
 ### Documentation
 
 - `docs/driftscan.md` gains a measured cost breakdown per stage: the

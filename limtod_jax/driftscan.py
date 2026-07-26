@@ -98,19 +98,39 @@ def _validate_nyquist(n_time: int, lmax: int) -> None:
 def _uniform_tolerance(dtype, scale, xp):
     """Deviation a uniform grid may show, scaled to ``dtype``'s precision.
 
-    Must follow the INPUT dtype, not float64: in a float32 session an
-    exactly uniform grid still carries ~1e-7 rad of representation error
-    (``deg2rad`` of a degree grid), which must not read as non-uniform. Even
-    the loosened f32 bound stays orders below that session's own transform
-    error (~1%, see :mod:`limtod_jax.hpx`).
+    ``64·eps(dtype)·max(2π, |Δ|max)`` — it must follow the INPUT dtype, not
+    float64: in a float32 session an exactly uniform grid still carries
+    ~3e-7 rad of representation error (``deg2rad`` of a degree grid), which
+    must not read as non-uniform. Measured headroom over the worst
+    legitimate representation error is ~40x (f32) and ~100x (f64).
+
+    Do NOT pass a grid cast UP from a narrower dtype: the cast hides the
+    real precision and this bound then rejects a legitimate grid (an f32
+    degree grid upcast to f64 deviates ~3e-7, 3e6x the f64 bound). Check at
+    the native dtype instead.
+
+    PRECISION CAVEAT, measured: the admitted deviation costs ~lmax·tol rad
+    of phase, so in a float32 session the uniform path can carry ~1e-3
+    (lmax = 256) to ~1e-2 (lmax = 1024) relative TOD error — the same order
+    as that session's own transform error, NOT orders below it. The f32
+    branch also cannot detect ppm-level grid errors (its representation
+    floor, ~1e-6 rad, exceeds the ~7e-6 rad such an error produces). x64 is
+    required for the roundoff contract.
 
     ``xp`` selects the array namespace and is not cosmetic: ``jnp`` ops on
     concrete scalars still return TRACERS when an outer ``jit`` trace is
     active, so the eager checker must pass ``np`` or its ``float()`` would
     raise ConcretizationTypeError inside somebody's jitted call.
     """
-    eps = float(np.finfo(dtype).eps) if np.issubdtype(dtype, np.floating) else 0.0
-    return xp.maximum(1e-9, 64.0 * eps * xp.maximum(2.0 * np.pi, scale))
+    if not np.issubdtype(dtype, np.floating):
+        raise TypeError(
+            f"dphi must be a floating-point array to check the uniform-grid "
+            f"contract, got dtype {dtype}. (An integer or low-precision "
+            f"custom dtype has no meaningful eps, which would silently give "
+            f"a zero tolerance.)"
+        )
+    eps = float(np.finfo(dtype).eps)
+    return 64.0 * eps * xp.maximum(2.0 * np.pi, scale)
 
 
 def check_uniform_grid(dphi: jnp.ndarray) -> None:
