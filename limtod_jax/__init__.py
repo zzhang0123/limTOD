@@ -29,6 +29,7 @@ except PackageNotFoundError:  # pragma: no cover — running from a bare checkou
     __version__ = "0.0.0.dev0"
 
 try:
+    import equinox as _eqx  # noqa: F401
     import jax as _jax  # noqa: F401
     import s2fft as _s2fft  # noqa: F401
 except ImportError as exc:  # pragma: no cover — depends on install extras
@@ -53,26 +54,47 @@ from limtod_jax.core import (
     generate_tod_sky_adjoint,
     rotate_alm,
 )
-from limtod_jax.hpx import alm2map, map2alm_quad, ones_quadrature_alm
+from limtod_jax.driftscan import (
+    DriftScanMmode,
+    beam_alm_at_reference,
+    driftscan_tod,
+    driftscan_tod_adjoint,
+    horizon_masked_beam_alm,
+    horizon_weights,
+    mmodes_from_sky,
+    mmodes_from_tod,
+    tod_from_mmodes,
+)
+from limtod_jax.hpx import alm2map, map2alm_iter, map2alm_quad, ones_quadrature_alm
 from limtod_jax.projection import generate_projection_rows
 
 __all__ = [
     "__version__",
+    "DriftScanMmode",
     "alm2map",
     "alm_dot",
     "alm_weights",
+    "beam_alm_at_reference",
     "beam_weighted_sum",
+    "driftscan_tod",
+    "driftscan_tod_adjoint",
     "generate_projection_rows",
     "generate_tod_sky",
     "generate_tod_sky_adjoint",
+    "horizon_masked_beam_alm",
+    "horizon_weights",
     "lmax_of_nalm",
+    "map2alm_iter",
     "map2alm_quad",
+    "mmodes_from_sky",
+    "mmodes_from_tod",
     "nalm_of_lmax",
     "ones_quadrature_alm",
     "packed_from_2d",
     "packed_lm_arrays",
     "packed_to_2d",
     "rotate_alm",
+    "tod_from_mmodes",
     "zyz_of_pointing",
     "zyzyz2zyz",
 ]

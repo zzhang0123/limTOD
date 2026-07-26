@@ -80,6 +80,7 @@ full = [
     "pygdsm>=1.2.0",
     "jax>=0.5",
     "s2fft>=1.4.0",
+    "equinox>=0.13",
     "pyuvdata>=3.0",
     "joblib>=1.2",
 ]
@@ -111,6 +112,7 @@ notebooks = [
 jax = [
     "jax>=0.5",
     "s2fft>=1.4.0",
+    "equinox>=0.13",
 ]
 
 [project.urls]

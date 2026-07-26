@@ -52,6 +52,35 @@ def map2alm_quad(m: jnp.ndarray, *, nside: int, lmax: int) -> jnp.ndarray:
     return (npix / (4.0 * np.pi)) * packed_from_2d(flm, lmax)
 
 
+def map2alm_iter(
+    m: jnp.ndarray, *, nside: int, lmax: int, iterations: int = 3
+) -> jnp.ndarray:
+    """healpy-style iterative analysis: matches ``hp.map2alm(m, lmax, iter=k)``.
+
+    Jacobi refinement of the quadrature estimate: starting from
+    ``a = (4π/npix)·Σ_p m(p)·Y*_lm(p)``, repeat ``iterations`` times
+
+        ``a ← a + (4π/npix)·analysis(m − synthesis(a))``
+
+    which is exactly healpy's ``iter`` scheme (oracle-locked in
+    ``tests/limtod_jax/test_driftscan.py``). Unlike :func:`map2alm_quad`
+    this RETURNS TRUE alms of the (non-bandlimited) map's best bandlimited
+    representation — use it when a map-space operation (e.g. a horizon
+    mask) must be carried back to harmonic space the same way numpy
+    limTOD's internal ``hp.map2alm(..., iter=3)`` would.
+
+    ``iterations`` is static; the whole function is linear in ``m`` and
+    jit/vmap/grad-safe.
+    """
+    npix = 12 * nside * nside
+    scale = (4.0 * np.pi) / npix
+    alm = scale * map2alm_quad(m, nside=nside, lmax=lmax)
+    for _ in range(iterations):
+        residual = m - alm2map(alm, nside=nside, lmax=lmax)
+        alm = alm + scale * map2alm_quad(residual, nside=nside, lmax=lmax)
+    return alm
+
+
 def ones_quadrature_alm(*, nside: int, lmax: int) -> jnp.ndarray:
     """Quadrature alms of the ones map — the exact pixel-sum functional.
 
