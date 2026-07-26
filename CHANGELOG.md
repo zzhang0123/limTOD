@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (the south point, at `A = 0°`). Multiplying a beam map by a sky map
   with no rotation is the `A = 0°` configuration; `A = 180°` would
   rotate the beam by 180° in `φ`.
+- The same fact is surfaced where people actually hit it: a
+  "no-rotation sanity check" tip in `docs/driftscan.md`, since
+  `np.sum(beam * sky)` is the first thing most readers try and it is a
+  *specific* pointing in this convention rather than a convention-free
+  operation.
 
 ### Tests
 

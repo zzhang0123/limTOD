@@ -87,6 +87,24 @@ larger models, and differentiate through construction (the reference
 rotation is traced, so gradients w.r.t. pointing angles and beam alms
 work).
 
+:::{tip}
+**The no-rotation sanity check.** The first thing most people try is
+multiplying a beam map by a sky map directly, `np.sum(beam * sky)` — and
+that plain product is a *specific* pointing in this convention, not a
+convention-free operation. It is the identity of the rotation chain:
+an antenna at the terrestrial **North Pole** (`lat_deg=90`) looking at its
+**zenith** (`el_deg=90`) with **`az_deg=0`**, at `lst_deg=0`, `selfrot=0`.
+
+Azimuth `0`, *not* `180`. At `el = 90°` the boresight is the zenith
+whatever the azimuth is, so azimuth no longer picks a direction — it only
+*rolls* the beam about the boresight, and the identity is the zero roll.
+(The tempting `180` comes from the `φ = 0` axis landing toward the **south**
+point at `az = 0`; that is the direction the axis points, not the mount
+azimuth.) More generally the identity there is `az_deg = lst_deg + selfrot`.
+Pinned in `tests/test_beam_orientation.py`; full statement in
+[theory.md](theory.md#special-cases).
+:::
+
 ### Uniform sampling: FFT synthesis
 
 When the LST grid is uniform over a full sidereal turn, the phase sum is
