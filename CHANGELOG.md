@@ -22,11 +22,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (the south point, at `A = 0°`). Multiplying a beam map by a sky map
   with no rotation is the `A = 0°` configuration; `A = 180°` would
   rotate the beam by 180° in `φ`.
-- The same fact is surfaced where people actually hit it: a
-  "no-rotation sanity check" tip in `docs/driftscan.md`, since
-  `np.sum(beam * sky)` is the first thing most readers try and it is a
-  *specific* pointing in this convention rather than a convention-free
-  operation.
+- 🧭 **Promoted to the most prominent slot on every entry path**, since it
+  doubles as the fastest way to *determine* the convention: a titled
+  callout at the very top of the beam-convention section in
+  `docs/theory.md` (with a runnable three-line check), one on the docs
+  landing page, one in the README (the PyPI landing page), and the
+  `docs/driftscan.md` box where readers first hold a beam map and a sky
+  map at once.
+- The check is deliberately **comparative, not an equality test**: of
+  azimuths 0/90/180/270 only 0 reproduces the plain product (measured
+  2.1e-3 vs 1.3e-1 / 2.7e-1 / 1.4e-1). The winner is not zero because
+  `generate_TOD_sky` re-analyses the beam internally, and HEALPix
+  analysis/synthesis is not exactly idempotent — a fact the docs now
+  state, so the residual is not mistaken for a convention mismatch.
+  Two traps are called out because both silently defeat the check: a beam
+  symmetric under `φ → φ + 180` (including any beam that is a function of
+  `θ` alone) cannot see a 180° roll at all, and an un-band-limited beam
+  inflates the residual to several percent.
 
 ### Tests
 

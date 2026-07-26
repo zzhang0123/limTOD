@@ -33,6 +33,78 @@ the plain pixel sum, without a solid-angle factor — pair it with
 
 ## Beam coordinate convention
 
+:::{admonition} 🧭 The convention in one test — no rotation ⇔ North Pole, zenith, azimuth 0
+:class: important
+
+If you remember one thing from this page, remember this. Multiplying a beam
+map by a sky map with no rotation at all,
+
+$$
+\sum_p B(p)\, S(p),
+$$
+
+is **not** a convention-free operation — it is one specific pointing:
+
+> **an antenna at the terrestrial North Pole (`lat_deg = 90`), looking at
+> its zenith (`el_deg = 90`), with `az_deg = 0`** — at `lst_deg = 0`,
+> `selfrot = 0`.
+
+**Azimuth 0, not 180.** At $e = 90°$ the boresight is the zenith whatever the
+azimuth is, so azimuth no longer selects a *direction* — it only **rolls** the
+beam about the boresight, and the identity is the zero roll. (The tempting
+`180` comes from the $\varphi = 0$ axis landing toward the **south** point at
+$A = 0°$: that is where the axis points, not the mount azimuth.) In general
+the identity there is the family $A = \Theta_{\rm LST} + \psi$, because at
+`lat = 90°, e = 90°` the whole five-angle chain collapses to
+$R_z(\psi - A + \Theta_{\rm LST})$.
+
+**This is also how you *determine* the convention** — the fastest, most
+decisive check there is, and it needs three lines. Don't test for equality;
+test which azimuth *wins*:
+
+```python
+import numpy as np, healpy as hp
+from limTOD.simulator import generate_TOD_sky
+
+nside, lmax = 64, 128
+theta, phi = hp.pix2ang(nside, np.arange(12 * nside**2))
+# The beam MUST be asymmetric under phi -> phi + 180: an even-order feature
+# (cos^2 phi, or any beam that is a function of theta alone) is invariant
+# under a 180-degree roll and so cannot see the difference at all.
+beam = np.exp(-(theta**2) / (2 * np.deg2rad(9.0) ** 2)) * (
+    1 + 0.5 * np.sin(theta) * np.cos(phi)
+)
+beam = hp.alm2map(hp.map2alm(beam, lmax=lmax), nside)   # band-limit it
+sky = np.random.default_rng(0).standard_normal(beam.size)
+
+plain = np.sum(beam * sky)                              # the no-rotation product
+for az in (0.0, 90.0, 180.0, 270.0):
+    tod = generate_TOD_sky(
+        beam, sky,
+        np.array([0.0]), 90.0,               # LST = 0, latitude = +90
+        np.array([az]), np.array([90.0]),    # azimuth, elevation = 90 (zenith)
+        np.array([0.0]),                     # selfrot = 0
+        normalize_beam=False, truncate_frac_thres=0.0,
+    )
+    print(f"azimuth {az:5.1f}: {abs(tod[0] - plain) / abs(plain):.1e}")
+```
+
+```text
+azimuth   0.0: 2.1e-03      <-- the identity
+azimuth  90.0: 1.3e-01
+azimuth 180.0: 2.7e-01
+azimuth 270.0: 1.4e-01
+```
+
+Two orders of magnitude, so the verdict is unambiguous — and note the winner
+is *not* zero: the 2·10⁻³ residual is HEALPix analysis/synthesis error from
+the `map2alm` that `generate_TOD_sky` performs internally, **not** a
+convention mismatch. That is exactly why the test is comparative. Pinned at
+the alm level (where it *is* roundoff, 3·10⁻¹⁶) in
+[`tests/test_beam_orientation.py`](https://github.com/zzhang0123/limTOD/blob/main/tests/test_beam_orientation.py)
+`::test_north_pole_zenith_identity_is_azimuth_zero`.
+:::
+
 The beam enters limTOD as a HEALPix map (RING ordering;
 `(θ, φ) = healpy.pix2ang`). A beam's orientation is only meaningful
 relative to the **local horizontal system**, so the convention is

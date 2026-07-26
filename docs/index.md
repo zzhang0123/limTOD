@@ -23,6 +23,16 @@ the package ships:
   It powers the differentiable pipeline of
   [replicant-telescope](https://github.com/zzhang0123/replicant-telescope).
 
+:::{admonition} 🧭 Beam convention, in one line
+:class: important
+
+Multiplying a beam map by a sky map with
+no rotation — `sum(beam * sky)` — is the pointing `lat_deg=90, el_deg=90,
+az_deg=0` (North Pole, zenith, **azimuth 0**, not 180), at `lst_deg=0`,
+`selfrot=0`. It is also the fastest way to *verify* the convention:
+[the one-test box in Theory & conventions](theory.md#beam-coordinate-convention).
+:::
+
 ```{toctree}
 :caption: Getting started
 :maxdepth: 1

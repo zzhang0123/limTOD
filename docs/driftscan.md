@@ -87,8 +87,10 @@ larger models, and differentiate through construction (the reference
 rotation is traced, so gradients w.r.t. pointing angles and beam alms
 work).
 
-:::{tip}
-**The no-rotation sanity check.** The first thing most people try is
+:::{admonition} 🧭 The no-rotation sanity check — azimuth 0, not 180
+:class: important
+
+The first thing most people try is
 multiplying a beam map by a sky map directly, `np.sum(beam * sky)` — and
 that plain product is a *specific* pointing in this convention, not a
 convention-free operation. It is the identity of the rotation chain:

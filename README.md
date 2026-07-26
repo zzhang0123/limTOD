@@ -5,6 +5,18 @@ intensity mapping — with a differentiable pure-JAX port.**
 
 📖 **Documentation: <https://limtod.readthedocs.io>**
 
+> ### 🧭 Beam convention in one line
+>
+> **Multiplying a beam map by a sky map with no rotation — `sum(beam * sky)` —
+> is the pointing `lat_deg=90, el_deg=90, az_deg=0` (North Pole, zenith,
+> azimuth 0), at `lst_deg=0`, `selfrot=0`.**
+>
+> Azimuth **0**, not 180: at `el=90` the boresight is the zenith whatever the
+> azimuth, so azimuth only *rolls* the beam about the boresight and the
+> identity is the zero roll. This is also the quickest way to *verify* the
+> convention — see
+> [the one-test box in Theory & conventions](https://limtod.readthedocs.io/en/latest/theory.html#beam-coordinate-convention).
+
 limTOD simulates the time-ordered data (TOD) of a single-dish telescope
 scanning a HEALPix sky with an arbitrary (asymmetric) beam: the beam is
 rotated to each pointing in spherical-harmonic space and dotted with the
