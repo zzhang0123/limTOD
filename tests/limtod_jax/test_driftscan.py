@@ -35,7 +35,9 @@ from limtod_jax.driftscan import (
     horizon_weights,
     mmodes_from_sky,
     mmodes_from_tod,
+    mmodes_from_tod_uniform,
     tod_from_mmodes,
+    tod_from_mmodes_uniform,
     _pixel_thetas,
 )
 from limtod_jax.hpx import map2alm_iter, map2alm_quad, ones_quadrature_alm
@@ -300,6 +302,229 @@ def test_single_m_sky_is_pure_tone(fields):
         - np.imag(c[m0]) * np.sin(m0 * np.asarray(dphi))
     )
     np.testing.assert_allclose(tod, expected, rtol=0, atol=1e-13 * np.max(np.abs(expected)))
+
+
+# ------------------------------------------------------- uniform FFT fast path
+def _uniform_dphi(n_t, phase0=0.0):
+    return jnp.asarray(phase0 + 2.0 * np.pi * np.arange(n_t) / n_t)
+
+
+@pytest.mark.parametrize("phase0", [0.0, 0.7331, -2.5])
+@pytest.mark.parametrize("n_t", [2 * LMAX + 1, 4 * (LMAX + 1), 257])
+def test_uniform_synthesis_equals_direct_sum(fields, n_t, phase0):
+    """The FFT synthesis must reproduce the direct phase sum exactly, at the
+    Nyquist boundary (n_t = 2·lmax+1), on odd and even grids, and with a
+    nonzero reference phase."""
+    _, beam_ref, sky_alm, _ = fields
+    vm = mmodes_from_sky(beam_ref, sky_alm, lmax=LMAX)
+    dphi = _uniform_dphi(n_t, phase0)
+    direct = tod_from_mmodes(vm, dphi)
+    fast = tod_from_mmodes_uniform(vm, n_t, phase0=phase0)
+    scale = float(jnp.max(jnp.abs(direct)))
+    err = float(jnp.max(jnp.abs(fast - direct)))
+    assert err < 1e-11 * scale, f"n_t={n_t} phase0={phase0}: {err:.3e} vs {scale:.3e}"
+
+
+@pytest.mark.parametrize("normalize", [False, True])
+def test_uniform_flag_matches_direct_forward(fields, normalize):
+    _, beam_ref, sky_alm, ones_alm = fields
+    dphi = _uniform_dphi(4 * (LMAX + 1), 0.51)
+    kw = dict(lmax=LMAX, normalize=normalize, ones_alm=ones_alm if normalize else None)
+    direct = driftscan_tod(beam_ref, sky_alm, dphi, **kw)
+    fast = driftscan_tod(beam_ref, sky_alm, dphi, uniform=True, **kw)
+    rel = float(jnp.max(jnp.abs(fast - direct)) / jnp.max(jnp.abs(direct)))
+    assert rel < 1e-11, f"rel err {rel:.3e}"
+
+
+@pytest.mark.parametrize("normalize", [False, True])
+def test_uniform_adjoint_matches_direct_and_dot_tests(fields, rng, normalize):
+    """The FFT adjoint must equal the direct-sum adjoint AND remain an exact
+    transpose of the FFT forward (a compensating sign error in both FFT
+    halves would pass the dot-test alone, so both checks run)."""
+    _, beam_ref, sky_alm, ones_alm = fields
+    n_t = 4 * (LMAX + 1)
+    dphi = _uniform_dphi(n_t, -0.37)
+    y = jnp.asarray(rng.standard_normal(n_t))
+    kw = dict(lmax=LMAX, normalize=normalize, ones_alm=ones_alm if normalize else None)
+    direct = driftscan_tod_adjoint(y, beam_ref, dphi, **kw)
+    fast = driftscan_tod_adjoint(y, beam_ref, dphi, uniform=True, **kw)
+    scale = float(jnp.max(jnp.abs(direct)))
+    assert float(jnp.max(jnp.abs(fast - direct))) < 1e-11 * scale
+
+    lhs = float(jnp.sum(driftscan_tod(beam_ref, sky_alm, dphi, uniform=True, **kw) * y))
+    rhs = float(alm_dot(fast, sky_alm))
+    assert abs(lhs - rhs) / abs(lhs) < 1e-11
+
+
+def test_uniform_mmode_estimator_round_trip(fields):
+    """mmodes_from_tod_uniform inverts the uniform synthesis exactly and
+    agrees with the general DFT estimator on the same grid."""
+    _, beam_ref, sky_alm, _ = fields
+    n_t = 4 * (LMAX + 1)
+    phase0 = 0.42
+    dphi = _uniform_dphi(n_t, phase0)
+    vm = mmodes_from_sky(beam_ref, sky_alm, lmax=LMAX)
+    tod = tod_from_mmodes_uniform(vm, n_t, phase0=phase0)
+    scale = float(jnp.max(jnp.abs(vm)))
+    back = mmodes_from_tod_uniform(tod, lmax=LMAX, phase0=phase0)
+    np.testing.assert_allclose(np.asarray(back), np.asarray(vm), atol=1e-11 * scale)
+    general = mmodes_from_tod(tod, dphi, lmax=LMAX)
+    np.testing.assert_allclose(
+        np.asarray(back), np.asarray(general), atol=1e-11 * scale
+    )
+
+
+def test_uniform_rejects_bad_grids(fields):
+    """Misuse must fail loudly, not silently return a wrong TOD: the Nyquist
+    guard is static, the non-uniformity check fires whenever dphi is
+    concrete (the only time it CAN fire)."""
+    _, beam_ref, sky_alm, _ = fields
+    n_t = 4 * (LMAX + 1)
+    # Each grid below must trip its OWN guard: keep n_t long enough that the
+    # Nyquist check does not mask the uniformity check.
+    with pytest.raises(ValueError, match="2\\*lmax < n_time"):
+        driftscan_tod(beam_ref, sky_alm, _uniform_dphi(2 * LMAX), lmax=LMAX, uniform=True)
+    jittered = np.array(_uniform_dphi(n_t))  # copy: np.asarray view is read-only
+    jittered[n_t // 3] += 0.05  # long, nearly-uniform, ONE bad sample
+    with pytest.raises(ValueError, match="uniform grid"):
+        driftscan_tod(beam_ref, sky_alm, jnp.asarray(jittered), lmax=LMAX, uniform=True)
+    with pytest.raises(ValueError, match="uniform grid"):  # uniform but a HALF turn
+        driftscan_tod(
+            beam_ref, sky_alm,
+            jnp.asarray(np.pi * np.arange(n_t) / n_t),
+            lmax=LMAX, uniform=True,
+        )
+    with pytest.raises(ValueError, match="2\\*lmax < n_time"):
+        mmodes_from_tod_uniform(jnp.zeros(2 * LMAX), lmax=LMAX)
+
+
+def test_uniform_violation_is_poisoned_under_trace(fields):
+    """Under jit the grid VALUES are unavailable, so the contract is enforced
+    in pure JAX: a violated grid yields NaN, never a finite wrong TOD.
+
+    This is the fix for a confirmed defect — the eager-only check was
+    bypassed by ANY jit wrapping (even a compile-time-constant grid, since
+    arithmetic inside a trace produces tracers), and a uniform HALF-turn
+    grid then returned a silently 74%-wrong TOD."""
+    _, beam_ref, sky_alm, _ = fields
+    n_t = 4 * (LMAX + 1)
+    good = _uniform_dphi(n_t, 0.1)
+
+    @jax.jit
+    def run(b, s, d):
+        return driftscan_tod(b, s, d, lmax=LMAX, uniform=True)
+
+    fast = run(beam_ref, sky_alm, good)
+    direct = driftscan_tod(beam_ref, sky_alm, good, lmax=LMAX)
+    assert float(jnp.max(jnp.abs(fast - direct))) < 1e-11 * float(
+        jnp.max(jnp.abs(direct))
+    )
+
+    half = jnp.asarray(np.pi * np.arange(n_t) / n_t)  # uniform, HALF a turn
+    irregular = jnp.asarray(np.sort(np.random.default_rng(0).uniform(0, 2 * np.pi, n_t)))
+    for bad in (half, irregular):
+        out = run(beam_ref, sky_alm, bad)
+        assert bool(jnp.all(jnp.isnan(out))), "violated contract must poison, not lie"
+
+    # the adjoint is exposed identically and must poison too
+    y = jnp.asarray(np.linspace(-1.0, 1.0, n_t))
+    adj = jax.jit(
+        lambda t, b, d: driftscan_tod_adjoint(t, b, d, lmax=LMAX, uniform=True)
+    )
+    assert bool(jnp.all(jnp.isfinite(jnp.abs(adj(y, beam_ref, good)))))
+    assert bool(jnp.all(jnp.isnan(jnp.abs(adj(y, beam_ref, half)))))
+
+
+def test_poison_is_per_row_under_vmap(fields):
+    """vmap must poison only the offending row — a scalar host-side check
+    could not do this, which is why the guard is pure JAX."""
+    _, beam_ref, sky_alm, _ = fields
+    n_t = 4 * (LMAX + 1)
+    grids = jnp.stack([_uniform_dphi(n_t), jnp.asarray(np.pi * np.arange(n_t) / n_t)])
+    out = jax.vmap(
+        lambda d: driftscan_tod(beam_ref, sky_alm, d, lmax=LMAX, uniform=True)
+    )(grids)
+    assert bool(jnp.all(jnp.isfinite(out[0]))) and bool(jnp.all(jnp.isnan(out[1])))
+
+
+def test_uniform_dtype_matches_direct_path(fields):
+    """The FFT path must not be silently less precise than the sum it
+    reproduces: phase0's dtype has to enter the promotion (regression — it
+    was dropped, so a float64 phase0 with complex64 modes lost the time
+    axis), while the weak-typed default must not force float64."""
+    vm = mmodes_from_sky(*fields[1:3], lmax=LMAX)
+    n_t = 4 * (LMAX + 1)
+    for m_dt, p_dt in [
+        (jnp.complex64, jnp.float32), (jnp.complex64, jnp.float64),
+        (jnp.complex128, jnp.float32), (jnp.complex128, jnp.float64),
+    ]:
+        c, p0 = vm.astype(m_dt), jnp.asarray(0.31, p_dt)
+        dphi = (p0 + 2.0 * np.pi * jnp.arange(n_t, dtype=p_dt) / n_t).astype(p_dt)
+        assert (
+            tod_from_mmodes_uniform(c, n_t, phase0=p0).dtype
+            == tod_from_mmodes(c, dphi).dtype
+        ), (m_dt, p_dt)
+    # weak-typed default (phase0=0.0) must not promote a complex64 input
+    assert tod_from_mmodes_uniform(vm.astype(jnp.complex64), n_t).dtype == jnp.float32
+
+
+def test_check_uniform_grid_is_callable_inside_a_trace(fields):
+    """The public eager checker must be safe to call from inside somebody
+    else's jit trace (it computes its tolerance with numpy, not jnp — a jnp
+    op on concrete scalars still returns a tracer while a trace is active,
+    which made float(tol) raise ConcretizationTypeError)."""
+    from limtod_jax.driftscan import check_uniform_grid
+
+    concrete = np.asarray(_uniform_dphi(4 * (LMAX + 1)))
+
+    @jax.jit
+    def run(x):
+        check_uniform_grid(concrete)  # concrete numpy, inside an active trace
+        return x * 2.0
+
+    assert float(run(jnp.asarray(1.5))) == 3.0
+
+
+def test_uniform_operator_and_grad(fields, rng):
+    """The operator's static flag routes to the FFT path and stays
+    grad/jit-safe (map-making differentiates through this)."""
+    import equinox as eqx
+
+    beam_alm, _, sky_alm, _ = fields
+    n_t = 4 * (LMAX + 1)
+    lsts = np.linspace(0.0, 360.0, n_t, endpoint=False) + 12.0
+    common = dict(lmax=LMAX, lst_ref_deg=12.0)
+    op_fft = DriftScanMmode.from_pointing(
+        beam_alm, lsts, LAT, AZ, EL, SELFROT, uniform_sampling=True, **common
+    )
+    op_sum = DriftScanMmode.from_pointing(
+        beam_alm, lsts, LAT, AZ, EL, SELFROT, **common
+    )
+    assert op_fft.uniform_sampling and not op_sum.uniform_sampling
+    a, b = op_fft(sky_alm), op_sum(sky_alm)
+    assert float(jnp.max(jnp.abs(a - b))) < 1e-11 * float(jnp.max(jnp.abs(b)))
+
+    y = jnp.asarray(rng.standard_normal(n_t))
+    np.testing.assert_allclose(
+        np.asarray(op_fft.adjoint(y)), np.asarray(op_sum.adjoint(y)), atol=1e-11
+    )
+    out = eqx.filter_jit(lambda o, s: o(s))(op_fft, sky_alm)
+    np.testing.assert_allclose(np.asarray(out), np.asarray(a), rtol=1e-12)
+    g = jax.grad(lambda s: jnp.sum(op_fft(s) ** 2), holomorphic=False)(sky_alm)
+    assert bool(jnp.all(jnp.isfinite(jnp.abs(g))))
+
+
+def test_uniform_operator_rejects_nonuniform_dphi(fields, rng):
+    """Construction-time rejection: a long but irregular LST list (so the
+    Nyquist guard passes and the uniformity check is what fires)."""
+    beam_alm, _, _, _ = fields
+    n_t = 4 * (LMAX + 1)
+    irregular = 12.0 + np.sort(rng.uniform(0.0, 360.0, n_t))
+    with pytest.raises(ValueError, match="uniform grid"):
+        DriftScanMmode.from_pointing(
+            beam_alm, irregular, LAT, AZ, EL, SELFROT,
+            lmax=LMAX, lst_ref_deg=12.0, uniform_sampling=True,
+        )
 
 
 # ------------------------------------------------------------------- adjoint

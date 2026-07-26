@@ -80,7 +80,62 @@ sky_at = op.adjoint(tod)      # exact transpose (map-making normal equations)
 `eqx.filter_jit`, batch skies with `jax.vmap(op)`, embed it as a field of
 larger models, and differentiate through construction (the reference
 rotation is traced, so gradients w.r.t. pointing angles and beam alms
-work). The functional layer
+work).
+
+### Uniform sampling: FFT synthesis
+
+When the LST grid is uniform over a full sidereal turn, the phase sum is
+an inverse real FFT and the m-mode analysis a forward one —
+$O(n_t\log n_t)$ **independent of $\ell_{\max}$**. Opt in with the static
+`uniform_sampling` flag (or `uniform=True` on the functional API):
+
+```python
+op = ltj.DriftScanMmode.from_pointing(
+    beam_alm, lst_deg=np.linspace(0.0, 360.0, 8640, endpoint=False),
+    lat_deg=-30.7, az_deg=41.5, el_deg=52.5, lmax=lmax,
+    uniform_sampling=True,          # requires 2*lmax < n_time
+)
+```
+
+Measured per-call synthesis cost (float64, CPU), FFT vs direct sum:
+
+| $\ell_{\max}$ | $n_t$ = 8 640 | $n_t$ = 86 400 |
+|---|---|---|
+| 64 | 32.1 → 1.03 ms (31×) | 37.4 → 1.94 ms (19×) |
+| 128 | 39.2 → 1.00 ms (39×) | 47.8 → 1.78 ms (27×) |
+| 256 | 54.4 → 1.06 ms (51×) | 59.0 → 1.94 ms (30×) |
+
+(Whole-operator calls, guard included — see below.)
+
+The direct sum stays the **default** because it is exact on *arbitrary*
+sampling — real scans have gaps, flags and irregular cadence, where the
+FFT identity simply does not hold. The choice is deliberately static and
+never auto-detected: dispatching on the *values* of `dphi` would be
+impossible under `jit` (they are traced), so uniformity is the caller's
+assertion. The contract is enforced in **two layers**, because getting this wrong is
+otherwise silent and severe (a uniform *half*-turn grid — the normal shape
+of a real observation — produced a 74%-wrong TOD in testing):
+
+1. **A clear `ValueError` while the values are concrete.** Note this is not
+   the same as "outside `jit`": any arithmetic inside a trace yields a
+   tracer, so deriving `dphi` from a compile-time-constant LST grid already
+   hides it. The rheplicant adapter therefore validates the *raw*
+   `lst_deg`, which is still concrete inside the trace, and
+   `limtod_jax.check_uniform_grid` is public for other adapters to do the
+   same at their own boundary.
+2. **NaN, never a plausible wrong number.** When the grid genuinely is a
+   traced argument, a pure-JAX guard (no host callback, no dispatch on
+   traced values, `vmap`-per-row) replaces the output with NaN. It costs
+   30–45% of the raw FFT call — leaving a 10–100× net win over the direct
+   sum — and is not optional: a fast path that can silently lie is not a
+   fast path.
+
+The sampling-theorem condition $2\ell_{\max} < n_t$ is always enforced as a
+shape statement, and the uniformity tolerance is scaled to the input dtype
+(a genuinely uniform float32 grid carries ~1e-7 rad of `deg2rad`
+representation error, which must not read as irregular).
+`mmodes_from_tod_uniform` is the matching data-side transform: one FFT
+carries a measured drift-scan TOD into m-space. The functional layer
 ({func}`~limtod_jax.driftscan.mmodes_from_sky`,
 {func}`~limtod_jax.driftscan.tod_from_mmodes`,
 {func}`~limtod_jax.driftscan.driftscan_tod`,
@@ -160,14 +215,58 @@ Reading of the table:
 A compact regression version of this study is pinned in the test suite
 (`test_ringing_apodization_mitigates`).
 
+## Where the cost actually sits
+
+Measured per frequency (float64, CPU), so that the right thing gets
+optimized:
+
+| stage | $\ell_{\max}$ = 64 | 128 | 256 | frequency |
+|---|---|---|---|---|
+| beam rotation to $t_{\rm ref}$ | 2.3 ms | 17.0 ms | 117.6 ms | **once** |
+| m-mode projection $\tilde V_m$ | 31 µs | 58 µs | 191 µs | per evaluation |
+| synthesis, direct ($n_t$ = 86 400) | 5.7 ms | 11.4 ms | 23.1 ms | per evaluation |
+| synthesis, FFT | 0.45 ms | 0.42 ms | 0.46 ms | per evaluation |
+| sky `map2alm` (if the sky is a map) | 5.1 ms | 29.9 ms | 175 ms | per evaluation |
+| generic path, same TOD | 696 s | 5 236 s | 38 115 s | per evaluation |
+
+Three things to read off it:
+
+1. **The rotation is the only $O(\ell_{\max}^3)$ step and it happens once** —
+   that is the whole point of the reference-time construction. Build the
+   operator (or call `to_reference_frame()` on the rheplicant projector)
+   *outside* your inference loop and each evaluation drops by 2–3 orders
+   of magnitude.
+2. **The projection is genuinely free** (microseconds), but the *direct*
+   synthesis is not: at $\ell_{\max}$ = 64 over a full day it costs more
+   than the rotation itself. `uniform_sampling=True` removes it.
+3. **Once the rotation is amortized, the pixel↔harmonic transform becomes
+   the bottleneck** — at $\ell_{\max}$ = 256 a single sky `map2alm` (175 ms)
+   exceeds the rotation. The m-mode formalism wants the sky in *harmonic*
+   space on both sides (eqn 14 is literally a map from $T_{\ell m}$ to
+   $\tilde V_m$); parameterize it there and that cost disappears entirely.
+
+Beyond raw cost, the operator is **block-diagonal in $m$**: $\tilde V_m$
+depends only on $\tilde S_{\ell m}$ at the same $m$, so map-making normal
+equations decouple into $\ell_{\max}+1$ independent small systems instead
+of one large one. `mmodes_from_sky` / `mmodes_from_tod` expose exactly that
+structure.
+
+One caveat for large band-limits: the $\ell$ loop in the Wigner kernel is
+Python-level, so it unrolls into the jaxpr — **compile time grows linearly
+in $\ell_{\max}$** (2.6 / 5.5 / 13.7 s at $\ell_{\max}$ = 64 / 128 / 256),
+and reverse-mode AD through the rotation stores $O(\ell_{\max}^3)$ of
+intermediates. Neither matters when the rotation is cached; both do when
+you differentiate w.r.t. the beam.
+
 ## When to use which path
 
-| | generic `generate_tod_sky` | `DriftScanMmode` |
-|---|---|---|
-| pointing | arbitrary per-sample | fixed az/el/selfrot (drift) |
-| cost | $O(n_t\,\ell_\mathrm{max}^3)$ | $O(\ell_\mathrm{max}^3 + n_t\,\ell_\mathrm{max})$ |
-| agreement | — | equal to roundoff on drift scans |
-| m-modes | not exposed | {func}`~limtod_jax.driftscan.mmodes_from_sky` / `op.mmodes` |
+| | generic `generate_tod_sky` | `DriftScanMmode` | `DriftScanMmode(uniform_sampling=True)` |
+|---|---|---|---|
+| pointing | arbitrary per-sample | fixed az/el/selfrot (drift) | same, plus uniform full-turn LSTs |
+| build cost | — | $O(\ell_\mathrm{max}^3)$ once | $O(\ell_\mathrm{max}^3)$ once |
+| per-evaluation | $O(n_t\,\ell_\mathrm{max}^3)$ | $O(n_t\,\ell_\mathrm{max})$ | $O(n_t\log n_t)$ |
+| agreement | — | equal to roundoff | equal to roundoff |
+| m-modes | not exposed | {func}`~limtod_jax.driftscan.mmodes_from_sky` / `op.mmodes` | same, plus `mmodes_from_tod_uniform` |
 
 Anything that is a genuine drift scan should use this path; tracking or
 scanning strategies need the generic one.

@@ -57,13 +57,16 @@ from limtod_jax.core import (
 from limtod_jax.driftscan import (
     DriftScanMmode,
     beam_alm_at_reference,
+    check_uniform_grid,
     driftscan_tod,
     driftscan_tod_adjoint,
     horizon_masked_beam_alm,
     horizon_weights,
     mmodes_from_sky,
     mmodes_from_tod,
+    mmodes_from_tod_uniform,
     tod_from_mmodes,
+    tod_from_mmodes_uniform,
 )
 from limtod_jax.hpx import alm2map, map2alm_iter, map2alm_quad, ones_quadrature_alm
 from limtod_jax.projection import generate_projection_rows
@@ -76,6 +79,7 @@ __all__ = [
     "alm_weights",
     "beam_alm_at_reference",
     "beam_weighted_sum",
+    "check_uniform_grid",
     "driftscan_tod",
     "driftscan_tod_adjoint",
     "generate_projection_rows",
@@ -88,6 +92,7 @@ __all__ = [
     "map2alm_quad",
     "mmodes_from_sky",
     "mmodes_from_tod",
+    "mmodes_from_tod_uniform",
     "nalm_of_lmax",
     "ones_quadrature_alm",
     "packed_from_2d",
@@ -95,6 +100,7 @@ __all__ = [
     "packed_to_2d",
     "rotate_alm",
     "tod_from_mmodes",
+    "tod_from_mmodes_uniform",
     "zyz_of_pointing",
     "zyzyz2zyz",
 ]

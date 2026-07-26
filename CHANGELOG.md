@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- ⚡ **FFT fast path for uniformly-sampled drift scans**
+  (`limtod_jax.driftscan`): when the LST grid is uniform over a full
+  sidereal turn, the m-mode time synthesis is an inverse real FFT and the
+  analysis a forward one — O(n_time·log n_time) *independent of lmax*,
+  measured 19–51× faster than the direct phase sum end-to-end (and
+  identical to roundoff). New `tod_from_mmodes_uniform` / `mmodes_from_tod_uniform`
+  (the latter carries measured TOD into m-space in one FFT), plus static
+  `uniform=` / `uniform_sampling=` opt-ins on `driftscan_tod`,
+  `driftscan_tod_adjoint` and `DriftScanMmode`. The adjoint uses the exact
+  FFT counterpart of the synthesis, so it remains an exact transpose
+  (dot-tested in both modes).
+
+  The dispatch is deliberately **static and never auto-detected** — a
+  choice made on the *values* of `dphi` would be impossible under `jit`.
+  The sampling-theorem condition `2·lmax < n_time` is always enforced
+  (a shape statement), and uniformity itself is enforced in two layers:
+  a clear `ValueError` from the now-public `check_uniform_grid` while the
+  values are concrete, and a pure-JAX NaN guard when they are traced.
+  The second layer is not optional — an eager-only check is bypassed by
+  ANY `jit` wrapping (arithmetic inside a trace yields a tracer even for a
+  compile-time-constant grid), and a uniform *half*-turn grid then returned
+  a silently 74%-wrong TOD. The guard costs 30–45% of the raw FFT call,
+  leaving a 10–100× net win, and poisons only the offending row under
+  `vmap`. The uniformity tolerance is **dtype-scaled** so that an
+  exactly-uniform float32 grid (~1e-7 rad of `deg2rad` representation
+  error) is not misread as irregular, and `phase0` enters the output-dtype
+  promotion so the FFT path is never less precise than the sum it
+  reproduces.
+
+### Documentation
+
+- `docs/driftscan.md` gains a measured cost breakdown per stage: the
+  rotation is the only O(lmax³) step and happens once; the direct
+  synthesis can exceed it at low lmax over a full day; and once the
+  rotation is amortized the pixel↔harmonic transform becomes the
+  bottleneck (175 ms at lmax = 256, more than the rotation) — which
+  parameterizing the sky in harmonic space removes entirely. Also notes
+  the block-diagonality in m and the linear growth of compile time with
+  lmax (Python-unrolled ℓ loop).
+
 ## [1.6.0] - 2026-07-26
 
 ### Added
