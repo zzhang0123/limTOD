@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.8.0] - 2026-07-26
 
+### Fixed
+
+- 🛡️ **`dl_array` is now shape-checked.** JAX *clamps* out-of-bounds integer
+  indices rather than raising, so a Wigner-d plane built at a different
+  band-limit than the call was accepted silently and rotated by the wrong
+  sub-block — finite, no warning, ~100% error, under `jit` too. Harmless
+  until now because `dl_array` was an internal parameter of
+  `rotate_flm_2d`; this release is what exposes it publicly (via
+  `dl_plane_for_pointing` and the new `rotate_alm` / `beam_alm_at_reference`
+  arguments), so the guard lands with it. Shapes are static, so the check is
+  free and jit/vmap/grad-safe. The superset case (a plane built at a *larger*
+  lmax) is included: it looks reasonable, and it silently zeroed the low-ℓ
+  coefficients. `docs/limtod-jax.md` now points at `dl_plane_for_pointing`
+  (which takes `lmax`, like every other public entry point) and spells out
+  that the lower-level `generate_rotate_dls` takes `L = lmax + 1`.
+
 ### Performance
 
 - ⚡ **`tod_from_mmodes` and `_zeta` pick between a phase matmul and the

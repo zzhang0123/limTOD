@@ -91,6 +91,19 @@ def rotate_flm_2d(
             f"flm must have shape (L, 2L-1)={(L, 2 * L - 1)}, got {flm.shape}; "
             "batch with jax.vmap rather than a leading axis"
         )
+    if dl_array is not None:
+        expected = (L, 2 * L - 1, 2 * L - 1)
+        if dl_array.shape != expected:
+            raise ValueError(
+                f"dl_array must have shape (L, 2L-1, 2L-1)={expected} for "
+                f"L={L}, got {dl_array.shape}; build it with "
+                f"generate_rotate_dls(L={L}, beta) or "
+                f"dl_plane_for_pointing(..., lmax={L - 1}) — note the public "
+                f"APIs take lmax = L-1 while this one takes L. JAX CLAMPS "
+                f"out-of-bounds indices instead of raising, so a mismatched "
+                f"plane would otherwise be accepted silently and rotate by "
+                f"the wrong sub-block (measured: ~100% error, no warning)."
+            )
 
     m_grid = jnp.arange(-L + 1, L)
     alpha_phases = jnp.exp(-1j * m_grid * jnp.asarray(alpha))

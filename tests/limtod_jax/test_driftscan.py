@@ -896,6 +896,37 @@ def test_dl_plane_is_lst_independent_and_bit_exact(fields):
         assert jnp.array_equal(recomputed, hoisted), f"lst={lst} not bit-exact"
 
 
+@pytest.mark.parametrize("plane_lmax", [LMAX - 1, LMAX + 1, 2 * LMAX])
+def test_dl_plane_wrong_lmax_is_rejected(fields, plane_lmax):
+    """A plane built at the wrong band-limit must RAISE, not compute.
+
+    JAX clamps out-of-bounds integer indices rather than raising, so before
+    the guard a mismatched plane was accepted silently and rotated by the
+    wrong sub-block (~100% error, finite, no warning — under jit too). The
+    superset case (plane_lmax > lmax) is the one users most reasonably
+    expect to work: the big plane does contain the small one, but at a
+    different centre offset, so it silently zeroed the low-ell
+    coefficients."""
+    beam_alm, _, _, _ = fields
+    plane = dl_plane_for_pointing(LAT, AZ, EL, SELFROT, lmax=plane_lmax)
+    with pytest.raises(ValueError, match="dl_array must have shape"):
+        beam_alm_at_reference(
+            beam_alm, LST_REF, LAT, AZ, EL, SELFROT, lmax=LMAX, dl_array=plane
+        )
+
+
+def test_dl_plane_matching_lmax_is_accepted_and_exact(fields):
+    """The guard must not cost the sanctioned pairing anything: a matched
+    plane stays bit-exact against the streaming path."""
+    beam_alm, _, _, _ = fields
+    plane = dl_plane_for_pointing(LAT, AZ, EL, SELFROT, lmax=LMAX)
+    with_plane = beam_alm_at_reference(
+        beam_alm, LST_REF, LAT, AZ, EL, SELFROT, lmax=LMAX, dl_array=plane
+    )
+    without = beam_alm_at_reference(beam_alm, LST_REF, LAT, AZ, EL, SELFROT, lmax=LMAX)
+    assert jnp.array_equal(with_plane, without), "hoisted plane is no longer bit-exact"
+
+
 def test_dl_plane_dtype_follows_the_angles(fields):
     """float32 angles give a float32 plane — the caller's choice must win.
 

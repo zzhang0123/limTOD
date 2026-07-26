@@ -137,8 +137,14 @@ mask along the way.
 - `rotate_alm` is vmappable over angle batches when you do want parallel
   rotations and can afford the memory.
 - Compile time grows with `lmax` (the Wigner recursion unrolls over ℓ);
-  at production lmax consider precomputing `dl_array` via
-  `limtod_jax.wigner.generate_rotate_dls` where pointings share β.
+  at production lmax consider precomputing the Wigner-d plane where
+  pointings share β. For a drift scan use
+  {func}`limtod_jax.driftscan.dl_plane_for_pointing` (takes `lmax`, like
+  every other public entry point) and pass the result as `dl_array`; one
+  plane serves every LST bit-for-bit. The lower-level
+  `limtod_jax.wigner.generate_rotate_dls` takes **`L = lmax + 1`** — mind
+  the off-by-one, a plane built at the wrong band-limit is rejected by a
+  shape check rather than silently rotating by the wrong sub-block.
 
 ## Conventions locked against healpy
 
