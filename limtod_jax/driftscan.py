@@ -626,6 +626,150 @@ def horizon_weights(nside: int, apod_deg: float = 0.0) -> np.ndarray:
     return np.where(el <= 0.0, 0.0, np.where(el >= apod_deg, 1.0, ramp))
 
 
+def horizon_partition_weights(nside: int) -> np.ndarray:
+    """How the beam's SOLID ANGLE divides at the horizon: 1 above, 0 below, 0.5 on.
+
+    Not the same object as :func:`horizon_weights`, and the difference is not
+    cosmetic. ``horizon_weights`` is a MASK — what to multiply the beam by
+    before re-analysis — and its hard cut is a strict ``el > 0``, so the ring
+    of pixels centred exactly ON the horizon (4*nside of them; their elevation
+    is exactly zero, not nearly) gets weight 0. As a mask that is a thin edge
+    detail. As a PARTITION it is a systematic error: a pixel centred on the
+    horizon is half sky and half ground.
+
+    Measured on the quantity that needs a partition -- the above-horizon beam
+    fraction ``f_sky`` that splits an antenna temperature into its sky and
+    ground shares -- against a projector run on a sky map with the ground
+    painted in, at a latitude where the horizon is fixed in celestial
+    coordinates. On a ~200 K effect at nside 16: the ring counted as nothing
+    costs -8.6 K, as all sky +8.7 K, and half **+0.005 K**. The two one-sided
+    errors are symmetric and halve with nside, which is the signature of a
+    miscounted ring rather than of anything harmonic.
+
+    There is deliberately no ``apod_deg``: a tapered region does not partition
+    a sphere. Apodization belongs to the mask.
+
+    Static numpy: a pure function of ``nside``, never traced.
+    """
+    el = 90.0 - np.rad2deg(_pixel_thetas(nside))
+    return np.where(el > 0.0, 1.0, np.where(el < 0.0, 0.0, 0.5))
+
+
+def horizon_truncated_beam(
+    beam_map: jnp.ndarray,
+    *,
+    nside: int,
+    el_deg: float = 90.0,
+    apod_deg: float = 0.0,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Cut a beam MAP at the horizon, and report the fraction that survives.
+
+    For a drift scan the pointing is fixed, so the horizon is fixed too and the
+    truncated beam is a CONSTANT: one elementwise multiply, done once, before
+    the single analysis the caller was going to run anyway.
+
+    That is worth having beside :func:`horizon_masked_beam_alm`, which masks the
+    ALMS and therefore pays a Wigner rotation, a synthesis, an iterative
+    re-analysis and a rotation back on EVERY call — 14.6 ms against 1.79 ms
+    unmasked at nside 16 / lmax 47, **8.2x**, of which the re-analysis alone is
+    65%. This path costs **1.04x**. The two agree to 2.8e-5 relative; the
+    residual is the alm->map->alm round trip the masking path takes BEFORE it
+    masks, which this one does not.
+
+    WHY ``el_deg = 90`` IS EXACT AND ANYTHING ELSE IS REFUSED. The mask is a
+    pure function of elevation and this chart puts the ZENITH at the pole, while
+    a beam-local map puts the BORESIGHT there. At a zenith pointing those poles
+    coincide, so the two charts can differ only by a rotation ABOUT that shared
+    pole — which a pure-elevation function is invariant under. Azimuth and
+    self-rotation are therefore irrelevant and no rotation is needed at all.
+    Away from zenith the poles part, the horizon becomes a tilted great circle
+    in the beam-local chart, and :func:`horizon_masked_beam_alm` is the tool.
+
+    Args:
+        beam_map: ``(..., npix)`` HEALPix RING beam map(s) in the beam-local
+            frame. Traced — gradients flow to the beam.
+        nside: HEALPix resolution of ``beam_map``.
+        el_deg: boresight elevation [deg]; only 90 is supported (see above).
+        apod_deg: cosine-apodization width of the cut [deg of elevation]. The
+            MAPS carry the taper; the fraction always uses the hard partition of
+            :func:`horizon_partition_weights`.
+
+    Returns:
+        ``(truncated_map, sky_fraction)`` — the map with ``beam_map``'s shape,
+        the fraction with its leading axes.
+
+    Raises:
+        ValueError: for a non-zenith ``el_deg`` or a bad map length.
+    """
+    if abs(float(el_deg) - 90.0) > 1e-9:
+        raise ValueError(
+            f"horizon_truncated_beam supports a zenith pointing (el_deg=90), got "
+            f"{el_deg}. Only there do the beam-local and horizontal charts share "
+            "a pole, which is what makes a pure-elevation mask applicable without "
+            "any rotation. For a tilted pointing use horizon_masked_beam_alm."
+        )
+    beam_map = jnp.asarray(beam_map)
+    if beam_map.shape[-1] != 12 * nside**2:
+        raise ValueError(
+            f"beam_map has {beam_map.shape[-1]} pixels, not 12*nside**2 = "
+            f"{12 * nside**2} for nside={nside}."
+        )
+    taper = jnp.asarray(horizon_weights(nside, apod_deg))
+    partition = jnp.asarray(horizon_partition_weights(nside))
+    fraction = jnp.sum(beam_map * partition, axis=-1) / jnp.sum(beam_map, axis=-1)
+    return beam_map * taper, fraction
+
+
+def horizon_beam_fraction(
+    beam_alm: jnp.ndarray,
+    az_deg: jnp.ndarray,
+    el_deg: jnp.ndarray,
+    selfrot_deg: jnp.ndarray = 0.0,
+    *,
+    nside: int,
+    lmax: int,
+) -> jnp.ndarray:
+    """Above-horizon share of a beam's solid angle, for any fixed pointing.
+
+    ``f_sky = int_above B dOmega / int_4pi B dOmega``, the weight that splits an
+    antenna temperature into its sky and ground shares. The alm-side companion
+    to :func:`horizon_truncated_beam`, using the same (az, el, selfrot)
+    sub-chain as :func:`horizon_masked_beam_alm` so the two describe one beam.
+
+    Computed in PIXEL space, on purpose. The band-limited masked beam that
+    :func:`horizon_masked_beam_alm` builds is a Gibbs approximation to a
+    discontinuous target, and its own solid-angle integral is off by ~0.7% at
+    nside 16 / lmax 47 -- ``map2alm`` of a sharply cut map does not preserve the
+    mean. Using that as ``f_sky`` leaves -17 K of a 200 K spill bias; this
+    leaves ~0. The two are different objects: one is how the beam's solid angle
+    divides, the other is how the visible part weights the sky.
+
+    Args:
+        beam_alm: ``(..., n_alm)`` packed beam alms in the BEAM-LOCAL frame.
+        az_deg / el_deg / selfrot_deg: the fixed pointing [deg].
+        nside: resolution to evaluate the partition at.
+        lmax: band-limit matching ``beam_alm``.
+
+    Returns:
+        The fraction, with ``beam_alm``'s leading axes.
+    """
+    _validate_alm("beam_alm", beam_alm, lmax)
+    psi, theta, phi = zyzyz2zyz(
+        0.0, 0.0, -jnp.asarray(az_deg), jnp.asarray(el_deg) - 90.0,
+        jnp.asarray(selfrot_deg),
+    )
+    partition = jnp.asarray(horizon_partition_weights(nside))
+
+    def one(alm: jnp.ndarray) -> jnp.ndarray:
+        beam_h = alm2map(rotate_alm(alm, psi, theta, phi, lmax=lmax),
+                         nside=nside, lmax=lmax)
+        # HEALPix pixels are equal-area, so a plain sum IS the integral.
+        return jnp.sum(beam_h * partition) / jnp.sum(beam_h)
+
+    flat = beam_alm.reshape(-1, beam_alm.shape[-1])
+    return jax.vmap(one)(flat).reshape(beam_alm.shape[:-1])
+
+
 def horizon_masked_beam_alm(
     beam_alm: jnp.ndarray,
     az_deg: jnp.ndarray,
