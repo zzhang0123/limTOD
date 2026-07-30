@@ -5,6 +5,72 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-07-30
+
+### Added
+
+- 🧭 **The horizon as a PARTITION, not just a mask.**
+  `horizon_partition_weights(nside)` — 1 above the horizon, 0 below, **0.5 on
+  it**. This is a different object from `horizon_weights`, and the difference
+  is not cosmetic. `horizon_weights` is a *mask*: what to multiply a beam by
+  before re-analysis, and its hard cut is a strict `el > 0`, so the ring of
+  pixels centred exactly ON the horizon (4·nside of them — their elevation is
+  exactly zero, not nearly) gets weight 0. As a mask that is a thin edge
+  detail. As a partition it is systematic: a pixel centred on the horizon is
+  half sky and half ground.
+
+  Measured on the quantity that needs a partition — the above-horizon beam
+  fraction `f_sky` that splits an antenna temperature into its sky and ground
+  shares — against a projector run on a sky map with the ground painted in, at
+  a latitude where the horizon is fixed in celestial coordinates. On a ~200 K
+  effect at nside 16: the ring counted as nothing costs **−8.6 K**, as all sky
+  **+8.7 K**, and half **+0.005 K**. The two one-sided errors are symmetric and
+  halve with nside — the signature of a miscounted ring, not of anything
+  harmonic. `horizon_weights` is unchanged; masking semantics were never wrong.
+
+- ✂️ **`horizon_truncated_beam(beam_map, *, nside, el_deg=90, apod_deg=0)`** —
+  cut a beam MAP at the horizon, and get the surviving fraction back with it.
+  For a drift scan the pointing is fixed, so the horizon is fixed and the
+  truncated beam is a **constant**: one elementwise multiply, done once, before
+  the single analysis the caller was going to run anyway.
+
+  Beside `horizon_masked_beam_alm`, which masks the ALMS and therefore pays a
+  Wigner rotation, a synthesis, an iterative re-analysis and a rotation back on
+  **every call** — 14.6 ms against 1.79 ms unmasked at nside 16 / lmax 47,
+  **8.2×**, of which the re-analysis alone is 65%. The map path costs **1.04×**.
+  The two agree to 2.8e-5; the residual is the alm→map→alm round trip the
+  masking path takes *before* it masks.
+
+  `el_deg = 90` is exact and anything else is refused, for a reason rather than
+  a limitation: the mask is a pure function of elevation and this chart puts the
+  ZENITH at the pole, while a beam-local map puts the BORESIGHT there. At a
+  zenith pointing those poles coincide, so the charts can differ only by a
+  rotation ABOUT that shared pole — which a pure-elevation function cannot see.
+  Azimuth and self-rotation are therefore irrelevant and no rotation is needed.
+  Away from zenith the poles part and `horizon_masked_beam_alm` is the tool.
+
+- 📐 **`horizon_beam_fraction(beam_alm, az, el, selfrot, *, nside, lmax)`** —
+  the same fraction for any fixed pointing, from beam-local alms, using the
+  same (az, el, selfrot) sub-chain as `horizon_masked_beam_alm` so the two
+  describe one beam. Computed in pixel space on purpose: the band-limited
+  masked beam is a Gibbs approximation to a discontinuous target and its own
+  solid-angle integral is off by ~0.7% at nside 16 / lmax 47, because
+  `map2alm` of a sharply cut map does not preserve the mean. Using that as
+  `f_sky` leaves −17 K of the 200 K bias.
+
+  Prompted by RHEPLICANT, which needs `f_sky` to split an antenna temperature
+  and had been computing it on its own side — beam-weighted-sky physics belongs
+  here.
+
+### Tests
+
+- `tests/limtod_jax/test_horizon_partition.py` (25 tests): the painted-ground
+  closure at latitude 90 (where the horizon coincides with the celestial
+  equator and stops moving with LST, so the reference is computable rather than
+  arguable), the symmetric ±8.6 K cost of the one-sided ring conventions, the
+  two fraction routes against each other, and the zenith azimuth-invariance
+  that makes the map path exact.
+
 ## [1.8.0] - 2026-07-26
 
 ### Fixed

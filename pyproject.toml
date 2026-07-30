@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "limTOD"
-version = "1.8.0"
+version = "1.9.0"
 authors = [
     {name = "Zheng Zhang", email = "zheng.zhang@manchester.ac.uk"},
 ]
