@@ -11,6 +11,13 @@ defining module. Requires the `[jax]` extra.
    :members:
 ```
 
+## Polarisation
+
+```{eval-rst}
+.. automodule:: limtod_jax.stokes
+   :members:
+```
+
 ## Spherical harmonics and HEALPix
 
 ```{eval-rst}

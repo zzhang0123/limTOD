@@ -30,7 +30,7 @@ def test_generate_tod_sky_rejects_bad_angle_shapes(bad_angles):
 
 
 def test_generate_tod_sky_rejects_alm_length_mismatch():
-    with pytest.raises(ValueError, match="alm lengths"):
+    with pytest.raises(ValueError, match="does not match lmax"):
         generate_tod_sky(jnp.zeros(N_ALM + 1, dtype=jnp.complex128), ALM, ANGLES, lmax=LMAX)
 
 
@@ -43,11 +43,23 @@ def test_adjoint_rejects_bad_tod_shapes(bad_tod):
         generate_tod_sky_adjoint(bad_tod, ALM, ANGLES, lmax=LMAX)
 
 
-def test_rotate_flm_2d_rejects_batched_input():
+def test_rotate_flm_2d_accepts_one_leading_axis_only():
+    """ONE leading axis is the Stokes stack (see limtod_jax.stokes); two is
+    still jax.vmap's job, and a wrong trailing shape is always an error."""
     L = LMAX + 1
     good = jnp.zeros((L, 2 * L - 1), dtype=jnp.complex128)
     zero = jnp.asarray(0.0)
     out = rotate_flm_2d(good, L, zero, zero, zero)
     np.testing.assert_allclose(np.asarray(out), np.asarray(good))
-    with pytest.raises(ValueError, match="batch with jax.vmap"):
-        rotate_flm_2d(jnp.zeros((2, L, 2 * L - 1), dtype=jnp.complex128), L, zero, zero, zero)
+
+    stacked = rotate_flm_2d(
+        jnp.zeros((3, L, 2 * L - 1), dtype=jnp.complex128), L, zero, zero, zero
+    )
+    assert stacked.shape == (3, L, 2 * L - 1)
+
+    with pytest.raises(ValueError, match="batch beyond one leading axis"):
+        rotate_flm_2d(
+            jnp.zeros((2, 3, L, 2 * L - 1), dtype=jnp.complex128), L, zero, zero, zero
+        )
+    with pytest.raises(ValueError, match="batch beyond one leading axis"):
+        rotate_flm_2d(jnp.zeros((L, 2 * L), dtype=jnp.complex128), L, zero, zero, zero)

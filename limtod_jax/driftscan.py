@@ -40,6 +40,21 @@ the choice must not depend on traced values). The direct sum remains the
 default because real scans have gaps and irregular sampling, where the
 FFT identity does not hold.
 
+POLARISATION. Everything above is spin-independent, and that is not an
+accident: a rotation about z contributes ``D^l_{m'm}(α,0,0) = δ_{m'm}·e^{−imα}``
+whatever the spin, so the E and B alms of a polarised beam pick up the SAME
+drift phase as T. Set the static ``npol`` (1/3/4) and give the alms a leading
+Stokes axis ``(..., npol, n_alm)`` of packed ``T``/``E``/``B``/``V`` rows; the
+m-modes gain one extra sum,
+
+    ``Ṽ_m = Σ_row Σ_l conj(B_row,lm(ref)) · S̃_row,lm``
+
+and nothing else changes — same phase law, same synthesis, same FFT fast
+path, same block-diagonal-in-m structure. See :mod:`limtod_jax.stokes` for
+the contract and ``tests/limtod_jax/test_polarisation.py`` for the locks
+(the m-mode TOD is checked against BOTH the generic JAX path and numpy
+limTOD's own full-Stokes ``generate_TOD_sky``).
+
 The beam that enters here is, physically, the beam AFTER a horizon cut
 (the antenna cannot see below the ground): :func:`horizon_masked_beam_alm`
 applies that cut in the horizontal frame, with optional apodization to
@@ -62,10 +77,19 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from limtod_jax.alm import nalm_of_lmax, packed_lm_arrays
+from limtod_jax.alm import packed_lm_arrays
 from limtod_jax.angles import zyz_of_pointing, zyzyz2zyz
 from limtod_jax.core import rotate_alm
 from limtod_jax.hpx import alm2map, map2alm_iter, ones_quadrature_alm
+from limtod_jax.stokes import (
+    STOKES_ALM_ROWS,
+    STOKES_MAP_ROWS,
+    match_npol,
+    stokes_i,
+    validate_npol,
+    validate_pol_alm,
+    validate_unpolarised,
+)
 from limtod_jax.wigner import generate_rotate_dls
 
 # Above how many (lmax+1)*n_time phase-matrix entries the non-uniform
@@ -76,14 +100,6 @@ from limtod_jax.wigner import generate_rotate_dls
 # small enough that paying 28x the runtime to avoid it is a bad trade.
 # Static: it is compared against shapes, never traced values.
 _PHASE_MATRIX_MAX = 10**7
-
-
-def _validate_alm(name: str, alm: jnp.ndarray, lmax: int) -> None:
-    if alm.shape[-1] != nalm_of_lmax(lmax):
-        raise ValueError(
-            f"{name} length {alm.shape[-1]} does not match lmax={lmax} "
-            f"(expected {nalm_of_lmax(lmax)})"
-        )
 
 
 def _validate_dphi(dphi: jnp.ndarray) -> None:
@@ -211,6 +227,7 @@ def beam_alm_at_reference(
     *,
     lmax: int,
     dl_array: jnp.ndarray | None = None,
+    npol: int | None = None,
 ) -> jnp.ndarray:
     """Beam-local packed alms -> celestial-frame packed alms at ``lst_ref``.
 
@@ -218,7 +235,12 @@ def beam_alm_at_reference(
     every angle). Equivalent to what the generic path applies at the sample
     with ``lst = lst_ref``; every other sample follows by phases.
 
+    Accepts a Stokes stack ``(npol, n_alm)`` when ``npol`` is set — one
+    rotation for the whole stack, sharing the Risbo recursion across rows.
+
     Args:
+        npol: static 1/3/4 asserting the leading Stokes axis; ``None`` for
+            the unpolarised case (unchanged).
         dl_array: optional precomputed Wigner-d plane, from
             :func:`dl_plane_for_pointing` with the SAME
             ``(lat, az, el, selfrot)``. Those four fix the polar angle, and
@@ -230,7 +252,7 @@ def beam_alm_at_reference(
             amortize the rotation when the BEAM is the fitted parameter and
             the reference-frame trick is unavailable.
     """
-    _validate_alm("beam_alm", beam_alm, lmax)
+    validate_pol_alm("beam_alm", beam_alm, lmax, validate_npol(npol))
     psi, theta, phi = zyz_of_pointing(lst_ref_deg, lat_deg, az_deg, el_deg, selfrot_deg)
     return rotate_alm(beam_alm, psi, theta, phi, lmax=lmax, dl_array=dl_array)
 
@@ -264,8 +286,9 @@ def mmodes_from_sky(
     sky_alm: jnp.ndarray,
     *,
     lmax: int | None = None,
+    npol: int | None = None,
 ) -> jnp.ndarray:
-    """m-modes of the drift-scan TOD: ``Ṽ_m = Σ_l conj(B_lm(ref))·S̃_lm``.
+    """m-modes of the drift-scan TOD: ``Ṽ_m = Σ_row Σ_l conj(B_lm(ref))·S̃_lm``.
 
     Args:
         beam_ref_alm: packed celestial-frame beam alms at the reference LST
@@ -273,28 +296,41 @@ def mmodes_from_sky(
         sky_alm: packed QUADRATURE sky alms (see :mod:`limtod_jax.core` for
             the exactness contract with numpy limTOD).
         lmax: static band-limit; inferred from the alm length when omitted.
+        npol: static 1/3/4 — CONTRACT a leading Stokes axis
+            ``(..., npol, n_alm)`` of packed T/E/B/V rows, adding the row sum
+            to eqn (14). ``None`` (default) leaves every leading axis a batch
+            axis, exactly as before.
 
     Returns
     -------
         Complex ``(lmax+1,)`` array, entry ``m`` holding ``Ṽ_m`` for
         ``m ≥ 0`` (the note's eqn (14); real fields make
         ``Ṽ_{−m} = conj(Ṽ_m)`` redundant). These are the Fourier coefficients
-        of the sidereal-day TOD, eqn (15). Leading batch dims pass through.
+        of the sidereal-day TOD, eqn (15). Leading batch dims — everything
+        outside the Stokes axis — pass through.
+
+        The polarised m-modes are a SINGLE complex series, not one per
+        Stokes row: the rows are contracted into each TOD sample, so the
+        block-diagonal-in-m map-making structure is unchanged (it is the SKY
+        that gains rows, on the adjoint side).
     """
     if beam_ref_alm.shape[-1] != sky_alm.shape[-1]:
         raise ValueError(
             f"alm length mismatch: {beam_ref_alm.shape[-1]} vs {sky_alm.shape[-1]}"
         )
+    npol = validate_npol(npol)
     if lmax is None:
         from limtod_jax.alm import lmax_of_nalm
 
         lmax = lmax_of_nalm(beam_ref_alm.shape[-1])
-    else:
-        _validate_alm("beam_ref_alm", beam_ref_alm, lmax)
+    validate_pol_alm("beam_ref_alm", beam_ref_alm, lmax, npol)
+    validate_pol_alm("sky_alm", sky_alm, lmax, npol)
+    match_npol("beam_ref_alm", beam_ref_alm, "sky_alm", sky_alm, npol)
     _, ms = packed_lm_arrays(lmax)
     prod = jnp.conj(beam_ref_alm) * sky_alm
     out = jnp.zeros(prod.shape[:-1] + (lmax + 1,), dtype=prod.dtype)
-    return out.at[..., ms].add(prod)
+    mm = out.at[..., ms].add(prod)
+    return mm if npol is None else jnp.sum(mm, axis=-2)
 
 
 def tod_from_mmodes(mmodes: jnp.ndarray, dphi: jnp.ndarray) -> jnp.ndarray:
@@ -490,22 +526,31 @@ def driftscan_tod(
     normalize: bool = False,
     ones_alm: jnp.ndarray | None = None,
     uniform: bool = False,
+    npol: int | None = None,
 ) -> jnp.ndarray:
     """Drift-scan sky TOD via m-modes — the fast exact special case of
     :func:`limtod_jax.core.generate_tod_sky` for fixed az/el/selfrot.
 
     Args:
         beam_ref_alm: packed celestial-frame beam alms at the reference LST
-            (:func:`beam_alm_at_reference`).
+            (:func:`beam_alm_at_reference`), ``(n_alm,)`` or
+            ``(npol, n_alm)``.
         sky_alm: packed QUADRATURE sky alms (exactness contract of
-            :mod:`limtod_jax.core`).
+            :mod:`limtod_jax.core`), same shape.
         dphi: ``(n_time,)`` LST offsets ``deg2rad(lst_deg − lst_ref_deg)``.
         lmax: static band-limit matching the alm lengths.
         normalize: static; divide each sample by the rotated beam's pixel
-            sum (numpy limTOD's ``normalize_beam`` semantics). Along a
-            drift the denominator is constant up to the ones-map's tiny
-            m ≠ 0 quadrature residues; it is computed exactly anyway.
+            sum (numpy limTOD's ``normalize_beam`` semantics) — the
+            **Stokes-I** row's sum when polarised, applied to every row, as
+            ``pointing_beam_in_eq_sys`` does. Along a drift the denominator
+            is constant up to the ones-map's tiny m ≠ 0 quadrature residues;
+            it is computed exactly anyway.
         ones_alm: quadrature alms of the ones map; required iff normalize.
+            Always a single unpolarised row ``(n_alm,)``.
+        npol: static 1/3/4 — the Stokes axis to CONTRACT (see
+            :mod:`limtod_jax.stokes`). Costs one extra sum in the m-mode
+            projection and nothing at all in the synthesis, since the drift
+            phase is spin-independent.
         uniform: STATIC opt-in to the FFT synthesis — assert that ``dphi``
             is a uniform grid over a full sidereal turn
             (``dphi[t] = dphi[0] + 2π·t/n_time``, ``2·lmax < n_time``).
@@ -519,22 +564,32 @@ def driftscan_tod(
         ``(n_time,)`` real TOD, equal to the generic per-sample-rotation
         path to float64 roundoff (oracle-locked in the test suite).
     """
-    _validate_alm("beam_ref_alm", beam_ref_alm, lmax)
-    _validate_alm("sky_alm", sky_alm, lmax)
+    npol = validate_npol(npol)
+    validate_pol_alm("beam_ref_alm", beam_ref_alm, lmax, npol)
+    validate_pol_alm("sky_alm", sky_alm, lmax, npol)
+    match_npol("beam_ref_alm", beam_ref_alm, "sky_alm", sky_alm, npol)
     _validate_dphi(dphi)
     if normalize and ones_alm is None:
         raise ValueError(
             "normalize=True requires ones_alm — the quadrature alms of the "
             "ones map (limtod_jax.hpx.ones_quadrature_alm)"
         )
+    if ones_alm is not None:
+        validate_unpolarised("ones_alm", ones_alm)
     if uniform:
         _validate_nyquist(dphi.shape[0], lmax)
         check_uniform_grid(dphi)
-    num = _synthesize(mmodes_from_sky(beam_ref_alm, sky_alm, lmax=lmax), dphi, uniform)
+    num = _synthesize(
+        mmodes_from_sky(beam_ref_alm, sky_alm, lmax=lmax, npol=npol), dphi, uniform
+    )
     if not normalize:
         return num
     assert ones_alm is not None  # checked above; narrows the type
-    den = _synthesize(mmodes_from_sky(beam_ref_alm, ones_alm, lmax=lmax), dphi, uniform)
+    den = _synthesize(
+        mmodes_from_sky(stokes_i(beam_ref_alm, npol), ones_alm, lmax=lmax),
+        dphi,
+        uniform,
+    )
     return num / den
 
 
@@ -547,6 +602,7 @@ def driftscan_tod_adjoint(
     normalize: bool = False,
     ones_alm: jnp.ndarray | None = None,
     uniform: bool = False,
+    npol: int | None = None,
 ) -> jnp.ndarray:
     """Exact transpose of :func:`driftscan_tod` in the sky slot.
 
@@ -562,8 +618,15 @@ def driftscan_tod_adjoint(
     O(n_time·log n_time) with ``uniform=True``, where ζ is a forward real
     FFT (the exact counterpart of the synthesis ``irfft``, so the transpose
     property is preserved; dot-tested in both modes).
+
+    Polarised (``npol`` set), ζ is unchanged — it is a property of the TIME
+    sampling alone — and the same ζ multiplies every Stokes row, so the
+    output is ``(npol, n_alm)``. That is the whole cost of polarised
+    map-making here: the normal equations stay block-diagonal in m, with
+    ``npol``-sized blocks instead of scalars.
     """
-    _validate_alm("beam_ref_alm", beam_ref_alm, lmax)
+    npol = validate_npol(npol)
+    validate_pol_alm("beam_ref_alm", beam_ref_alm, lmax, npol)
     _validate_dphi(dphi)
     if tod.ndim != 1 or tod.shape[0] != dphi.shape[0]:
         raise ValueError(
@@ -573,6 +636,8 @@ def driftscan_tod_adjoint(
     if uniform:
         _validate_nyquist(dphi.shape[0], lmax)
         check_uniform_grid(dphi)
+    if ones_alm is not None:
+        validate_unpolarised("ones_alm", ones_alm)
     if normalize:
         if ones_alm is None:
             raise ValueError(
@@ -580,7 +645,9 @@ def driftscan_tod_adjoint(
                 "the ones map (limtod_jax.hpx.ones_quadrature_alm)"
             )
         den = _synthesize(
-            mmodes_from_sky(beam_ref_alm, ones_alm, lmax=lmax), dphi, uniform
+            mmodes_from_sky(stokes_i(beam_ref_alm, npol), ones_alm, lmax=lmax),
+            dphi,
+            uniform,
         )
         tod = tod / den
     zeta = (
@@ -661,6 +728,7 @@ def horizon_truncated_beam(
     nside: int,
     el_deg: float = 90.0,
     apod_deg: float = 0.0,
+    npol: int | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Cut a beam MAP at the horizon, and report the fraction that survives.
 
@@ -685,18 +753,31 @@ def horizon_truncated_beam(
     Away from zenith the poles part, the horizon becomes a tilted great circle
     in the beam-local chart, and :func:`horizon_masked_beam_alm` is the tool.
 
+    POLARISATION. The taper is a real per-pixel scalar, so it multiplies
+    ``I``, ``Q``, ``U`` and ``V`` alike — no spin algebra is involved and a
+    ``(npol, npix)`` map needs nothing but broadcasting. The FRACTION,
+    however, is a property of the beam's SOLID ANGLE and must come from the
+    Stokes-I row alone: ``f_sky`` is the weight that splits an antenna
+    temperature into sky and ground shares, and Q/U integrate to something
+    that is not a power at all (a beam with zero net Q would make a per-row
+    fraction divide by zero). Pass ``npol`` to select that row.
+
     Args:
         beam_map: ``(..., npix)`` HEALPix RING beam map(s) in the beam-local
-            frame. Traced — gradients flow to the beam.
+            frame — ``(..., npol, npix)`` Stokes rows ``I,Q,U[,V]`` when
+            ``npol`` is set. Traced — gradients flow to the beam.
         nside: HEALPix resolution of ``beam_map``.
         el_deg: boresight elevation [deg]; only 90 is supported (see above).
         apod_deg: cosine-apodization width of the cut [deg of elevation]. The
             MAPS carry the taper; the fraction always uses the hard partition of
             :func:`horizon_partition_weights`.
+        npol: static 1/3/4 marking a leading Stokes axis on ``beam_map``;
+            ``None`` (default) treats every leading axis as a batch axis.
 
     Returns:
         ``(truncated_map, sky_fraction)`` — the map with ``beam_map``'s shape,
-        the fraction with its leading axes.
+        the fraction with its leading axes (the Stokes axis dropped when
+        ``npol`` is set, since one beam has one sky fraction).
 
     Raises:
         ValueError: for a non-zenith ``el_deg`` or a bad map length.
@@ -709,14 +790,23 @@ def horizon_truncated_beam(
             "any rotation. For a tilted pointing use horizon_masked_beam_alm."
         )
     beam_map = jnp.asarray(beam_map)
+    npol = validate_npol(npol)
     if beam_map.shape[-1] != 12 * nside**2:
         raise ValueError(
             f"beam_map has {beam_map.shape[-1]} pixels, not 12*nside**2 = "
             f"{12 * nside**2} for nside={nside}."
         )
+    if npol is not None and (beam_map.ndim < 2 or beam_map.shape[-2] != npol):
+        raise ValueError(
+            f"beam_map must have shape (..., npol, npix) = (..., {npol}, "
+            f"{12 * nside**2}) for npol={npol} — Stokes rows "
+            f"{STOKES_MAP_ROWS[npol]} — got {beam_map.shape}"
+        )
     taper = jnp.asarray(horizon_weights(nside, apod_deg))
     partition = jnp.asarray(horizon_partition_weights(nside))
-    fraction = jnp.sum(beam_map * partition, axis=-1) / jnp.sum(beam_map, axis=-1)
+    # f_sky is a solid-angle split: Stokes I only (see the docstring).
+    beam_i = beam_map[..., 0, :] if npol is not None else beam_map
+    fraction = jnp.sum(beam_i * partition, axis=-1) / jnp.sum(beam_i, axis=-1)
     return beam_map * taper, fraction
 
 
@@ -728,6 +818,7 @@ def horizon_beam_fraction(
     *,
     nside: int,
     lmax: int,
+    npol: int | None = None,
 ) -> jnp.ndarray:
     """Above-horizon share of a beam's solid angle, for any fixed pointing.
 
@@ -744,16 +835,27 @@ def horizon_beam_fraction(
     leaves ~0. The two are different objects: one is how the beam's solid angle
     divides, the other is how the visible part weights the sky.
 
+    POLARISATION: ``f_sky`` is a SOLID-ANGLE split, so only the Stokes-I
+    (``T``) row enters — pass ``npol`` and the row is selected for you, with
+    no spin-2 transform involved. Q/U carry no total power to divide (a beam
+    with zero net Q would make a per-row fraction singular), so there is
+    deliberately no per-Stokes fraction.
+
     Args:
-        beam_alm: ``(..., n_alm)`` packed beam alms in the BEAM-LOCAL frame.
+        beam_alm: ``(..., n_alm)`` packed beam alms in the BEAM-LOCAL frame,
+            or ``(..., npol, n_alm)`` T/E/B/V rows when ``npol`` is set.
         az_deg / el_deg / selfrot_deg: the fixed pointing [deg].
         nside: resolution to evaluate the partition at.
         lmax: band-limit matching ``beam_alm``.
+        npol: static 1/3/4 marking the Stokes axis; ``None`` for Stokes I.
 
     Returns:
-        The fraction, with ``beam_alm``'s leading axes.
+        The fraction, with ``beam_alm``'s leading axes (the Stokes axis
+        dropped when ``npol`` is set — one beam, one fraction).
     """
-    _validate_alm("beam_alm", beam_alm, lmax)
+    npol = validate_npol(npol)
+    validate_pol_alm("beam_alm", beam_alm, lmax, npol)
+    beam_alm = stokes_i(beam_alm, npol)
     psi, theta, phi = zyzyz2zyz(
         0.0, 0.0, -jnp.asarray(az_deg), jnp.asarray(el_deg) - 90.0,
         jnp.asarray(selfrot_deg),
@@ -780,6 +882,7 @@ def horizon_masked_beam_alm(
     lmax: int,
     apod_deg: float = 0.0,
     iterations: int = 3,
+    npol: int | None = None,
 ) -> jnp.ndarray:
     """Horizon-masked beam, returned as BEAM-LOCAL packed alms.
 
@@ -797,8 +900,24 @@ def horizon_masked_beam_alm(
     magnitudes and the ``apod_deg`` mitigation study.
 
     Requires x64 (s2fft HEALPix transforms; :mod:`limtod_jax.hpx`).
+
+    POLARISATION. Supported via ``npol``, but note that this is the ONE part
+    of the drift-scan path where polarisation is not free: the rotation and
+    the dot are spin-independent and therefore row-wise, whereas masking has
+    to leave harmonic space, which means a genuine spin-2 synthesis of (Q, U)
+    from (E, B) and a spin-2 analysis back. Two consequences worth knowing
+    before switching it on, both detailed in :mod:`limtod_jax.hpx`:
+
+    * The spin-2 transforms need ``nside >= 2``, ``lmax + 1 >= 2*nside``, and
+      a DENSE precompute kernel of O(nside·lmax²) — cheap up to nside ~32
+      (16 MB) but ~1 GB at nside 128 / lmax 255. It is cached and this is a
+      one-off beam preparation, but it does cap the usable resolution.
+    * At a ZENITH pointing, prefer :func:`horizon_truncated_beam`: also fully
+      polarised, exact rather than band-limited, ~8x cheaper, and it needs no
+      spin-2 machinery at all (the taper is a real scalar).
     """
-    _validate_alm("beam_alm", beam_alm, lmax)
+    npol = validate_npol(npol)
+    validate_pol_alm("beam_alm", beam_alm, lmax, npol)
     psi, theta, phi = zyzyz2zyz(
         0.0,
         0.0,
@@ -807,10 +926,10 @@ def horizon_masked_beam_alm(
         jnp.asarray(selfrot_deg),
     )
     beam_h = rotate_alm(beam_alm, psi, theta, phi, lmax=lmax)
-    map_h = alm2map(beam_h, nside=nside, lmax=lmax)
+    map_h = alm2map(beam_h, nside=nside, lmax=lmax, npol=npol)
     weights = jnp.asarray(horizon_weights(nside, apod_deg))
     masked_alm = map2alm_iter(
-        map_h * weights, nside=nside, lmax=lmax, iterations=iterations
+        map_h * weights, nside=nside, lmax=lmax, iterations=iterations, npol=npol
     )
     # Inverse rotation: (psi, theta, phi) -> (-phi, -theta, -psi), locked
     # numerically (roundtrip test in the suite).
@@ -827,8 +946,9 @@ class DriftScanMmode(eqx.Module):
     pointing) or directly from a precomputed ``beam_ref_alm``.
 
     Attributes:
-        beam_ref_alm: ``(n_alm,)`` packed celestial-frame beam alms at the
-            reference LST (traced — differentiable beam).
+        beam_ref_alm: ``(n_alm,)`` — or ``(npol, n_alm)`` when polarised —
+            packed celestial-frame beam alms at the reference LST (traced —
+            differentiable beam).
         dphi: ``(n_time,)`` LST offsets from the reference, RADIANS (traced).
         lmax: static band-limit matching ``beam_ref_alm``.
         normalize: static; numpy limTOD ``normalize_beam`` semantics.
@@ -837,6 +957,9 @@ class DriftScanMmode(eqx.Module):
             a full sidereal turn and use the FFT synthesis
             (see :func:`driftscan_tod`). Validated at construction whenever
             ``dphi`` is concrete.
+        npol: static 1/3/4 for a polarised beam (packed T/E/B/V rows), or
+            ``None`` for Stokes I. The TOD stays ``(n_time,)`` either way —
+            the Stokes rows contract into each sample.
     """
 
     beam_ref_alm: jax.Array
@@ -845,21 +968,32 @@ class DriftScanMmode(eqx.Module):
     normalize: bool = eqx.field(static=True, default=False)
     ones_alm: jax.Array | None = None
     uniform_sampling: bool = eqx.field(static=True, default=False)
+    npol: int | None = eqx.field(static=True, default=None)
 
     def __check_init__(self):
-        if self.beam_ref_alm.ndim != 1:
+        validate_npol(self.npol)
+        want_ndim = 1 if self.npol is None else 2
+        if self.beam_ref_alm.ndim != want_ndim:
             raise ValueError(
-                f"beam_ref_alm must be 1D (n_alm,) — the operator is "
-                f"single-beam; batch frequencies by vmapping the constructor "
-                f"or the call — got shape {self.beam_ref_alm.shape}"
+                f"beam_ref_alm must be {want_ndim}D "
+                f"({'(n_alm,)' if self.npol is None else f'({self.npol}, n_alm)'})"
+                f" — the operator is single-beam; batch frequencies by vmapping "
+                f"the constructor or the call — got shape "
+                f"{self.beam_ref_alm.shape}"
             )
-        _validate_alm("beam_ref_alm", self.beam_ref_alm, self.lmax)
+        validate_pol_alm("beam_ref_alm", self.beam_ref_alm, self.lmax, self.npol)
         _validate_dphi(self.dphi)
         if self.normalize and self.ones_alm is None:
             raise ValueError(
                 "normalize=True requires ones_alm "
                 "(limtod_jax.hpx.ones_quadrature_alm)"
             )
+        if self.ones_alm is not None:
+            # Checked HERE and not only on __call__: a Stokes stack in this
+            # slot broadcasts rather than failing, so the operator would build
+            # cleanly and only surface a wrong-shaped TOD much later.
+            validate_unpolarised("ones_alm", self.ones_alm)
+            validate_pol_alm("ones_alm", self.ones_alm, self.lmax, None)
         if self.uniform_sampling:
             _validate_nyquist(self.dphi.shape[0], self.lmax)
             check_uniform_grid(self.dphi)
@@ -882,12 +1016,14 @@ class DriftScanMmode(eqx.Module):
         apod_deg: float = 0.0,
         mask_iterations: int = 3,
         uniform_sampling: bool = False,
+        npol: int | None = None,
     ) -> "DriftScanMmode":
         """Build the operator from beam-local alms and drift-scan pointing.
 
         Args:
             beam_alm: ``(n_alm,)`` packed beam alms in the beam-local frame
-                (as ``hp.map2alm(beam_map)`` computes them in numpy limTOD).
+                (as ``hp.map2alm(beam_map)`` computes them in numpy limTOD),
+                or ``(npol, n_alm)`` packed T/E/B/V rows for a polarised beam.
             lst_deg: ``(n_time,)`` local sidereal times [deg].
             lat_deg / az_deg / el_deg / selfrot_deg: the fixed site latitude
                 and pointing of the drift scan [deg].
@@ -902,10 +1038,34 @@ class DriftScanMmode(eqx.Module):
             apod_deg / mask_iterations: forwarded to the mask.
             uniform_sampling: opt in to the FFT synthesis (static); requires
                 ``lst_deg`` to be a uniform grid over a full sidereal turn.
+            npol: 1/3/4, or ``None`` (default) to INFER it — 1-D
+                ``beam_alm`` means Stokes I, 2-D means a Stokes stack whose
+                row count must be 1, 3 or 4. Inference is safe here (and only
+                here) because 2-D ``beam_alm`` was previously a hard error on
+                this operator, so no existing shape changes meaning; the
+                functional layer never infers. Pass it explicitly if you
+                would rather the shape be checked than read.
         """
         lst_deg = jnp.asarray(lst_deg)
+        beam_alm = jnp.asarray(beam_alm)
         if lst_deg.ndim != 1:
             raise ValueError(f"lst_deg must be 1D (n_time,), got {lst_deg.shape}")
+        if npol is None and beam_alm.ndim == 2:
+            npol = beam_alm.shape[0]
+            if npol not in STOKES_ALM_ROWS:
+                raise ValueError(
+                    f"2-D beam_alm is read as a Stokes stack (npol, n_alm), so "
+                    f"its first axis must be 1, 3 or 4 rows — got {npol}. A "
+                    f"FREQUENCY axis belongs in jax.vmap over this "
+                    f"constructor, not in beam_alm, or the rows would be "
+                    f"summed into one TOD."
+                )
+        npol = validate_npol(npol)
+        if beam_alm.ndim > 2:
+            raise ValueError(
+                f"beam_alm must be (n_alm,) or (npol, n_alm); batch anything "
+                f"further with jax.vmap — got shape {beam_alm.shape}"
+            )
         if (normalize or horizon_mask) and nside is None:
             raise ValueError("nside is required when normalize or horizon_mask is set")
         if horizon_mask:
@@ -919,11 +1079,13 @@ class DriftScanMmode(eqx.Module):
                 lmax=lmax,
                 apod_deg=apod_deg,
                 iterations=mask_iterations,
+                npol=npol,
             )
         if lst_ref_deg is None:
             lst_ref_deg = lst_deg[0]
         beam_ref = beam_alm_at_reference(
-            beam_alm, lst_ref_deg, lat_deg, az_deg, el_deg, selfrot_deg, lmax=lmax
+            beam_alm, lst_ref_deg, lat_deg, az_deg, el_deg, selfrot_deg,
+            lmax=lmax, npol=npol,
         )
         ones_alm = None
         if normalize:
@@ -936,11 +1098,14 @@ class DriftScanMmode(eqx.Module):
             normalize=normalize,
             ones_alm=ones_alm,
             uniform_sampling=uniform_sampling,
+            npol=npol,
         )
 
     def mmodes(self, sky_alm: jnp.ndarray) -> jnp.ndarray:
         """m-modes ``Ṽ_m`` (complex, ``(lmax+1,)``) of the drift-scan TOD."""
-        return mmodes_from_sky(self.beam_ref_alm, sky_alm, lmax=self.lmax)
+        return mmodes_from_sky(
+            self.beam_ref_alm, sky_alm, lmax=self.lmax, npol=self.npol
+        )
 
     def __call__(self, sky_alm: jnp.ndarray) -> jnp.ndarray:
         """``(n_time,)`` sky TOD for packed quadrature ``sky_alm``."""
@@ -952,10 +1117,12 @@ class DriftScanMmode(eqx.Module):
             normalize=self.normalize,
             ones_alm=self.ones_alm,
             uniform=self.uniform_sampling,
+            npol=self.npol,
         )
 
     def adjoint(self, tod: jnp.ndarray) -> jnp.ndarray:
-        """Exact sky-slot transpose of :meth:`__call__` (packed alms out)."""
+        """Exact sky-slot transpose of :meth:`__call__` (packed alms out,
+        ``(npol, n_alm)`` when polarised)."""
         return driftscan_tod_adjoint(
             tod,
             self.beam_ref_alm,
@@ -964,4 +1131,5 @@ class DriftScanMmode(eqx.Module):
             normalize=self.normalize,
             ones_alm=self.ones_alm,
             uniform=self.uniform_sampling,
+            npol=self.npol,
         )

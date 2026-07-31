@@ -57,6 +57,154 @@ Cost: one $O(\ell_\mathrm{max}^3)$ Wigner rotation total, then an
 $O(n_\mathrm{time}\,\ell_\mathrm{max})$ phase synthesis with
 $O(n_\mathrm{time}+\ell_\mathrm{max})$ memory.
 
+## Polarisation
+
+Full Stokes is supported, and it costs the formalism **nothing structural**.
+Pass the static `npol` (1, 3 or 4) and give the alms a leading Stokes axis
+`(npol, n_alm)` holding the packed $T,E,B[,V]$ rows — the healpy analysis of
+limTOD's $I,Q,U[,V]$ maps, exactly what `hp.map2alm(beam_map)` returns (with
+$V$ analysed separately, as numpy limTOD does, because it is spin-0 and must
+not ride along in the spin-2 transform):
+
+```python
+beam_alm = jnp.asarray(hp.map2alm(beam_map_iqu, lmax=lmax))   # (3, n_alm)
+op  = ltj.DriftScanMmode.from_pointing(beam_alm, lst_deg, lat, az, el, lmax=lmax)
+tod = op(sky_alm)          # (n_time,) — the Stokes rows CONTRACT into each sample
+```
+
+`npol` is inferred from a 2-D `beam_alm` on `from_pointing` and is explicit
+everywhere else (see below).
+
+### Why it is free
+
+Three facts, each locked numerically in
+`tests/limtod_jax/test_polarisation.py`:
+
+1. **Spin-weighted alms rotate with the same Wigner-$D$ as scalar ones** — the
+   spin index never enters the $m$-mixing, and $E$/$B$ do not mix under
+   rotation (they are a *parity* split, not a rotational one). healpy's 3-row
+   `rotate_alm` is therefore **bit-identical** to the scalar rotation applied
+   per row, and `limtod_jax` needs no spin-2 rotation anywhere.
+2. **Spin-2 harmonics are orthonormal**, so the pixel dot splits row-wise,
+   $\sum_p (Q_bQ_s + U_bU_s) = \sum_{\ell m}[\overline{E_b}E_s +
+   \overline{B_b}B_s]$ — the $E$-$B$ cross terms are purely imaginary under
+   the real-field symmetry and drop. The quadrature-alm exactness contract
+   carries over unchanged, per row.
+3. **A rotation about $z$ gives $D^\ell_{m'm}(\alpha,0,0) = \delta_{m'm}
+   e^{-im\alpha}$ independently of spin**, so $E$ and $B$ pick up the *same*
+   drift phase as $T$.
+
+Consequently the only change to the formalism is one extra sum:
+
+$$
+\tilde V_m = \sum_{\mathrm{row}}\sum_{\ell}
+\overline{B^{\mathrm{row}}_{\ell m}(\mathrm{lst}_\mathrm{ref})}\,
+\tilde S^{\mathrm{row}}_{\ell m}.
+$$
+
+Same phase law, same synthesis, same FFT fast path (the rows are contracted
+*before* the synthesis, so it still sees one $(\ell_{\max}+1)$ m-mode series),
+same block-diagonal-in-$m$ structure. The $\ell$-rotation is shared across
+rows — one Risbo recursion, not $n_\mathrm{pol}$ of them — so a 3-row beam
+costs ~1× the $O(\ell_{\max}^3)$ step, not 3×.
+
+`normalize` divides every row by the rotated **Stokes-I** beam's pixel sum,
+matching numpy `pointing_beam_in_eq_sys` (and necessarily so: a beam with zero
+net $Q$ would make a per-row normalizer singular). The adjoint maps a scalar
+TOD back to a full `(npol, n_alm)` sky increment.
+
+### Verification
+
+`driftscan_tod` == generic `generate_tod_sky` == numpy
+`limTOD.simulator.generate_TOD_sky` to float64 roundoff, for
+$n_\mathrm{pol} \in \{1,3,4\}$, with and without `normalize`, on direct and
+FFT synthesis, including a zenith-gimbal pointing, a pole latitude, a
+near-horizon pointing, and $E$-only / $B$-only beams:
+
+| leg | npol=1 | npol=3 | npol=4 |
+|---|---|---|---|
+| m-mode vs generic JAX | ~1e-15 | ~6e-15 | ~1e-15 |
+| m-mode vs numpy oracle, nside 8 | 5.9e-16 | 1.3e-15 | 6.0e-16 |
+| m-mode vs numpy oracle, nside 16 | 8.8e-16 | 2.4e-15 | 5.7e-16 |
+| adjoint dot-test (12 cells) | ≤2.6e-14 | ≤1.9e-14 | ≤6.8e-14 |
+
+(Roundoff, so seed- and resolution-dependent at the stated order; the suite
+asserts 1e-12 / 1e-10 bounds rather than these values.)
+
+The numpy leg runs through healpy's own polarised transforms end to end, so
+it is a genuinely independent check — and it is the **first independent
+oracle numpy limTOD's full-Stokes chain has had** (it was previously pinned
+only by physical invariants; see the header of
+`tests/test_stokes_and_boundaries.py`).
+
+### Opt-in, and why it is never inferred
+
+At the functional layer `npol` is a static argument defaulting to `None`
+(= unpolarised, every leading axis a batch axis, unchanged bit for bit). It is
+**not** inferred from the array shape, because a Stokes axis (contracted) and
+a frequency axis (passed through) are both leading axes and shape alone cannot
+tell them apart — inferring would turn a 3-frequency stack into a silently
+wrong Stokes contraction. `DriftScanMmode.from_pointing` *does* infer it, but
+only because 2-D `beam_alm` was previously a hard error there, so no existing
+shape changes meaning; a row count outside {1, 3, 4} is rejected by name.
+
+### Coverage
+
+| | polarised? | note |
+|---|---|---|
+| `driftscan_tod` / `mmodes_from_sky` / adjoint / `DriftScanMmode` | ✅ | pure harmonic, row-wise, free |
+| `generate_tod_sky` / `generate_tod_sky_adjoint` | ✅ | same |
+| `horizon_truncated_beam` | ✅ | map space, but the taper is a real scalar |
+| `horizon_beam_fraction` | ✅ | $f_\mathrm{sky}$ is a Stokes-I solid-angle split |
+| `horizon_masked_beam_alm` | ✅ | needs genuine spin-2 transforms — read on |
+| `generate_projection_rows` | ❌ raises | a projection row *is* a pixel-space beam |
+
+Everything except the projection builder is polarised. The masked beam is the
+one place polarisation is **not** free, because it is the one place the chain
+leaves harmonic space: the mask multiplies $(I,Q,U)$ *maps*, so carrying it
+back to $(T,E,B)$ needs a real spin-2 synthesis and analysis.
+
+### The spin-2 trap (read before touching `limtod_jax.hpx`)
+
+**s2fft's on-the-fly (Price–McEwen) recursion is wrong at spin ≠ 0 on the
+HEALPix grid.** It renormalises with $\log|d^\ell_{mn}|$ and $1/|d^\ell_{mn}|$
+and accumulates with `nansum`; wherever a Wigner-$d$ is *exactly* zero at a
+ring colatitude this gives $\log 0 = -\infty$ and $0\cdot\infty = $ NaN, and
+the entire $\ell$ term is silently dropped. HEALPix rings sit at rational
+$\cos\theta$, so those exact zeros really occur — at $\cos\theta = \pm 2/\ell$,
+killing $\ell = 3, 6, 8, 16, 32, 48\ldots$ depending on nside. MW/GL/DH
+sampling never triggers it; neither does spin 0, which is why the rest of the
+package was always fine.
+
+Measured cost of using it anyway: **4–6 % on the synthesis**, tens of percent
+on the affected multipoles alone, and a silent $10^{-3}$–$10^{-2}$ break of the
+pixel-dot = alm-dot exactness contract. `recursion="auto"` routes back to the
+same code.
+
+`limtod_jax.hpx` therefore uses the **precompute** transforms with
+`recursion="risbo"`, which reproduce healpy to ~$10^{-14}$ (verified against
+healpy and against an independent brute-force Wigner-$d$ evaluator). The
+price is a dense $(n_\theta, L, 2L-1)$ complex128 kernel — $O(n_\mathrm{side}
+\ell_{\max}^2)$:
+
+| nside / $\ell_{\max}$ | 8 / 23 | 16 / 47 | 32 / 63 | 128 / 255 | 256 / 511 |
+|---|---|---|---|---|---|
+| kernel | 0.5 MB | 4.4 MB | 16 MB | ~1 GB | ~8.6 GB |
+
+It is cached per `(L, spin, nside, forward)` and masking is a one-off beam
+preparation, so this is usually paid once — but it does cap the resolution at
+which a polarised beam can be masked inside JAX. The spin-2 path also requires
+`nside ≥ 2` and `lmax + 1 ≥ 2·nside` (s2fft asserts both without a message;
+`limtod_jax` raises a stated `ValueError` instead).
+
+`tests/limtod_jax/test_polarisation.py::test_onthefly_backend_really_is_broken`
+pins the defect: if it ever starts failing, s2fft has fixed its recursion and
+the precompute kernel — with its memory bill — can be dropped.
+
+At a **zenith** pointing, prefer `horizon_truncated_beam` regardless: also
+fully polarised, exact rather than band-limited, ~8× cheaper, and it needs no
+spin-2 machinery at all.
+
 ## Usage
 
 ```python
@@ -312,6 +460,7 @@ you differentiate w.r.t. the beam.
 | build cost | — | $O(\ell_\mathrm{max}^3)$ once | $O(\ell_\mathrm{max}^3)$ once |
 | per-evaluation | $O(n_t\,\ell_\mathrm{max}^3)$ | $O(n_t\,\ell_\mathrm{max})$ | $O(n_t\log n_t)$ |
 | agreement | — | equal to roundoff | equal to roundoff |
+| polarisation | `npol=1/3/4` | `npol=1/3/4` | `npol=1/3/4` |
 | m-modes | not exposed | {func}`~limtod_jax.driftscan.mmodes_from_sky` / `op.mmodes` | same, plus `mmodes_from_tod_uniform` |
 
 Anything that is a genuine drift scan should use this path; tracking or
