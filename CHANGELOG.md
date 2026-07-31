@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- 📡 **`limTOD.cstbeam` — CST Studio far-field exports as beam maps.** The
+  sibling of `limTOD.uvbeam` for the other format a horn arrives in: CST
+  Microwave Studio far-field ASCII, one file per frequency. Three entry points
+  — `read_cst_farfield` (one file onto its own `(theta, phi)` grid),
+  `cst_beam_maps` (a directory onto HEALPix maps, frequency-interpolated) and
+  `cst_beam_func` (the `beam_func(freq=..., nside=...)` callable `TODSim`
+  takes). Needs only `healpy` and `scipy`, both base dependencies, so there is
+  no extra to install.
+
+  Moved from `rheplicant.radio.beams`, which now delegates to it: how a
+  measured beam becomes a beam map is limTOD's subject, exactly as the horizon
+  partition of 1.9 is. Downstream keeps only the placement.
+
+  `cst_beam_func` validates the directory and the options at construction
+  rather than at the first channel, and **caches each file's HEALPix
+  resampling across calls** — a sweep of 200 channels over a 61-file directory
+  parses each file once instead of hundreds of times.
+
+  Conventions are documented and tested rather than assumed. CST `Theta` maps
+  onto the HEALPix colatitude (boresight at the pole); `Abs(Dir.)` is power in
+  dBi and comes back as linear power, **unnormalized**, so the consumer's own
+  quadrature is what the band limit cancels against. The azimuth cannot be
+  locked numerically the way `uvbeam`'s is — which physical direction the CST
+  `+x` axis points is a fact about the as-built horn and is simply not in the
+  file — so `phi0_deg` and `phi_sense` expose the offset and the handedness,
+  their defaults are an assumption to check rather than a result, and the tests
+  lock that the knobs act correctly: `phi_sense` is a reflection about
+  `phi = 0` rather than a relabelling, `phi0_deg` a rotation that conserves the
+  integral. For a horn with 30-60 % azimuthal structure the handedness is not a
+  detail, and it leaves every integral, peak and symmetric diagnostic unchanged
+  when it is wrong.
+
+  Frequency is in MHz throughout, as elsewhere in limTOD (rheplicant's Hz is
+  converted at its own adapter). Extrapolation beyond the simulated band is
+  refused.
+
 - 🎭 **Full Stokes in `limtod_jax` — the harmonic chain, generic and drift-scan
   alike.** Pass the static `npol` (1, 3 or 4) and give the alms a leading
   Stokes axis `(..., npol, n_alm)` of packed `T`/`E`/`B`/`V` rows — the healpy

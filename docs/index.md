@@ -18,6 +18,8 @@ the package ships:
 - **`limTOD.uvbeam`** — adapters for
   [pyuvdata `UVBeam`](https://pyuvdata.readthedocs.io/en/latest/uvbeam.html)
   objects, feeding measured/simulated beams into either path;
+- **`limTOD.cstbeam`** — the same for CST Studio far-field exports, the
+  format a simulated horn usually arrives in;
 - **`limtod_jax`** — a pure-JAX, jit/vmap/grad-safe port of the sky→TOD
   chain, verified against the numpy implementation to ~1e-12 in float64.
   It powers the differentiable pipeline of
@@ -49,6 +51,7 @@ tod-simulation
 mapmaking
 patchbeam
 uvbeam
+cstbeam
 limtod-jax
 driftscan
 ```
