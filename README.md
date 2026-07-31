@@ -32,6 +32,8 @@ ships:
 - **`limTOD.uvbeam`** — adapters for
   [pyuvdata `UVBeam`](https://pyuvdata.readthedocs.io/en/latest/uvbeam.html)
   objects, feeding measured/simulated beams into either path;
+- **`limTOD.cstbeam`** — the same for CST Studio far-field exports, the
+  format a simulated horn usually arrives in (no extra needed);
 - **`limtod_jax`** — a pure-JAX, jit/vmap/grad-safe port of the sky→TOD
   chain, verified against the numpy implementation to ~1e-12 in float64.
   It powers the differentiable pipeline of
@@ -116,6 +118,7 @@ Full documentation: **<https://limtod.readthedocs.io>**
 | [Map-making](https://limtod.readthedocs.io/en/latest/mapmaking.html) | `HPW_mapmaking` (high-pass + Wiener) and `GLS_mapmaking` (full 1/f covariance) |
 | [Patch-beam path](https://limtod.readthedocs.io/en/latest/patchbeam.html) | `limTOD.patchbeam`: disc-restricted (l, m) beam interpolation |
 | [UVBeam support](https://limtod.readthedocs.io/en/latest/uvbeam.html) | pyuvdata beams as `beam_func` or patch beams |
+| [CST beams](https://limtod.readthedocs.io/en/latest/cstbeam.html) | CST Studio far-field exports as `beam_func` or HEALPix maps |
 | [Theory & conventions](https://limtod.readthedocs.io/en/latest/theory.html) | Signal model, coordinate chain, Euler-angle conventions |
 | [API reference](https://limtod.readthedocs.io/en/latest/api/index.html) | Generated from docstrings |
 | [limtod_jax](https://limtod.readthedocs.io/en/latest/limtod-jax.html) | The JAX port: usage, exactness contract, precision requirements |
