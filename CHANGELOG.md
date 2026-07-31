@@ -5,6 +5,140 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- 🎭 **Full Stokes in `limtod_jax` — the harmonic chain, generic and drift-scan
+  alike.** Pass the static `npol` (1, 3 or 4) and give the alms a leading
+  Stokes axis `(..., npol, n_alm)` of packed `T`/`E`/`B`/`V` rows — the healpy
+  analysis of limTOD's `I`/`Q`/`U`/`V` maps, `V` analysed separately as numpy
+  limTOD does. The rows are **contracted** into each TOD sample
+  (`V_t = Σ_row ⟨R_t b_row, s̃_row⟩`), which is numpy limTOD's
+  `np.sum(beam_map * sky_map)`; the TOD stays `(n_time,)`.
+
+  Covers `generate_tod_sky`, `generate_tod_sky_adjoint`, `beam_weighted_sum`,
+  `beam_alm_at_reference`, `mmodes_from_sky`, `driftscan_tod`,
+  `driftscan_tod_adjoint` and `DriftScanMmode` (which infers `npol` from a 2-D
+  `beam_alm` in `from_pointing`). New module `limtod_jax.stokes` states the
+  contract in one place.
+
+  **It costs the formalism nothing structural**, and that is the point. Three
+  facts, each locked numerically in `tests/limtod_jax/test_polarisation.py`
+  rather than trusted on paper: (1) spin-weighted alms rotate with the *same*
+  Wigner-D as scalar ones, so healpy's 3-row `rotate_alm` is **bit-identical**
+  to the scalar rotation applied per row and there is no spin-2 rotation
+  anywhere in the package; (2) spin-2 harmonics are orthonormal, so the pixel
+  dot splits row-wise and the quadrature-alm exactness contract survives — the
+  E-B cross terms are purely imaginary under the real-field symmetry and drop;
+  (3) a rotation about z gives `δ_{m'm}·e^{−imα}` *independently of spin*, so E
+  and B pick up the same drift phase as T. The m-mode expression therefore
+  gains exactly one sum, `Ṽ_m = Σ_row Σ_l conj(B_row,lm(ref))·S̃_row,lm`, and
+  the phase law, the FFT fast path and the block-diagonal-in-m structure are
+  untouched.
+
+  Verified as the acceptance criterion: **drift-scan m-mode TOD == generic JAX
+  TOD == numpy `limTOD.simulator.generate_TOD_sky`** for npol ∈ {1, 3, 4}, with
+  and without `normalize`, on direct and FFT synthesis, at ~1e-15 (nside 8 and
+  nside 16) against the numpy oracle — including a zenith-gimbal pointing, lat = 0/±90,
+  LST wrapping past 360°, Δ = 0, and E-only / B-only beams. The numpy leg runs
+  through healpy's own polarised transforms end to end, making it the **first
+  independent oracle numpy limTOD's full-Stokes chain has had** (it was
+  previously pinned only by physical invariants — see the header of
+  `tests/test_stokes_and_boundaries.py`).
+
+  `normalize` divides every row by the rotated **Stokes-I** beam's pixel sum,
+  matching `pointing_beam_in_eq_sys` — and necessarily so, since a beam with
+  zero net Q would make a per-row normalizer singular.
+
+- 🧵 **`rotate_flm_2d` accepts one leading axis**, sharing the Risbo recursion
+  across the rows. This is not `jax.vmap` over rows and must not be: every
+  Stokes row shares one rotation, so vmapping would repeat the only
+  O(lmax³) step `npol` times. A 3-row beam now costs ~1× that step, not 3×.
+  Hoisting the full Wigner-d plane into `dl_array` achieves the same but costs
+  O(lmax³) *memory* (541 MB at lmax=256) where the recursion carries only
+  O(lmax²) — that trade stays the caller's; this one is free. The 2-D path
+  keeps its original contraction string, so **every unpolarised result is
+  unchanged bit for bit**; a 1-row stack matches only to roundoff (~1 ulp,
+  different association order).
+
+- 🪓 **The horizon utilities take `npol`** — `horizon_truncated_beam`,
+  `horizon_beam_fraction` and `horizon_masked_beam_alm`. The taper is a real
+  per-pixel scalar, so it multiplies I/Q/U/V by broadcasting with no spin
+  algebra; `f_sky` is a **solid-angle** split and therefore comes from the
+  Stokes-I row alone (Q/U carry no total power to divide — a beam with zero net
+  Q would make a per-row fraction singular).
+
+- 🌀 **Spin-2 HEALPix transforms in `limtod_jax.hpx`**: `eb_to_qu`,
+  `qu_to_eb_quad`, and `npol` on `alm2map` / `map2alm_quad` / `map2alm_iter`.
+  These are what make the polarised horizon mask possible — it is the one place
+  the chain leaves harmonic space. Convention locked numerically against healpy
+  (`Q ± iU = −Σ (E ± iB)·(±2)Y`, quadrature factor `npix/4π`; every sign
+  alternative loses by ≥ 1.3 relative), matching to ~1e-14.
+
+  ⚠️ **s2fft's on-the-fly (Price–McEwen) recursion is WRONG at spin ≠ 0 on the
+  HEALPix grid, and fails silently.** It renormalises with `log|d^l_mn|` and
+  `1/|d^l_mn|` and accumulates with `nansum`; wherever a Wigner-d is *exactly*
+  zero at a ring colatitude that gives `log 0 = -inf`, `0*inf = nan`, and the
+  whole `l` term is dropped. HEALPix rings sit at rational `cos(theta)`, so the
+  exact zeros really occur — at `cos(theta) = ±2/l`, killing l = 3, 6, 8, 16,
+  32, 48… depending on nside. MW/GL/DH never trigger it, and neither does
+  spin 0 (so nothing previously in this package was affected). Measured cost of
+  using it regardless: 4–6 % on the synthesis, tens of percent on the affected
+  multipoles alone, and a silent 1e-3…1e-2 break of the pixel-dot == alm-dot
+  exactness contract. `recursion="auto"` routes back to the same code.
+
+  `hpx` therefore uses the **precompute** transforms with `recursion="risbo"`.
+  The price is a dense `(n_theta, L, 2L-1)` complex128 kernel,
+  O(nside·lmax²) — 0.5 MB at nside 8 / lmax 23, 16 MB at nside 32 / lmax 63,
+  but ~1 GB at nside 128 / lmax 255. Cached per `(L, spin, nside, forward)`;
+  masking is a one-off beam preparation, but this does cap the resolution at
+  which a polarised beam can be masked inside JAX. The spin-2 path also needs
+  `nside >= 2` and `lmax + 1 >= 2*nside` — s2fft asserts both without a
+  message, `limtod_jax` raises a stated `ValueError`.
+  `test_onthefly_backend_really_is_broken` pins the defect: if it ever starts
+  failing, s2fft has fixed the recursion and the kernel can be dropped.
+
+### Changed
+
+- `limtod_jax.projection.generate_projection_rows` now **rejects** a 2-D
+  `beam_alm` explicitly. It previously rejected it via the `rotate_flm_2d`
+  shape guard; now that a Stokes stack is a legal rotation input, the guard has
+  to be stated where the restriction actually lives. A polarised projection
+  *matrix* is the one thing still missing — a row is a pixel-space beam, so it
+  would need the spin-2 synthesis on every pointing rather than once.
+
+- **The Stokes axis is checked against `npol` itself, not merely for
+  self-consistency.** A leading axis is now validated at every entry point
+  that has one, because each of these previously returned a finite, plausible,
+  wrong number (found in review, each now pinned by a test in
+  `TestSilentFailureSurface`):
+  - a 5-row *frequency* stack was contracted into one sample by
+    `beam_weighted_sum` for any `npol` — the axis was only compared against
+    the other argument, which agreed with it perfectly;
+  - `npol=4` on a 3-row array fabricated a V row, because JAX **clamps**
+    out-of-bounds indices, so `alm[3]` silently returned `alm[2]`
+    (`alm2map`, `map2alm_quad`);
+  - a `ones_alm` with a Stokes axis broadcast instead of failing, silently
+    giving the TOD an extra axis — it is always one unpolarised row, since the
+    denominator is the Stokes-I pixel sum;
+  - 2-D alms with `npol=None` flowed through `generate_tod_sky` as an
+    undocumented frequency batch once `rotate_flm_2d` learned to accept a
+    leading axis. Restored to a `ValueError`: batch with `jax.vmap`.
+
+### Fixed
+
+- **The spin-2 precompute kernel is cached as NUMPY, not as a jax array.**
+  s2fft's `spin_spherical_kernel_jax` is built from `jnp` ops, so the first
+  call inside a `jit` trace returns a *tracer* — which `lru_cache` then stored
+  process-globally, making every later call outside that trace fail with
+  `UnexpectedTracerError` for the rest of the session. Order-dependent, and so
+  invisible to a suite that happens to warm the cache eagerly: jitting the
+  documented polarised-mask entry point first was enough to poison the
+  process. The kernel is a pure function of static ints, so numpy is the
+  honest representation, and `jnp.asarray` at the use site stages it as the
+  compile-time constant it always was.
+
 ## [1.9.0] - 2026-07-30
 
 ### Added

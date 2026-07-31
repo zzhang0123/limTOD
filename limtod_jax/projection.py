@@ -9,6 +9,18 @@ Pixel SELECTION stays in numpy limTOD (``truncate_stacked_beam``) — it is a
 discrete, non-differentiable choice made offline; this module consumes the
 resulting ``pixel_indices``. Truncation/masks are out of scope as in
 :mod:`limtod_jax.core` (oracle equivalence holds at ``truncate_frac_thres=0``).
+
+STOKES I ONLY, unlike the rest of the linear chain, and for a cost reason
+rather than a correctness one. A projection ROW is the beam evaluated in
+PIXEL space, so the polarised version needs the spin-2 synthesis of
+:func:`limtod_jax.hpx.eb_to_qu` on EVERY pointing — where the horizon mask
+pays it once — and that synthesis carries an O(nside·lmax^2) precompute
+kernel (see the warning in :mod:`limtod_jax.hpx`). The TOD and m-mode paths
+never leave harmonic space at all, which is why they are polarised for free.
+
+A Stokes stack is rejected here rather than accepted and synthesized row-wise
+as if every row were spin-0: that would run without error and be wrong in Q
+and U.
 """
 
 from __future__ import annotations
@@ -59,6 +71,13 @@ def generate_projection_rows(
         raise ValueError(
             f"beam_alm length {beam_alm.shape[-1]} does not match lmax={lmax} "
             f"(expected {nalm_of_lmax(lmax)})"
+        )
+    if beam_alm.ndim != 1:
+        raise ValueError(
+            f"beam_alm must be 1D (n_alm,) — this builder is Stokes I only "
+            f"(module docstring: a projection row lives in pixel space and so "
+            f"would need a spin-2 synthesis) — got shape {beam_alm.shape}. "
+            f"Batch frequencies with jax.vmap."
         )
     L = lmax + 1
     beam_flm = packed_to_2d(beam_alm, lmax)

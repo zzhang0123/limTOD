@@ -79,17 +79,36 @@ def rotate_flm_2d(
     gamma: jnp.ndarray,
     dl_array: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
-    """Rotate dense 2D flm ``(L, 2L-1)`` by traced Euler angles.
+    """Rotate dense flm ``(L, 2L-1)`` — or a stack ``(n_row, L, 2L-1)`` — by
+    traced Euler angles.
 
     Traced-angle port of ``s2fft.utils.rotation.rotate_flms``. ``L`` is
     static; ``alpha``/``beta``/``gamma`` are traced scalars. ``dl_array``
     optionally supplies a precomputed ``(L, 2L-1, 2L-1)`` Wigner-d plane
     (from :func:`generate_rotate_dls`), in which case ``beta`` is unused.
+
+    THE STACKED FORM EXISTS FOR POLARISATION, and it is not the same thing as
+    ``jax.vmap`` over rows. Every row shares one rotation, so it shares the
+    Risbo recursion: vmapping would repeat the only O(lmax^3) step ``n_row``
+    times, while this shares ``dl_iter`` across the rows and pays ``n_row``
+    times the cheap per-l einsum only. Hoisting the FULL plane into
+    ``dl_array`` would do the same but costs O(lmax^3) MEMORY (541 MB at
+    lmax=256) where the recursion carries only O(lmax^2); that trade is the
+    caller's to make, this one is free.
+
+    Exactly ONE leading axis is allowed — deeper batching is still
+    ``jax.vmap``'s job. The 2-D path keeps its original contraction string, so
+    every unpolarised result is unchanged BIT FOR BIT; a 1-row STACK is the
+    same arithmetic in a different association order and matches only to
+    roundoff (~1 ulp, data-dependent). Pinned in
+    ``tests/limtod_jax/test_polarisation.py``.
     """
-    if flm.ndim != 2 or flm.shape != (L, 2 * L - 1):
+    stacked = flm.ndim == 3
+    if flm.shape[-2:] != (L, 2 * L - 1) or flm.ndim not in (2, 3):
         raise ValueError(
-            f"flm must have shape (L, 2L-1)={(L, 2 * L - 1)}, got {flm.shape}; "
-            "batch with jax.vmap rather than a leading axis"
+            f"flm must have shape (L, 2L-1)={(L, 2 * L - 1)} or "
+            f"(n_row, L, 2L-1), got {flm.shape}; batch beyond one leading "
+            "axis with jax.vmap"
         )
     if dl_array is not None:
         expected = (L, 2 * L - 1, 2 * L - 1)
@@ -122,13 +141,13 @@ def rotate_flm_2d(
             dl_el = dl_array[el]
         m = jnp.arange(-el, el + 1)
         block = dl_el[m + L - 1][:, m + L - 1]
-        flm_rotated = flm_rotated.at[el, L - 1 + m].add(
+        flm_rotated = flm_rotated.at[..., el, L - 1 + m].add(
             jnp.einsum(
-                "mn,m,n,n->m",
+                "mn,m,n,pn->pm" if stacked else "mn,m,n,n->m",
                 block,
                 alpha_phases[m + L - 1],
                 gamma_phases[m + L - 1],
-                flm[el, L - 1 + m],
+                flm[..., el, L - 1 + m],
                 optimize=True,
             )
         )

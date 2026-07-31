@@ -11,6 +11,8 @@ in replicant-telescope (formerly e-RHINO) ``docs/limtod-port-contract.md``:
 * full TOD chain + exact adjoint    (:mod:`limtod_jax.core`)
 * projection-matrix builder         (:mod:`limtod_jax.projection`)
 * HEALPix map <-> alm inside JAX    (:mod:`limtod_jax.hpx`)
+* drift-scan m-mode special case    (:mod:`limtod_jax.driftscan`)
+* the full-Stokes contract          (:mod:`limtod_jax.stokes`)
 
 Conventions (matching numpy limTOD):
 
@@ -72,21 +74,32 @@ from limtod_jax.driftscan import (
     tod_from_mmodes,
     tod_from_mmodes_uniform,
 )
-from limtod_jax.hpx import alm2map, map2alm_iter, map2alm_quad, ones_quadrature_alm
+from limtod_jax.hpx import (
+    alm2map,
+    eb_to_qu,
+    map2alm_iter,
+    map2alm_quad,
+    ones_quadrature_alm,
+    qu_to_eb_quad,
+)
 from limtod_jax.projection import generate_projection_rows
+from limtod_jax.stokes import STOKES_ALM_ROWS, STOKES_MAP_ROWS, validate_npol
 
 __all__ = [
     "__version__",
     "DriftScanMmode",
+    "STOKES_ALM_ROWS",
+    "STOKES_MAP_ROWS",
     "alm2map",
     "alm_dot",
     "alm_weights",
     "beam_alm_at_reference",
-    "dl_plane_for_pointing",
     "beam_weighted_sum",
     "check_uniform_grid",
+    "dl_plane_for_pointing",
     "driftscan_tod",
     "driftscan_tod_adjoint",
+    "eb_to_qu",
     "generate_projection_rows",
     "generate_tod_sky",
     "generate_tod_sky_adjoint",
@@ -106,9 +119,11 @@ __all__ = [
     "packed_from_2d",
     "packed_lm_arrays",
     "packed_to_2d",
+    "qu_to_eb_quad",
     "rotate_alm",
     "tod_from_mmodes",
     "tod_from_mmodes_uniform",
+    "validate_npol",
     "zyz_of_pointing",
     "zyzyz2zyz",
 ]

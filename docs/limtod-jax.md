@@ -96,10 +96,21 @@ nside 8–16 over an extreme-pointing grid).
 `normalize=True` reproduces `normalize_beam` semantics exactly the same
 way: the denominator `Σ_p B_rot(p)` is `⟨R b, ones_quadrature_alm⟩`.
 
+**Full Stokes** is supported on the harmonic chain: pass the static
+`npol=1/3/4` and give the alms a leading Stokes axis `(npol, n_alm)` of
+packed `T,E,B[,V]` rows (what `hp.map2alm` returns, `V` analysed
+separately). The rows are *contracted* into each TOD sample, matching numpy
+limTOD's `np.sum(beam_map * sky_map)`; `normalize` uses the Stokes-I row's
+pixel sum. The whole thing is the scalar chain applied row-wise, because
+rotations and dots are spin-independent — see
+[driftscan.md](driftscan.md#polarisation) for why, the verification table,
+and the two utilities that stay Stokes-I (anything that returns to *pixel*
+space would need a spin-2 transform).
+
 **Out of scope** (deliberately): `truncate_frac_thres` (a *nonlinear*
 cleanup of synthesis ringing — the port is the linear chain; compare
 against the oracle with `truncate_frac_thres=0.0`), horizontal masks,
-full-Stokes beams, noise generation, and map-making (replicant-telescope's
+noise generation, and map-making (replicant-telescope's
 `SkySpaceFilter` covers that in JAX).
 
 ## Precision: enable x64
