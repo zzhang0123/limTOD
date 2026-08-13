@@ -491,9 +491,7 @@ def approximate_tris_gaussian_beam_map(
     sigma_h = np.deg2rad(fwhm_h_deg / (2.0 * np.sqrt(2.0 * np.log(2.0))))
     e_offset = theta * np.cos(phi)
     h_offset = theta * np.sin(phi)
-    beam_map = np.exp(
-        -0.5 * ((e_offset / sigma_e) ** 2 + (h_offset / sigma_h) ** 2)
-    )
+    beam_map = np.exp(-0.5 * ((e_offset / sigma_e) ** 2 + (h_offset / sigma_h) ** 2))
 
     if normalization == "peak":
         beam_map /= np.max(beam_map)
@@ -551,6 +549,277 @@ class TRISZenithGeometry:
             raise ValueError("TRIS geometry arrays must have the same length")
         for name, array in validated:
             object.__setattr__(self, name, array)
+
+
+def _readonly_finite_matrix(values, name):
+    """Return an immutable, finite two-dimensional float array."""
+    try:
+        array = np.asarray(values, dtype=float)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "{} must be a finite two-dimensional array".format(name)
+        ) from error
+    if array.ndim != 2 or array.size == 0:
+        raise ValueError("{} must be a non-empty two-dimensional array".format(name))
+    if not np.all(np.isfinite(array)):
+        raise ValueError("{} must contain only finite values".format(name))
+    array = array.copy()
+    array.setflags(write=False)
+    return array
+
+
+@dataclass(frozen=True)
+class TRISRankDiagnostic:
+    """Immutable SVD identifiability diagnostic for a whitened design."""
+
+    singular_values: np.ndarray
+    numerical_rank: int
+    parameter_count: int
+    tolerance: float
+    rank_rtol: float
+    condition_number: float
+
+    def __post_init__(self):
+        singular_values = _readonly_finite_array(
+            self.singular_values, "singular_values"
+        )
+        if (
+            not isinstance(self.numerical_rank, (int, np.integer))
+            or isinstance(self.numerical_rank, bool)
+            or self.numerical_rank < 0
+            or self.numerical_rank > singular_values.size
+        ):
+            raise ValueError("numerical_rank must be a valid non-negative integer")
+        if (
+            not isinstance(self.parameter_count, (int, np.integer))
+            or isinstance(self.parameter_count, bool)
+            or self.parameter_count <= 0
+        ):
+            raise ValueError("parameter_count must be a positive integer")
+        for name, value in (
+            ("tolerance", self.tolerance),
+            ("rank_rtol", self.rank_rtol),
+            ("condition_number", self.condition_number),
+        ):
+            if not isinstance(value, (int, float, np.floating)) or math.isnan(value):
+                raise ValueError("{} must not be NaN".format(name))
+        if self.tolerance < 0.0 or self.rank_rtol <= 0.0:
+            raise ValueError("tolerance must be non-negative and rank_rtol positive")
+        if self.condition_number < 1.0:
+            raise ValueError("condition_number must be at least one")
+        object.__setattr__(self, "singular_values", singular_values)
+
+
+@dataclass(frozen=True)
+class TRISLinearFit:
+    """Immutable rank-gated generalized least-squares fit to one TRIS ring."""
+
+    coefficients: np.ndarray
+    coefficient_covariance: np.ndarray
+    prediction_k: np.ndarray
+    residual_k: np.ndarray
+    rank_diagnostic: TRISRankDiagnostic
+
+    def __post_init__(self):
+        coefficients = _readonly_finite_array(self.coefficients, "coefficients")
+        covariance = _readonly_finite_matrix(
+            self.coefficient_covariance, "coefficient_covariance"
+        )
+        if covariance.shape != (coefficients.size, coefficients.size):
+            raise ValueError(
+                "coefficient_covariance must be square in coefficient count"
+            )
+        prediction = _readonly_finite_array(self.prediction_k, "prediction_k")
+        residual = _readonly_finite_array(self.residual_k, "residual_k")
+        if prediction.size != residual.size:
+            raise ValueError("prediction_k and residual_k must have the same length")
+        if not isinstance(self.rank_diagnostic, TRISRankDiagnostic):
+            raise ValueError("rank_diagnostic must be a TRISRankDiagnostic")
+        if self.rank_diagnostic.parameter_count != coefficients.size:
+            raise ValueError("rank diagnostic and coefficient count must agree")
+        object.__setattr__(self, "coefficients", coefficients)
+        object.__setattr__(self, "coefficient_covariance", covariance)
+        object.__setattr__(self, "prediction_k", prediction)
+        object.__setattr__(self, "residual_k", residual)
+
+    @property
+    def singular_values(self):
+        """Whitened-design singular values from the rank diagnostic."""
+        return self.rank_diagnostic.singular_values
+
+    @property
+    def numerical_rank(self):
+        """Whitened-design numerical rank."""
+        return self.rank_diagnostic.numerical_rank
+
+    @property
+    def parameter_count(self):
+        """Number of fitted template coefficients."""
+        return self.rank_diagnostic.parameter_count
+
+    @property
+    def tolerance(self):
+        """SVD rank tolerance."""
+        return self.rank_diagnostic.tolerance
+
+    @property
+    def rank_rtol(self):
+        """Relative SVD rank tolerance."""
+        return self.rank_diagnostic.rank_rtol
+
+    @property
+    def condition_number(self):
+        """Whitened-design condition number."""
+        return self.rank_diagnostic.condition_number
+
+
+def build_tris_fourier_design(ra_deg, m_max, *, include_constant=True):
+    """Build a finite low-dimensional Fourier design at the supplied TRIS RAs.
+
+    With ``include_constant=True``, columns are ordered as ``[1, cos(alpha),
+    sin(alpha), ..., cos(m alpha), sin(m alpha)]`` with ``alpha`` in radians.
+    The supplied sampling is used verbatim; no uniform-grid approximation is
+    applied.
+    """
+    if not isinstance(m_max, (int, np.integer)) or isinstance(m_max, bool) or m_max < 0:
+        raise ValueError("m_max must be a non-negative integer")
+    if not isinstance(include_constant, (bool, np.bool_)):
+        raise ValueError("include_constant must be boolean")
+    ra = _readonly_finite_array(ra_deg, "ra_deg")
+    if np.any(ra < 0.0) or np.any(ra >= 360.0):
+        raise ValueError("ra_deg must be in [0, 360)")
+
+    alpha = np.deg2rad(ra)
+    columns = []
+    if include_constant:
+        columns.append(np.ones(ra.size))
+    for mode in range(1, int(m_max) + 1):
+        columns.extend((np.cos(mode * alpha), np.sin(mode * alpha)))
+    if not columns:
+        return np.empty((ra.size, 0), dtype=float)
+    design = np.column_stack(columns)
+    design.setflags(write=False)
+    return design
+
+
+def _validate_optional_positive_scalar(value, name):
+    if value is None:
+        return None
+    if (
+        not isinstance(value, (int, float, np.floating))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+        or value <= 0.0
+    ):
+        raise ValueError("{} must be a finite positive scalar".format(name))
+    return float(value)
+
+
+def _validate_optional_nonnegative_scalar(value, name):
+    if value is None:
+        return None
+    if (
+        not isinstance(value, (int, float, np.floating))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+        or value < 0.0
+    ):
+        raise ValueError("{} must be a finite non-negative scalar".format(name))
+    return float(value)
+
+
+def fit_tris_linear_model(
+    ring,
+    design_matrix,
+    *,
+    uncertainty_floor_k=None,
+    common_mode_sigma_k=None,
+    rank_rtol=None,
+):
+    """Fit an identifiable caller-supplied template model to one ``TRISRing``.
+
+    The data design is Cholesky-whitened using the per-row statistical errors
+    and, only if requested, a symmetric common-mode covariance.  Its SVD rank
+    is checked before coefficients are solved, preventing this API from being
+    used as a free-pixel mapmaker.  Archive zero-level metadata is deliberately
+    not read or converted by this function.
+    """
+    if not isinstance(ring, TRISRing):
+        raise TypeError("fit_tris_linear_model requires a TRISRing")
+    design = _readonly_finite_matrix(design_matrix, "design_matrix")
+    sample_count, parameter_count = design.shape
+    if parameter_count == 0:
+        raise ValueError("design_matrix must contain at least one parameter column")
+    if sample_count != ring.temperature_k.size:
+        raise ValueError("design_matrix row count must match the TRISRing samples")
+
+    floor = _validate_optional_positive_scalar(
+        uncertainty_floor_k, "uncertainty_floor_k"
+    )
+    common_mode = _validate_optional_nonnegative_scalar(
+        common_mode_sigma_k, "common_mode_sigma_k"
+    )
+    supplied_rtol = _validate_optional_positive_scalar(rank_rtol, "rank_rtol")
+    statistical = ring.statistical_uncertainty_k
+    if np.any(statistical == 0.0) and floor is None:
+        raise ValueError(
+            "zero statistical uncertainty requires a positive uncertainty_floor_k"
+        )
+    if floor is not None:
+        statistical = np.maximum(statistical, floor)
+
+    covariance = np.diag(statistical**2)
+    if common_mode is not None:
+        covariance = covariance + common_mode**2 * np.ones((sample_count, sample_count))
+    try:
+        cholesky = np.linalg.cholesky(covariance)
+    except np.linalg.LinAlgError as error:
+        raise ValueError("statistical covariance must be positive definite") from error
+    whitened_design = np.linalg.solve(cholesky, design)
+    whitened_data = np.linalg.solve(cholesky, ring.temperature_k)
+    left_vectors, singular_values, right_vectors_t = np.linalg.svd(
+        whitened_design, full_matrices=False
+    )
+    applied_rtol = (
+        np.finfo(float).eps * max(whitened_design.shape)
+        if supplied_rtol is None
+        else supplied_rtol
+    )
+    tolerance = applied_rtol * singular_values[0]
+    numerical_rank = int(np.count_nonzero(singular_values > tolerance))
+    condition_number = (
+        float("inf")
+        if numerical_rank < parameter_count
+        else float(singular_values[0] / singular_values[-1])
+    )
+    diagnostic = TRISRankDiagnostic(
+        singular_values=singular_values,
+        numerical_rank=numerical_rank,
+        parameter_count=parameter_count,
+        tolerance=tolerance,
+        rank_rtol=applied_rtol,
+        condition_number=condition_number,
+    )
+    if numerical_rank < parameter_count:
+        raise ValueError(
+            "rank-deficient whitened design: rank={}, parameter count={}; "
+            "reduce the model before fitting".format(numerical_rank, parameter_count)
+        )
+
+    coefficients = right_vectors_t.T @ (
+        (left_vectors.T @ whitened_data) / singular_values
+    )
+    coefficient_covariance = (
+        right_vectors_t.T / (singular_values**2)
+    ) @ right_vectors_t
+    prediction = design @ coefficients
+    return TRISLinearFit(
+        coefficients=coefficients,
+        coefficient_covariance=coefficient_covariance,
+        prediction_k=prediction,
+        residual_k=ring.temperature_k - prediction,
+        rank_diagnostic=diagnostic,
+    )
 
 
 def tris_zenith_geometry(

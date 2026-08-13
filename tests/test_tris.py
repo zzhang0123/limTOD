@@ -8,11 +8,15 @@ import pytest
 
 from limTOD.tris import (
     AsymmetricUncertainty,
+    TRISLinearFit,
+    TRISRankDiagnostic,
     TRISPointSet,
     TRISPrincipalPlaneCuts,
     TRISRing,
     TRISZenithGeometry,
     approximate_tris_gaussian_beam_map,
+    build_tris_fourier_design,
+    fit_tris_linear_model,
     parse_tris_ra,
     read_tris_beam_cuts,
     read_tris_point_set,
@@ -20,7 +24,7 @@ from limTOD.tris import (
     tris_beam_func,
     tris_zenith_geometry,
 )
-from limTOD.simulator import pointing_beam_in_eq_sys
+from limTOD.simulator import generate_TOD_sky, pointing_beam_in_eq_sys
 
 RING_600 = """# Frequency = 0.6 GHz
 # Systematic Zero Level Uncertainty = 0.066K
@@ -385,3 +389,157 @@ def test_tris_zenith_geometry_zenith_has_ra_equal_to_lst_and_dec_equal_to_latitu
     assert 90.0 - np.rad2deg(theta_peak) == pytest.approx(
         geometry.latitude_deg, abs=1.5
     )
+
+
+def _inference_ring(ra_deg, temperature_k, uncertainty_k):
+    """Build a ring fixture without giving inference access to zero-level metadata."""
+    ra_deg = np.asarray(ra_deg, dtype=float)
+    return TRISRing(
+        nominal_frequency_mhz=600.0,
+        effective_frequency_mhz=600.5,
+        bandwidth_mhz=0.3,
+        ra_text=tuple("{}h00m".format(index) for index in range(ra_deg.size)),
+        ra_deg=ra_deg,
+        temperature_k=np.asarray(temperature_k, dtype=float),
+        statistical_uncertainty_k=np.asarray(uncertainty_k, dtype=float),
+        zero_level_uncertainty_k=AsymmetricUncertainty(0.43, 0.30),
+    )
+
+
+def test_fourier_design_preserves_irregular_ra_and_column_order():
+    """Swapping sin/cos or regridding published RA labels changes the fitted model."""
+    ra_deg = np.array([0.0, 90.0, 215.0])
+
+    design = build_tris_fourier_design(ra_deg, m_max=2)
+
+    alpha = np.deg2rad(ra_deg)
+    expected = np.column_stack(
+        (
+            np.ones(3),
+            np.cos(alpha),
+            np.sin(alpha),
+            np.cos(2.0 * alpha),
+            np.sin(2.0 * alpha),
+        )
+    )
+    np.testing.assert_allclose(design, expected)
+    assert design.flags.writeable is False
+
+
+def test_fourier_design_can_omit_constant_and_validates_arguments():
+    """A malformed harmonic order or RA array must not produce a silent design."""
+    np.testing.assert_allclose(
+        build_tris_fourier_design([0.0, 90.0], m_max=1, include_constant=False),
+        [[1.0, 0.0], [0.0, 1.0]],
+        atol=1e-15,
+    )
+    for bad_m_max in (-1, 1.5, True):
+        with pytest.raises(ValueError, match="m_max"):
+            build_tris_fourier_design([0.0], m_max=bad_m_max)
+    with pytest.raises(ValueError, match="ra_deg"):
+        build_tris_fourier_design([0.0, np.nan], m_max=1)
+
+
+def test_linear_fit_recovers_known_coefficients_and_gls_covariance():
+    """An incorrect whitening or SVD solve would bias an exactly representable ring."""
+    ra_deg = np.arange(8) * 45.0
+    design = build_tris_fourier_design(ra_deg, m_max=1)
+    coefficients = np.array([10.0, 2.0, -3.0])
+    ring = _inference_ring(ra_deg, design @ coefficients, np.full(8, 0.5))
+
+    fit = fit_tris_linear_model(ring, design)
+
+    assert isinstance(fit, TRISLinearFit)
+    assert isinstance(fit.rank_diagnostic, TRISRankDiagnostic)
+    np.testing.assert_allclose(fit.coefficients, coefficients, atol=1e-12)
+    np.testing.assert_allclose(fit.prediction_k, ring.temperature_k, atol=1e-12)
+    np.testing.assert_allclose(fit.residual_k, 0.0, atol=1e-12)
+    np.testing.assert_allclose(
+        fit.coefficient_covariance,
+        np.diag([0.5**2 / 8.0, 0.5**2 / 4.0, 0.5**2 / 4.0]),
+        atol=1e-12,
+    )
+    assert fit.rank_diagnostic.numerical_rank == 3
+    assert fit.rank_diagnostic.parameter_count == 3
+    assert fit.coefficients.flags.writeable is False
+    assert fit.rank_diagnostic.singular_values.flags.writeable is False
+
+
+def test_linear_fit_requires_explicit_floor_for_zero_statistical_error():
+    """Treating a zero error as an infinite weight hides an invalid likelihood."""
+    ring = _inference_ring([0.0, 90.0], [3.0, 3.0], [0.0, 0.2])
+    design = np.ones((2, 1))
+
+    with pytest.raises(ValueError, match="uncertainty_floor_k"):
+        fit_tris_linear_model(ring, design)
+
+    fit = fit_tris_linear_model(ring, design, uncertainty_floor_k=0.1)
+    assert fit.coefficients[0] == pytest.approx(3.0)
+    assert fit.coefficient_covariance[0, 0] == pytest.approx(1.0 / 125.0)
+
+
+def test_common_mode_covariance_only_expands_constant_mode_when_requested():
+    """Automatically reading asymmetric archive metadata would make this unsupported choice."""
+    ring = _inference_ring([0.0, 90.0, 180.0, 270.0], [4.0] * 4, [0.1] * 4)
+    design = np.ones((4, 1))
+
+    statistical_only = fit_tris_linear_model(ring, design)
+    with_common_mode = fit_tris_linear_model(ring, design, common_mode_sigma_k=0.5)
+
+    assert statistical_only.coefficient_covariance[0, 0] == pytest.approx(0.1**2 / 4)
+    assert with_common_mode.coefficient_covariance[0, 0] == pytest.approx(
+        0.1**2 / 4 + 0.5**2
+    )
+    with pytest.raises(ValueError, match="common_mode_sigma_k"):
+        fit_tris_linear_model(ring, design, common_mode_sigma_k=float("nan"))
+
+
+@pytest.mark.parametrize(
+    ("design", "parameter_count"),
+    [
+        (np.column_stack((np.ones(3), np.ones(3))), 2),
+        (np.eye(3, 12), 12),
+    ],
+)
+def test_linear_fit_rejects_duplicate_or_free_map_shaped_designs_before_solving(
+    design, parameter_count
+):
+    """Rank-deficient template and free-pixel designs are not TRIS measurements."""
+    ring = _inference_ring([0.0, 90.0, 180.0], [1.0, 2.0, 3.0], [0.1] * 3)
+
+    with pytest.raises(ValueError, match="reduce the model") as error:
+        fit_tris_linear_model(ring, design)
+
+    assert "parameter count={}".format(parameter_count) in str(error.value)
+
+
+def test_reduced_full_rank_template_design_passes_rank_gate():
+    """The rank gate must permit a compact identifiable caller-supplied template."""
+    ring = _inference_ring([0.0, 90.0, 180.0], [2.0, 4.0, 2.0], [0.2] * 3)
+    design = np.column_stack((np.ones(3), [0.0, 1.0, 0.0]))
+
+    fit = fit_tris_linear_model(ring, design)
+
+    np.testing.assert_allclose(fit.coefficients, [2.0, 2.0])
+    assert fit.rank_diagnostic.numerical_rank == 2
+
+
+def test_normalized_tris_beam_recovers_constant_sky_under_positive_rescaling():
+    """A normalized beam must retain a constant sky's Kelvin scale after rotation."""
+    nside = 8
+    sky = np.full(hp.nside2npix(nside), 7.25)
+    beam = approximate_tris_gaussian_beam_map(nside=nside, normalization="none")
+    pointing = dict(
+        LST_deg_list=np.array([0.0, 120.0]),
+        lat_deg=42.0,
+        azimuth_deg_list=np.array([0.0, 15.0]),
+        elevation_deg_list=np.array([90.0, 70.0]),
+        selfrot_deg_list=np.array([-7.0, 3.0]),
+        normalize_beam=True,
+    )
+
+    tod = generate_TOD_sky(beam, sky, **pointing)
+    scaled_tod = generate_TOD_sky(4.5 * beam, sky, **pointing)
+
+    np.testing.assert_allclose(tod, 7.25, atol=1e-10)
+    np.testing.assert_allclose(scaled_tod, 7.25, atol=1e-10)
