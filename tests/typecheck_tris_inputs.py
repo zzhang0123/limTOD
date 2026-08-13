@@ -4,7 +4,9 @@ import numpy as np
 
 from limTOD.tris import (
     AsymmetricUncertainty,
+    TRISLinearFit,
     TRISPointSet,
+    TRISPrincipalPlaneCuts,
     TRISRankDiagnostic,
     TRISRing,
     approximate_tris_gaussian_beam_map,
@@ -12,6 +14,14 @@ from limTOD.tris import (
     tris_beam_func,
     tris_zenith_geometry,
 )
+
+
+def _requires_float(value: float) -> None:
+    pass
+
+
+def _requires_array(value: np.ndarray) -> None:
+    pass
 
 
 def accepted_tris_inputs() -> None:
@@ -29,7 +39,7 @@ def accepted_tris_inputs() -> None:
         zero_level_uncertainty_k=uncertainty,
         declination_label_deg=np.array(42.0),
     )
-    TRISPointSet(
+    points = TRISPointSet(
         nominal_frequency_mhz=np.array(2500.0),
         effective_frequency_mhz=np.float64(2427.8),
         bandwidth_mhz=np.array(3.0),
@@ -40,7 +50,12 @@ def accepted_tris_inputs() -> None:
         zero_level_uncertainty_k=np.array(0.284),
         declination_label_deg=np.float64(42.0),
     )
-    TRISRankDiagnostic(
+    cuts = TRISPrincipalPlaneCuts(
+        angle_deg=[0.0, 3.0],
+        h_plane_db=[0.0, -0.2],
+        e_plane_db=[0.0, -0.3],
+    )
+    diagnostic = TRISRankDiagnostic(
         singular_values=np.array([2.0]),
         numerical_rank=1,
         parameter_count=1,
@@ -49,7 +64,7 @@ def accepted_tris_inputs() -> None:
         condition_number=np.array(1.0),
     )
 
-    fit_tris_linear_model(
+    fit = fit_tris_linear_model(
         ring,
         [[1.0], [0.5], [-0.25]],
         uncertainty_floor_k=np.array(0.01),
@@ -61,8 +76,50 @@ def accepted_tris_inputs() -> None:
     )
     beam_func = tris_beam_func(fwhm_e_deg=np.array(18.0), fwhm_h_deg=np.float64(23.0))
     beam_func(freq=np.array(600.0), nside=1)
-    tris_zenith_geometry(
+    geometry = tris_zenith_geometry(
         [0.0],
         latitude_deg=np.array(42.0),
         e_plane_east_of_meridian_deg=np.float64(7.0),
     )
+
+    for scalar_value in (
+        uncertainty.positive_k,
+        uncertainty.negative_k,
+        ring.nominal_frequency_mhz,
+        ring.effective_frequency_mhz,
+        ring.bandwidth_mhz,
+        ring.declination_label_deg,
+        points.nominal_frequency_mhz,
+        points.effective_frequency_mhz,
+        points.bandwidth_mhz,
+        points.zero_level_uncertainty_k,
+        points.declination_label_deg,
+        geometry.latitude_deg,
+        diagnostic.tolerance,
+        diagnostic.rank_rtol,
+        diagnostic.condition_number,
+    ):
+        _requires_float(scalar_value)
+
+    for array_value in (
+        ring.ra_deg,
+        ring.temperature_k,
+        ring.statistical_uncertainty_k,
+        points.ra_deg,
+        points.temperature_k,
+        cuts.angle_deg,
+        cuts.h_plane_db,
+        cuts.e_plane_db,
+        geometry.lst_deg,
+        diagnostic.singular_values,
+        fit.coefficients,
+        fit.coefficient_covariance,
+    ):
+        _requires_array(array_value)
+
+    linear_fit: TRISLinearFit = fit
+    _requires_array(linear_fit.prediction_k)
+
+
+if __name__ == "__main__":
+    accepted_tris_inputs()

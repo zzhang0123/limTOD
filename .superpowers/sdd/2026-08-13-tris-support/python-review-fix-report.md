@@ -502,3 +502,191 @@ Exit code: 0.
 The full suite continues to emit only the 16 existing gimbal-lock warnings.
 Python 3.8 grammar was checked explicitly; runtime verification remained on
 Python 3.12 because a Python 3.8 interpreter was not invoked.
+
+## Round 3: normalized stored-attribute types
+
+Review base: `a1f020d`
+
+### Scope
+
+- Extended the positive typing fixture so every normalized real scalar from
+  `AsymmetricUncertainty`, `TRISRing`, `TRISPointSet`, `TRISZenithGeometry`,
+  and `TRISRankDiagnostic` is accepted by a function requiring `float`.
+- Extended the fixture so normalized arrays from all array-bearing TRIS public
+  models are accepted by a function requiring `np.ndarray`; list-backed
+  principal-plane inputs are included.
+- Separated constructor input contracts from stored-field contracts using
+  frozen `dataclass(init=False)` models with explicit Python-3.8-compatible
+  constructors. Constructors retain the existing broad inputs and exact public
+  parameter names/order/defaults; stored fields are honestly annotated as
+  built-in `float`, built-in `int`, or `np.ndarray` after `__post_init__`.
+- Kept dataclass-generated repr, equality, and frozen behavior, one public
+  storage field per value, and all existing runtime normalization/validation.
+
+### RED: stored attributes and broad array constructors
+
+Command:
+
+```text
+mypy --ignore-missing-imports --disallow-untyped-defs limTOD/tris.py tests/typecheck_tris_inputs.py
+```
+
+Output:
+
+```text
+tests/typecheck_tris_inputs.py:54: error: Argument "angle_deg" to "TRISPrincipalPlaneCuts" has incompatible type "list[float]"; expected "ndarray[tuple[Any, ...], dtype[Any]]"  [arg-type]
+tests/typecheck_tris_inputs.py:55: error: Argument "h_plane_db" to "TRISPrincipalPlaneCuts" has incompatible type "list[float]"; expected "ndarray[tuple[Any, ...], dtype[Any]]"  [arg-type]
+tests/typecheck_tris_inputs.py:56: error: Argument "e_plane_db" to "TRISPrincipalPlaneCuts" has incompatible type "list[float]"; expected "ndarray[tuple[Any, ...], dtype[Any]]"  [arg-type]
+tests/typecheck_tris_inputs.py:102: error: Argument 1 to "_requires_float" has incompatible type "int | float | integer[Any] | floating[Any] | ndarray[tuple[Any, ...], dtype[Any]]"; expected "float"  [arg-type]
+Found 4 errors in 1 file (checked 2 source files)
+```
+
+Exit code: 1. The scalar tuple deliberately combines normalized attributes from
+all five affected public models, so mypy reports the shared broad union once.
+
+### GREEN: strict type check
+
+Command:
+
+```text
+mypy --ignore-missing-imports --disallow-untyped-defs limTOD/tris.py tests/typecheck_tris_inputs.py
+```
+
+Output:
+
+```text
+Success: no issues found in 2 source files
+```
+
+Exit code: 0.
+
+### GREEN: execute positive fixture
+
+Command:
+
+```text
+env PYTHONPATH=. MPLCONFIGDIR=/private/tmp/limtod-mpl-cache LIMTOD_FORCE_SERIAL=1 python tests/typecheck_tris_inputs.py
+```
+
+Output:
+
+```text
+[Zhengs-Mac-Studio][[25744,0],0][btl_tcp_component.c:1021:mca_btl_tcp_component_create_listen] bind() failed: Operation not permitted (1)
+```
+
+Exit code: 0. This is a non-fatal local OpenMPI socket warning emitted during
+imports; all fixture construction, fitting, beam, and geometry calls completed.
+
+### GREEN: focused TRIS suite
+
+Command:
+
+```text
+env PYTHONPATH=. MPLCONFIGDIR=/private/tmp/limtod-mpl-cache LIMTOD_FORCE_SERIAL=1 python -m pytest -q tests/test_tris.py
+```
+
+Output:
+
+```text
+.........................................................                [100%]
+57 passed in 1.34s
+```
+
+Exit code: 0.
+
+### GREEN: format check
+
+Command:
+
+```text
+black --check --fast limTOD/tris.py tests/test_tris.py tests/typecheck_tris_inputs.py
+```
+
+Output:
+
+```text
+All done! ✨ 🍰 ✨
+3 files would be left unchanged.
+```
+
+Exit code: 0.
+
+### GREEN: Python 3.8 grammar parse
+
+Command:
+
+```text
+python -c 'import ast
+from pathlib import Path
+for name in ("limTOD/tris.py", "tests/typecheck_tris_inputs.py"):
+    path = Path(name)
+    ast.parse(path.read_text(encoding="utf-8"), filename=str(path), feature_version=(3, 8))
+print("Python 3.8 grammar parse passed for 2 files")'
+```
+
+Output:
+
+```text
+Python 3.8 grammar parse passed for 2 files
+```
+
+Exit code: 0.
+
+### GREEN: whitespace checks
+
+Commands:
+
+```text
+git diff --check a1f020d
+git diff --check 0fd227c..HEAD
+```
+
+Output: empty for both commands. Exit code: 0 for both commands. The exact
+baseline-to-new-HEAD command is rerun after the round-3 commit.
+
+Post-commit command:
+
+```text
+git diff --check 0fd227c..HEAD
+```
+
+Output: empty. Exit code: 0.
+
+### GREEN: full suite
+
+Command:
+
+```text
+env PYTHONPATH=. MPLCONFIGDIR=/private/tmp/limtod-mpl-cache LIMTOD_FORCE_SERIAL=1 python -m pytest -q
+```
+
+Output:
+
+```text
+........................................................................ [ 26%]
+........................................................................ [ 52%]
+........................................................................ [ 78%]
+............................................................             [100%]
+=============================== warnings summary ===============================
+tests/test_beam_orientation.py: 16 warnings
+  /private/tmp/limtod-tris-support/limTOD/simulator.py:397: UserWarning: Gimbal lock detected. Setting third angle to zero since it is not possible to uniquely determine all angles.
+    psi_rad, theta_rad, phi_rad = zyz_of_pointing(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+276 passed, 2 skipped, 16 warnings in 78.04s (0:01:18)
+```
+
+Exit code: 0.
+
+### Round-3 files and concerns
+
+- `limTOD/tris.py`
+- `tests/typecheck_tris_inputs.py`
+- `.superpowers/sdd/2026-08-13-tris-support/python-review-fix-report.md`
+
+The explicit constructors add boilerplate but avoid duplicate state and are the
+only way used here to give mypy broad constructor inputs plus narrow normalized
+stored attributes on Python 3.8. The full suite still emits the 16 existing
+gimbal-lock warnings. Executing the fixture emits the non-fatal local OpenMPI
+socket warning quoted above. Runtime verification used Python 3.12; both edited
+Python files pass Python 3.8 grammar parsing.

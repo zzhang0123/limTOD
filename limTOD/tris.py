@@ -25,9 +25,11 @@ _RING_FREQUENCIES = {
 
 _PathInput = Union[str, Path, _os.PathLike]
 _RealScalarInput = Union[int, float, np.integer, np.floating, np.ndarray]
+_IntegerScalarInput = Union[int, np.integer]
 _VectorLike = Union[np.ndarray, _typing.Sequence[_RealScalarInput]]
 _MatrixLike = Union[np.ndarray, _typing.Sequence[_typing.Sequence[_RealScalarInput]]]
-_CommonUncertainty = Union[_RealScalarInput, "AsymmetricUncertainty"]
+_CommonUncertaintyInput = Union[_RealScalarInput, "AsymmetricUncertainty"]
+_StoredCommonUncertainty = Union[float, "AsymmetricUncertainty"]
 _Rows = _typing.List[Tuple[int, _typing.List[str]]]
 
 
@@ -98,12 +100,19 @@ def _validate_latitude(value: _RealScalarInput, name: str) -> float:
     return latitude
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class AsymmetricUncertainty:
     """A positive and negative common uncertainty in kelvin."""
 
-    positive_k: _RealScalarInput
-    negative_k: _RealScalarInput
+    positive_k: float
+    negative_k: float
+
+    def __init__(
+        self, positive_k: _RealScalarInput, negative_k: _RealScalarInput
+    ) -> None:
+        object.__setattr__(self, "positive_k", positive_k)
+        object.__setattr__(self, "negative_k", negative_k)
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -116,19 +125,42 @@ class AsymmetricUncertainty:
             object.__setattr__(self, name, normalized)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class TRISRing:
     """One fixed-declination TRIS drift ring."""
 
-    nominal_frequency_mhz: _RealScalarInput
-    effective_frequency_mhz: _RealScalarInput
-    bandwidth_mhz: _RealScalarInput
+    nominal_frequency_mhz: float
+    effective_frequency_mhz: float
+    bandwidth_mhz: float
     ra_text: Tuple[str, ...]
     ra_deg: np.ndarray
     temperature_k: np.ndarray
     statistical_uncertainty_k: np.ndarray
-    zero_level_uncertainty_k: _CommonUncertainty
-    declination_label_deg: _RealScalarInput = 42.0
+    zero_level_uncertainty_k: _StoredCommonUncertainty
+    declination_label_deg: float = 42.0
+
+    def __init__(
+        self,
+        nominal_frequency_mhz: _RealScalarInput,
+        effective_frequency_mhz: _RealScalarInput,
+        bandwidth_mhz: _RealScalarInput,
+        ra_text: Tuple[str, ...],
+        ra_deg: _VectorLike,
+        temperature_k: _VectorLike,
+        statistical_uncertainty_k: _VectorLike,
+        zero_level_uncertainty_k: _CommonUncertaintyInput,
+        declination_label_deg: _RealScalarInput = 42.0,
+    ) -> None:
+        object.__setattr__(self, "nominal_frequency_mhz", nominal_frequency_mhz)
+        object.__setattr__(self, "effective_frequency_mhz", effective_frequency_mhz)
+        object.__setattr__(self, "bandwidth_mhz", bandwidth_mhz)
+        object.__setattr__(self, "ra_text", ra_text)
+        object.__setattr__(self, "ra_deg", ra_deg)
+        object.__setattr__(self, "temperature_k", temperature_k)
+        object.__setattr__(self, "statistical_uncertainty_k", statistical_uncertainty_k)
+        object.__setattr__(self, "zero_level_uncertainty_k", zero_level_uncertainty_k)
+        object.__setattr__(self, "declination_label_deg", declination_label_deg)
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         nominal, effective, bandwidth = _validate_frequency_metadata(
@@ -166,19 +198,42 @@ class TRISRing:
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class TRISPointSet:
     """The sparse 2.5-GHz TRIS measurements."""
 
-    nominal_frequency_mhz: _RealScalarInput
-    effective_frequency_mhz: _RealScalarInput
-    bandwidth_mhz: _RealScalarInput
+    nominal_frequency_mhz: float
+    effective_frequency_mhz: float
+    bandwidth_mhz: float
     ra_text: Tuple[str, ...]
     ra_deg: np.ndarray
     temperature_k: np.ndarray
     statistical_uncertainty_k: Optional[np.ndarray]
-    zero_level_uncertainty_k: _RealScalarInput
-    declination_label_deg: _RealScalarInput = 42.0
+    zero_level_uncertainty_k: float
+    declination_label_deg: float = 42.0
+
+    def __init__(
+        self,
+        nominal_frequency_mhz: _RealScalarInput,
+        effective_frequency_mhz: _RealScalarInput,
+        bandwidth_mhz: _RealScalarInput,
+        ra_text: Tuple[str, ...],
+        ra_deg: _VectorLike,
+        temperature_k: _VectorLike,
+        statistical_uncertainty_k: Optional[_VectorLike],
+        zero_level_uncertainty_k: _RealScalarInput,
+        declination_label_deg: _RealScalarInput = 42.0,
+    ) -> None:
+        object.__setattr__(self, "nominal_frequency_mhz", nominal_frequency_mhz)
+        object.__setattr__(self, "effective_frequency_mhz", effective_frequency_mhz)
+        object.__setattr__(self, "bandwidth_mhz", bandwidth_mhz)
+        object.__setattr__(self, "ra_text", ra_text)
+        object.__setattr__(self, "ra_deg", ra_deg)
+        object.__setattr__(self, "temperature_k", temperature_k)
+        object.__setattr__(self, "statistical_uncertainty_k", statistical_uncertainty_k)
+        object.__setattr__(self, "zero_level_uncertainty_k", zero_level_uncertainty_k)
+        object.__setattr__(self, "declination_label_deg", declination_label_deg)
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         nominal, effective, bandwidth = _validate_frequency_metadata(
@@ -216,13 +271,24 @@ class TRISPointSet:
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class TRISPrincipalPlaneCuts:
     """Peak-relative TRIS H- and E-plane beam cuts in archive dB units."""
 
     angle_deg: np.ndarray
     h_plane_db: np.ndarray
     e_plane_db: np.ndarray
+
+    def __init__(
+        self,
+        angle_deg: _VectorLike,
+        h_plane_db: _VectorLike,
+        e_plane_db: _VectorLike,
+    ) -> None:
+        object.__setattr__(self, "angle_deg", angle_deg)
+        object.__setattr__(self, "h_plane_db", h_plane_db)
+        object.__setattr__(self, "e_plane_db", e_plane_db)
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         _validate_matching_samples(self.angle_deg, self.h_plane_db, self.e_plane_db)
@@ -294,8 +360,8 @@ def _validate_unique_coordinates(
 
 
 def _validate_common_uncertainty(
-    value: _CommonUncertainty,
-) -> _CommonUncertainty:
+    value: _CommonUncertaintyInput,
+) -> _StoredCommonUncertainty:
     if isinstance(value, AsymmetricUncertainty):
         return value
     normalized = _coerce_real_scalar(value, "zero_level_uncertainty_k")
@@ -399,7 +465,7 @@ def _parse_finite_float(
 
 def _find_ring_metadata(
     source: _PathInput, header: _typing.Sequence[str]
-) -> Tuple[float, float, float, _CommonUncertainty]:
+) -> Tuple[float, float, float, _StoredCommonUncertainty]:
     joined = "\n".join(header)
     frequency_match = re.search(
         r"Frequency\s*=\s*([0-9.]+)\s*GHz", joined, re.IGNORECASE
@@ -421,7 +487,7 @@ def _find_ring_metadata(
             "{}: ring file is missing its zero-level uncertainty header".format(source)
         )
     zero_text = zero_match.group(1).strip()
-    zero_level: _CommonUncertainty
+    zero_level: _StoredCommonUncertainty
     asymmetry = re.fullmatch(r"\+?([0-9.]+)K\s*/\s*-([0-9.]+)K(?:\s*.*)?", zero_text)
     if asymmetry is not None:
         zero_level = AsymmetricUncertainty(
@@ -630,7 +696,7 @@ def tris_beam_func(
     return beam_func
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class TRISZenithGeometry:
     """Immutable zenith geometry for the approximate TRIS drift-ring bridge."""
 
@@ -638,7 +704,22 @@ class TRISZenithGeometry:
     azimuth_deg: np.ndarray
     elevation_deg: np.ndarray
     selfrot_deg: np.ndarray
-    latitude_deg: _RealScalarInput
+    latitude_deg: float
+
+    def __init__(
+        self,
+        lst_deg: _VectorLike,
+        azimuth_deg: _VectorLike,
+        elevation_deg: _VectorLike,
+        selfrot_deg: _VectorLike,
+        latitude_deg: _RealScalarInput,
+    ) -> None:
+        object.__setattr__(self, "lst_deg", lst_deg)
+        object.__setattr__(self, "azimuth_deg", azimuth_deg)
+        object.__setattr__(self, "elevation_deg", elevation_deg)
+        object.__setattr__(self, "selfrot_deg", selfrot_deg)
+        object.__setattr__(self, "latitude_deg", latitude_deg)
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         latitude = _validate_latitude(self.latitude_deg, "latitude_deg")
@@ -676,16 +757,33 @@ def _readonly_finite_matrix(values: _MatrixLike, name: str) -> np.ndarray:
     return array
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class TRISRankDiagnostic:
     """Immutable SVD identifiability diagnostic for a whitened design."""
 
     singular_values: np.ndarray
     numerical_rank: int
     parameter_count: int
-    tolerance: _RealScalarInput
-    rank_rtol: _RealScalarInput
-    condition_number: _RealScalarInput
+    tolerance: float
+    rank_rtol: float
+    condition_number: float
+
+    def __init__(
+        self,
+        singular_values: _VectorLike,
+        numerical_rank: _IntegerScalarInput,
+        parameter_count: _IntegerScalarInput,
+        tolerance: _RealScalarInput,
+        rank_rtol: _RealScalarInput,
+        condition_number: _RealScalarInput,
+    ) -> None:
+        object.__setattr__(self, "singular_values", singular_values)
+        object.__setattr__(self, "numerical_rank", numerical_rank)
+        object.__setattr__(self, "parameter_count", parameter_count)
+        object.__setattr__(self, "tolerance", tolerance)
+        object.__setattr__(self, "rank_rtol", rank_rtol)
+        object.__setattr__(self, "condition_number", condition_number)
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         singular_values = _readonly_finite_array(
@@ -721,7 +819,7 @@ class TRISRankDiagnostic:
         object.__setattr__(self, "condition_number", condition_number)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class TRISLinearFit:
     """Immutable rank-gated generalized least-squares fit to one TRIS ring."""
 
@@ -730,6 +828,21 @@ class TRISLinearFit:
     prediction_k: np.ndarray
     residual_k: np.ndarray
     rank_diagnostic: TRISRankDiagnostic
+
+    def __init__(
+        self,
+        coefficients: _VectorLike,
+        coefficient_covariance: _MatrixLike,
+        prediction_k: _VectorLike,
+        residual_k: _VectorLike,
+        rank_diagnostic: TRISRankDiagnostic,
+    ) -> None:
+        object.__setattr__(self, "coefficients", coefficients)
+        object.__setattr__(self, "coefficient_covariance", coefficient_covariance)
+        object.__setattr__(self, "prediction_k", prediction_k)
+        object.__setattr__(self, "residual_k", residual_k)
+        object.__setattr__(self, "rank_diagnostic", rank_diagnostic)
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         coefficients = _readonly_finite_array(self.coefficients, "coefficients")
@@ -771,17 +884,17 @@ class TRISLinearFit:
     @property
     def tolerance(self) -> float:
         """SVD rank tolerance."""
-        return _typing.cast(float, self.rank_diagnostic.tolerance)
+        return self.rank_diagnostic.tolerance
 
     @property
     def rank_rtol(self) -> float:
         """Relative SVD rank tolerance."""
-        return _typing.cast(float, self.rank_diagnostic.rank_rtol)
+        return self.rank_diagnostic.rank_rtol
 
     @property
     def condition_number(self) -> float:
         """Whitened-design condition number."""
-        return _typing.cast(float, self.rank_diagnostic.condition_number)
+        return self.rank_diagnostic.condition_number
 
 
 def build_tris_fourier_design(
