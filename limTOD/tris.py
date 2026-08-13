@@ -752,6 +752,11 @@ def fit_tris_linear_model(
         raise ValueError("design_matrix must contain at least one parameter column")
     if sample_count != ring.temperature_k.size:
         raise ValueError("design_matrix row count must match the TRISRing samples")
+    if parameter_count >= sample_count:
+        raise ValueError(
+            "design must be low-dimensional: parameter count={}, sample count={}; "
+            "reduce the model before fitting".format(parameter_count, sample_count)
+        )
 
     floor = _validate_optional_positive_scalar(
         uncertainty_floor_k, "uncertainty_floor_k"

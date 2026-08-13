@@ -513,6 +513,17 @@ def test_linear_fit_rejects_duplicate_or_free_map_shaped_designs_before_solving(
     assert "parameter count={}".format(parameter_count) in str(error.value)
 
 
+def test_linear_fit_rejects_saturated_square_design_before_solving():
+    """One free coefficient per ring datum is not a low-dimensional TRIS model."""
+    ring = _inference_ring([0.0, 90.0, 180.0], [1.0, 2.0, 3.0], [0.1] * 3)
+
+    with pytest.raises(ValueError, match="low-dimensional.*reduce the model") as error:
+        fit_tris_linear_model(ring, np.eye(3))
+
+    assert "parameter count=3" in str(error.value)
+    assert "sample count=3" in str(error.value)
+
+
 def test_reduced_full_rank_template_design_passes_rank_gate():
     """The rank gate must permit a compact identifiable caller-supplied template."""
     ring = _inference_ring([0.0, 90.0, 180.0], [2.0, 4.0, 2.0], [0.2] * 3)
