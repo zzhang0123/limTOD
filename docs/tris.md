@@ -162,6 +162,18 @@ offset:
 | 0.126 K | 0.066 K | +0.011 +/- 0.053 K -- prior-dominated, unreliable |
 | 0.013 K | 0.066 K | **+0.0296 +/- 0.0086 K** -- recovered |
 
+That table assumes an **unbiased** prior, and the condition is necessary but not
+sufficient. A prior that is tight *and wrong* is worse than a loose one: the fit
+hands the template's monopole error to the nuisance offset and the fit quality
+gives no warning at all. Simulating a ring from GSM2016 while priming with
+GSM2008 (~3.8 K apart) produces a fitted offset of +2.8 K against a true +0.03 K
+-- with a *better* diagnostic ratio and a *better* reduced chi-square than the
+unbiased case. See `examples/TRIS/tris_limtod_walkthrough.ipynb`, Part 4.
+
+There is no bootstrap: you cannot extract an absolute zero point from one ring
+plus a sky model whose own absolute scale you do not already trust. What one
+ring *can* measure is the difference between them.
+
 ### Choosing `nside`
 
 The beam is 19-23 deg wide. `nside=16` (3.7 deg pixels) already oversamples it
@@ -169,6 +181,15 @@ six times; `nside=32` is a comfortable ceiling. Anything finer is pure prior.
 A +/-45 deg declination band retains 99.95 per cent of the beam
 (+/-30 deg retains 99.1 per cent); `beam_coverage` reports what was dropped,
 and the missing fraction biases the model low by that amount.
+
+### Worked notebook
+
+`examples/TRIS/tris_limtod_walkthrough.ipynb` runs the whole chain end to end with
+outputs and figures: the convention checks above reproduced numerically, the data
+and beam, a GSM2008/GSM2016 forward-model comparison against both rings, and a
+prior-regularized reconstruction at `nside=8` (~3 pixels per beam FWHM) showing
+prior, estimate and posterior uncertainty. It needs only the local archive copy
+and a pyGDSM cache.
 
 ### Offline example
 

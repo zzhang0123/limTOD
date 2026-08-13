@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `mapmaking`). Strict readers for the four LAMBDA text products, TRIS→limTOD
   convention conversion, and rank-gated low-dimensional profile fits.
 - 🛰️ **Cut-based TRIS beam** — `tris_cut_beam_map` / `tris_cut_beam_func` build
-  the beam from the archive's own E- and H-plane cuts (0–176°, down to −49 dB)
+  the beam from the archive's own E- and H-plane cuts (0–176°, nulls to −60 dB)
   instead of a main-lobe Gaussian. Forward-modelling a 600-MHz sky with the
   Gaussian instead moves the predicted ring by ~0.94 K rms, against a 0.010 K
   statistical error. `tris_horizon_mask` supplies the horizon treatment the

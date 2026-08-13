@@ -271,7 +271,8 @@ class TRISPrincipalPlaneCuts:
 
     The archive samples both principal planes from 0 to 176 degrees, i.e. the
     public product is *not* limited to the main lobe: it carries the shoulders
-    and far sidelobes down to about -49 dB.  ``H`` and ``E`` name spatial
+    and far sidelobes: nulls reach -60 dB and the
+    anti-boresight response is about -48 dB.  ``H`` and ``E`` name spatial
     principal planes; they are not HH/VV, Stokes, or polarization labels.
     """
 

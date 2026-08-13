@@ -3,7 +3,8 @@
 Two models are provided, and the choice matters far more than it looks:
 
 * :func:`tris_cut_beam_map` builds the beam from the archive's own E- and
-  H-plane cuts, which run all the way to 176 degrees and about -49 dB.  This
+  H-plane cuts, which run all the way to 176 degrees, with nulls to -60 dB and about
+  -48 dB at the anti-boresight.  This
   is the model to use for any quantitative sky comparison or map-making.
 * :func:`approximate_tris_gaussian_beam_map` is a main-lobe-only elliptical
   Gaussian.  It is cheap and smooth, but it under-predicts the response
@@ -121,7 +122,7 @@ def tris_cut_beam_map(
 
     This is the recommended beam for forward modelling and map-making.  Unlike
     the Gaussian it is strictly positive over the whole sphere (the archive
-    floor is about -49 dB), so limTOD's default beam truncation never removes
+    floor is about -60 dB), so limTOD's default beam truncation never removes
     any of it -- and that means a **horizon treatment becomes mandatory**:
     without one, the roughly 1.2e-4 of beam power below the horizon is fed
     sky brightness instead of ground.  Pass
