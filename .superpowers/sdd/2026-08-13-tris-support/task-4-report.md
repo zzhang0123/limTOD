@@ -59,3 +59,27 @@ The requested strict full-document build cannot be green in this environment
 without resolving unrelated optional-JAX and pre-existing documentation
 warnings. The external LAMBDA and arXiv links are included, but the build
 environment has no DNS access for intersphinx inventories.
+
+## Fix round 1 — warning provenance and TRIS publication link
+
+- Added `superpowers/**` to Sphinx's `exclude_patterns`. These tracked files
+  are internal implementation artifacts rather than published user
+  documentation; this removes their five non-consecutive-header and two
+  orphan/toctree warnings without suppressing warnings for either TRIS page.
+- Replaced the generic LAMBDA papers URL with the direct
+  `product/tris/tris_papers.html` publication list.
+
+Fresh strict build command run exactly:
+
+```bash
+env PYTHONPATH=. MPLCONFIGDIR=/private/tmp/limtod-mpl-cache sphinx-build -W --keep-going -E docs /private/tmp/limtod-tris-doc-build-fixed
+```
+
+Relevant output: the autosummary source list contains 21 published documents,
+including `tris.md` and `api/tris.md`, and no `superpowers/**` documents; the
+build finished with 22 warnings treated as errors. No warning mentions
+`superpowers`, `tris.md`, or `api/tris.md`. The remaining warning categories
+are eight missing-`s2fft`/`limtod_jax` autodoc imports (reported at discovery
+and detailed by autodoc), four offline intersphinx inventory fetch failures,
+and the pre-existing `cstbeam`/`api/uvbeam` duplicate `conventions` label.
+`git diff --check` passed before commit.

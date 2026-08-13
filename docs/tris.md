@@ -4,7 +4,7 @@
 
 ## Archive, provenance, and scope
 
-The source is the [LAMBDA TRIS product page](https://lambda.gsfc.nasa.gov/product/tris/tris_prod_table.html); the [LAMBDA publication list](https://lambda.gsfc.nasa.gov/papers/index.html) and [TRIS I](https://arxiv.org/abs/0806.1415) are the associated references. The files below were retrieved on 2026-08-13 into ignored `downloads/TRIS/`. Readers take explicit local paths and never fetch data.
+The source is the [LAMBDA TRIS product page](https://lambda.gsfc.nasa.gov/product/tris/tris_prod_table.html); the [LAMBDA TRIS publication list](https://lambda.gsfc.nasa.gov/product/tris/tris_papers.html) and [TRIS I](https://arxiv.org/abs/0806.1415) are the associated references. The files below were retrieved on 2026-08-13 into ignored `downloads/TRIS/`. Readers take explicit local paths and never fetch data.
 
 | Product | Rows | Schema | SHA-256 |
 |---|---:|---|---|
