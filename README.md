@@ -34,9 +34,10 @@ ships:
   objects, feeding measured/simulated beams into either path;
 - **`limTOD.cstbeam`** — the same for CST Studio far-field exports, the
   format a simulated horn usually arrives in (no extra needed);
-- **`limTOD.tris`** — offline readers and an explicitly approximate
-  beam/zenith bridge for the public TRIS profiles, with rank-gated reduced
-  inference (not free-pixel map-making);
+- **`limTOD.tris`** — an offline bridge to the public TRIS archive: strict
+  readers, a beam built from the archive's own E/H cuts, the verified
+  zenith/roll geometry, and operator + noise + prior objects for
+  prior-regularized map-making of the dec +42° drift ring;
 - **`limtod_jax`** — a pure-JAX, jit/vmap/grad-safe port of the sky→TOD
   chain, verified against the numpy implementation to ~1e-12 in float64.
   It powers the differentiable pipeline of

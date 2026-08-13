@@ -1,6 +1,7 @@
 """Offline archive-reader contracts for the public TRIS text products."""
 
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 
 import healpy as hp
 import numpy as np
@@ -63,22 +64,45 @@ def test_star_import_does_not_expose_private_typing_helpers():
     exec("from limTOD.tris import *", {}, namespace)
 
     assert set(namespace) == {
+        # archive
         "AsymmetricUncertainty",
         "TRISRing",
         "TRISPointSet",
         "TRISPrincipalPlaneCuts",
-        "TRISZenithGeometry",
-        "TRISRankDiagnostic",
-        "TRISLinearFit",
         "parse_tris_ra",
         "read_tris_ring",
         "read_tris_point_set",
         "read_tris_beam_cuts",
+        # sky convention
+        "CMB_T0_K",
+        "cmb_monopole_rj_k",
+        "to_tris_temperature_convention",
+        "galactic_spectral_index",
+        # beam
+        "tris_cut_beam_map",
+        "tris_cut_beam_func",
+        "tris_cut_beam_response",
+        "tris_horizon_mask",
         "approximate_tris_gaussian_beam_map",
         "tris_beam_func",
+        # geometry
+        "TRISZenithGeometry",
         "tris_zenith_geometry",
+        "TRIS_SITE_LATITUDE_DEG",
+        "TRIS_DECLINATION_LABEL_DEG",
+        "TRIS_E_PLANE_EAST_OF_MERIDIAN_DEG",
+        # noise
+        "TRISNoiseModel",
+        # inference
+        "TRISRankDiagnostic",
+        "TRISLinearFit",
         "build_tris_fourier_design",
         "fit_tris_linear_model",
+        # map-making
+        "TRISMapMakingInputs",
+        "build_tris_mapmaking_inputs",
+        "tris_ring_pixels",
+        "tris_prior_from_template",
     }
 
 
@@ -780,3 +804,176 @@ def test_normalized_tris_beam_recovers_constant_sky_under_positive_rescaling():
 
     np.testing.assert_allclose(tod, 7.25, atol=1e-10)
     np.testing.assert_allclose(scaled_tod, 7.25, atol=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# Regressions for the conventions and failure modes found in review.
+# ---------------------------------------------------------------------------
+
+ARCHIVE = Path(__file__).resolve().parents[1] / "downloads" / "TRIS"
+_ARCHIVE_FILES = {
+    "ring600": ARCHIVE / "TRIS_absolute_600.txt",
+    "ring820": ARCHIVE / "TRIS_absolute_820.txt",
+    "points": ARCHIVE / "TRIS_absolute_2500MHz.txt",
+    "beam": ARCHIVE / "TRIS_Beam_Profile.txt",
+}
+requires_archive = pytest.mark.skipif(
+    not all(path.exists() for path in _ARCHIVE_FILES.values()),
+    reason="the gitignored downloads/TRIS archive copy is not present",
+)
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
+@pytest.mark.parametrize(
+    ("reader", "contents"),
+    [
+        (read_tris_ring, RING_600),
+        (read_tris_point_set, POINTS_2500),
+        (read_tris_beam_cuts, BEAM_CUTS),
+    ],
+)
+def test_readers_accept_every_line_terminator_the_archive_uses(
+    tmp_path, newline, reader, contents
+):
+    """Two of the four public products separate records with a bare CR.
+
+    ``TRIS_Beam_Profile.txt`` uses bare CR for its whole data block and
+    ``TRIS_absolute_2500MHz.txt`` packs two records onto one physical line that
+    way, so universal-newline reading is load-bearing rather than cosmetic.
+    Pinning the reader to ``"\\n"`` makes both unreadable while every
+    LF-only fixture still passes.
+    """
+    product = reader(_write_ascii(tmp_path, "terminator.txt", contents, newline))
+
+    assert product is not None
+
+
+def test_point_reader_handles_two_records_sharing_one_line_via_bare_cr(tmp_path):
+    """The real 2.5-GHz file joins its first two records with a bare CR."""
+    packed = POINTS_2500.replace(
+        "11h26m04s 2.329 0.284\n13h42m32s 2.331 0.284\n",
+        "11h26m04s 2.329 0.284 \r13h42m32s 2.331 0.284\n",
+    )
+    points = read_tris_point_set(_write_ascii(tmp_path, "packed.txt", packed))
+
+    assert points.ra_text == ("11h26m04s", "13h42m32s")
+
+
+@requires_archive
+def test_official_products_read_with_their_published_row_counts_and_zero_levels():
+    """The design's acceptance criterion, enforced against the real files."""
+    ring600 = read_tris_ring(_ARCHIVE_FILES["ring600"])
+    ring820 = read_tris_ring(_ARCHIVE_FILES["ring820"])
+    points = read_tris_point_set(_ARCHIVE_FILES["points"])
+    cuts = read_tris_beam_cuts(_ARCHIVE_FILES["beam"])
+
+    assert (ring600.ra_deg.size, ring820.ra_deg.size) == (120, 120)
+    assert points.ra_deg.size == 6
+    assert cuts.angle_deg.size == 55
+    assert ring600.zero_level_uncertainty_k == 0.066
+    assert ring820.zero_level_uncertainty_k == AsymmetricUncertainty(0.430, 0.300)
+    assert points.zero_level_uncertainty_k == 0.284
+    # The published RA labels are rounded to the minute and are NOT on an exact
+    # 3-degree grid; a reader that regridded them would erase this.
+    assert set(np.round(np.diff(ring600.ra_deg), 9)) == {2.75, 3.0, 3.25}
+    # Each ring carries exactly one zero statistical error, so the fitting
+    # floor is mandatory for real data rather than a theoretical nicety.
+    assert int(np.count_nonzero(ring600.statistical_uncertainty_k == 0.0)) == 1
+    assert int(np.count_nonzero(ring820.statistical_uncertainty_k == 0.0)) == 1
+
+
+@requires_archive
+def test_archive_cuts_supersede_the_rounded_prose_e_plane_width():
+    """The ring headers say 18 deg; the beam table itself says 19.155 deg."""
+    cuts = read_tris_beam_cuts(_ARCHIVE_FILES["beam"])
+
+    e_fwhm, h_fwhm = cuts.half_power_full_width_deg()
+
+    assert e_fwhm == pytest.approx(19.155, abs=0.01)
+    assert h_fwhm == pytest.approx(23.366, abs=0.01)
+    assert cuts.angle_deg.max() == 176.0  # the product is not main-lobe only
+
+
+@pytest.mark.parametrize("normalization", ["peak", "sum", "none"])
+def test_tris_beam_func_forwards_every_argument_to_the_beam_map(normalization):
+    """Comparing the callable only with itself lets an E/H swap pass silently."""
+    beam_func = tris_beam_func(
+        fwhm_e_deg=11.0, fwhm_h_deg=29.0, normalization=normalization
+    )
+
+    np.testing.assert_array_equal(
+        beam_func(freq=600.0, nside=16),
+        approximate_tris_gaussian_beam_map(
+            nside=16, fwhm_e_deg=11.0, fwhm_h_deg=29.0, normalization=normalization
+        ),
+    )
+
+
+def test_default_gaussian_beam_func_keeps_the_narrow_axis_on_the_e_plane():
+    """A swapped default would rotate the ellipse 90 deg against the archive."""
+    beam = tris_beam_func()(freq=600.0, nside=256)
+
+    assert hp.get_interp_val(beam, np.deg2rad(9.0), 0.0) == pytest.approx(0.5, abs=0.01)
+    assert hp.get_interp_val(beam, np.deg2rad(11.5), np.pi / 2.0) == pytest.approx(
+        0.5, abs=0.01
+    )
+
+
+def test_beam_factories_validate_normalization_at_construction():
+    """A typo must fail at the boundary, not inside a simulation loop."""
+    with pytest.raises(ValueError, match="normalization"):
+        tris_beam_func(normalization="Peak")
+
+
+def test_sample_validation_names_the_offending_column():
+    """A placeholder name leaves the caller unable to find the bad column."""
+    with pytest.raises(ValueError, match="h_plane_db"):
+        TRISPrincipalPlaneCuts(
+            angle_deg=[0.0, 1.0, 2.0],
+            h_plane_db=[0.0, np.nan, 1.0],
+            e_plane_db=[0.0, 1.0, 2.0],
+        )
+
+
+def test_array_carrying_models_have_usable_equality_and_hashing(tmp_path):
+    """Dataclass __eq__ over ndarray fields raises; identity semantics do not."""
+    ring = read_tris_ring(_write_ascii(tmp_path, "600.txt", RING_600))
+    other = read_tris_ring(_write_ascii(tmp_path, "600b.txt", RING_600))
+
+    assert ring == ring
+    assert ring != other
+    assert hash(ring) == hash(ring)
+    assert isinstance(repr(ring), str)
+
+
+def test_linear_fit_can_verify_the_design_was_built_at_the_ring_sampling():
+    """Only the row count is otherwise checked, so a foreign grid slips through."""
+    ring = _inference_ring(np.arange(8) * 45.0, np.arange(8, dtype=float), [0.5] * 8)
+    design = build_tris_fourier_design(ring.ra_deg, m_max=1)
+
+    fit = fit_tris_linear_model(ring, design, design_ra_deg=ring.ra_deg)
+    assert fit.parameter_count == 3
+
+    with pytest.raises(ValueError, match="design_ra_deg"):
+        fit_tris_linear_model(ring, design, design_ra_deg=np.arange(8) * 44.0)
+
+
+def test_linear_fit_reports_goodness_of_fit():
+    """Without chi-square the reported covariance looks trustworthy when it is not."""
+    ra_deg = np.arange(8) * 45.0
+    design = build_tris_fourier_design(ra_deg, m_max=1)
+    exact = _inference_ring(
+        ra_deg, design @ np.array([10.0, 2.0, -3.0]), np.full(8, 0.5)
+    )
+
+    good = fit_tris_linear_model(exact, design)
+    assert good.degrees_of_freedom == 5
+    assert good.chi_square == pytest.approx(0.0, abs=1e-18)
+
+    mismatched = _inference_ring(
+        ra_deg,
+        exact.temperature_k + 5.0 * np.cos(np.deg2rad(3.0 * ra_deg)),
+        np.full(8, 0.5),
+    )
+    bad = fit_tris_linear_model(mismatched, design)
+    assert bad.reduced_chi_square > 10.0

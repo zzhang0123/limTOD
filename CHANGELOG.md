@@ -9,10 +9,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- 📻 **`limTOD.tris` documentation** — a compact, source-linked report of the
-  public TRIS products, their explicit beam/geometry approximation, and the
-  rank-gated low-dimensional inference boundary; see the new TRIS guide and
-  API reference.
+- 📻 **`limTOD.tris`** — an offline bridge to the public TRIS archive, laid out
+  as a package (`archive`, `sky`, `beam`, `geometry`, `noise`, `inference`,
+  `mapmaking`). Strict readers for the four LAMBDA text products, TRIS→limTOD
+  convention conversion, and rank-gated low-dimensional profile fits.
+- 🛰️ **Cut-based TRIS beam** — `tris_cut_beam_map` / `tris_cut_beam_func` build
+  the beam from the archive's own E- and H-plane cuts (0–176°, down to −49 dB)
+  instead of a main-lobe Gaussian. Forward-modelling a 600-MHz sky with the
+  Gaussian instead moves the predicted ring by ~0.94 K rms, against a 0.010 K
+  statistical error. `tris_horizon_mask` supplies the horizon treatment the
+  cut-based beam now makes necessary.
+- 🌡️ **Temperature convention** — `cmb_monopole_rj_k`,
+  `to_tris_temperature_convention` and `galactic_spectral_index`. Established
+  from the data: TRIS temperatures are Rayleigh-Jeans and include the CMB
+  monopole (the alternative gives a Galactic index of −2.1, which is not
+  synchrotron).
+- 🗺️ **Map-making inputs** — `build_tris_mapmaking_inputs` assembles the
+  sky→sample operator (verified against `generate_TOD_sky` to 1e-15 K), the
+  noise model, beam-coverage diagnostics and an optional zero-level nuisance
+  parameter, ready for `wiener_filter_map`. `monopole_degeneracy` and
+  `implied_monopole_prior_sigma_k` expose the near-exact degeneracy between a
+  free zero level and the sky monopole.
+- 📊 `TRISLinearFit` now reports `chi_square`, `degrees_of_freedom` and
+  `reduced_chi_square`.
+
+### Fixed
+
+- 🔢 **TRIS common-mode whitening is now exact for any `sigma_c`.** The dense
+  `diag(σ²) + σ_c²11ᵀ` Cholesky kept succeeding after the matrix had lost
+  positive definiteness in float64: at `σ_c = 1e5` coefficients were wrong by
+  ~190σ with no exception and a healthy-looking condition number.
+  `TRISNoiseModel` applies the rank-1 term analytically instead.
+- 📄 Readers' dependence on universal-newline mode is documented and
+  regression-tested; two of the four public products use a bare CR as their
+  record separator.
+- ⚖️ Beam-factory arguments are validated at construction, validation errors name
+  the offending column, array-carrying models no longer raise from `__eq__` or
+  `hash()`, and `fit_tris_linear_model` can check the design against the ring's
+  own RA sampling.
 
 ## [1.10.0] - 2026-07-31
 
