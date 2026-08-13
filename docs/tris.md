@@ -53,7 +53,7 @@ $$
 V_m = \sum_l \operatorname{conj}(B_{lm}) S_{lm}.
 $$
 
-Thus many sky harmonic coefficients project to the same datum. Regularization can choose one map but cannot create the missing information. Before `fit_tris_linear_model` solves a caller-supplied reduced model, it requires both `p < n` (parameters versus samples) and full numerical rank of the Cholesky-whitened design from an SVD. It uses the per-row statistical variance and may add the caller's chosen symmetric common covariance `sigma_common**2 * 11^T`. That is appropriate for an explicitly modelled symmetric 600-MHz common zero level; the asymmetric 820-MHz value is never auto-symmetrized. Choose and record an approximation yourself, or use an asymmetric likelihood outside this API.
+Thus many sky harmonic coefficients project to the same datum. Regularization can choose one map but cannot create the missing information. Before `fit_tris_linear_model` solves a caller-supplied reduced model, it requires both `p < n` (parameters versus samples) and full numerical rank of the Cholesky-whitened design from an SVD. An explicit `rank_rtol` must be at least machine epsilon times the larger whitened-design dimension, so callers can choose a more conservative rank threshold but cannot bypass the numerical safety floor. It uses the per-row statistical variance and may add the caller's chosen symmetric common covariance `sigma_common**2 * 11^T`. That is appropriate for an explicitly modelled symmetric 600-MHz common zero level; the asymmetric 820-MHz value is never auto-symmetrized. Choose and record an approximation yourself, or use an asymmetric likelihood outside this API.
 
 ## Offline workflow
 

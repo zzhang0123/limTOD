@@ -58,19 +58,28 @@ BEAM_CUTS = """# Column 1= angle (degree)
 
 
 def test_star_import_does_not_expose_private_typing_helpers():
-    """Typing-only imports must not silently expand the public module surface."""
+    """Star import must expose exactly the binding-spec public TRIS API."""
     namespace = {}
     exec("from limTOD.tris import *", {}, namespace)
 
-    assert {
-        "Real",
-        "PathLike",
-        "Dict",
-        "List",
-        "Protocol",
-        "Sequence",
-    }.isdisjoint(namespace)
-    assert {"Optional", "Tuple", "Union"}.issubset(namespace)
+    assert set(namespace) == {
+        "AsymmetricUncertainty",
+        "TRISRing",
+        "TRISPointSet",
+        "TRISPrincipalPlaneCuts",
+        "TRISZenithGeometry",
+        "TRISRankDiagnostic",
+        "TRISLinearFit",
+        "parse_tris_ra",
+        "read_tris_ring",
+        "read_tris_point_set",
+        "read_tris_beam_cuts",
+        "approximate_tris_gaussian_beam_map",
+        "tris_beam_func",
+        "tris_zenith_geometry",
+        "build_tris_fourier_design",
+        "fit_tris_linear_model",
+    }
 
 
 def _write_ascii(tmp_path, name, text, newline="\n"):
@@ -124,6 +133,25 @@ def test_ring_reader_separates_nominal_effective_and_statistical_uncertainty(tmp
     assert ring.statistical_uncertainty_k.shape == (2,)
     with pytest.raises(FrozenInstanceError):
         ring.nominal_frequency_mhz = 1.0
+
+
+@pytest.mark.parametrize(
+    ("contents", "line_number", "description"),
+    [
+        (RING_600.replace("0.6 GHz", "nope GHz"), 1, "frequency"),
+        (RING_600.replace("0.066K", "nopeK"), 2, "zero-level uncertainty"),
+    ],
+)
+def test_ring_header_numeric_errors_identify_source_and_line(
+    tmp_path, contents, line_number, description
+):
+    """Malformed header numbers must retain their archive source location."""
+    path = _write_ascii(tmp_path, "bad-header.txt", contents)
+
+    with pytest.raises(ValueError, match=description) as error:
+        read_tris_ring(path)
+
+    _assert_diagnostic(error, path, line_number)
 
 
 def test_820_ring_keeps_asymmetric_zero_level_separate_from_statistical_errors(
@@ -378,6 +406,21 @@ def test_point_set_rejects_boolean_public_scalar_metadata(field):
         TRISPointSet(**values)
 
 
+def test_point_set_rejects_asymmetric_zero_level_uncertainty():
+    """Sparse point metadata is one scalar common uncertainty, never a union."""
+    with pytest.raises(ValueError, match="zero_level_uncertainty_k"):
+        TRISPointSet(
+            nominal_frequency_mhz=2500.0,
+            effective_frequency_mhz=2427.8,
+            bandwidth_mhz=3.0,
+            ra_text=("0h00m",),
+            ra_deg=[0.0],
+            temperature_k=[2.3],
+            statistical_uncertainty_k=None,
+            zero_level_uncertainty_k=AsymmetricUncertainty(0.43, 0.30),
+        )
+
+
 def test_approximate_tris_gaussian_beam_map_has_ring_shape_and_normalizations():
     """The explicitly approximate scalar beam follows limTOD's RING convention."""
     nside = 32
@@ -392,6 +435,21 @@ def test_approximate_tris_gaussian_beam_map_has_ring_shape_and_normalizations():
     assert np.sum(summed) == pytest.approx(1.0)
     np.testing.assert_allclose(peak, unnormalized / np.max(unnormalized))
     np.testing.assert_allclose(summed, unnormalized / np.sum(unnormalized))
+
+
+def test_narrow_gaussian_beam_normalizations_remain_finite():
+    """Tiny positive FWHM must not underflow before peak or sum normalization."""
+    peak = approximate_tris_gaussian_beam_map(
+        nside=32, fwhm_e_deg=0.01, fwhm_h_deg=0.01, normalization="peak"
+    )
+    summed = approximate_tris_gaussian_beam_map(
+        nside=32, fwhm_e_deg=0.01, fwhm_h_deg=0.01, normalization="sum"
+    )
+
+    assert np.all(np.isfinite(peak))
+    assert np.all(np.isfinite(summed))
+    assert np.max(peak) == pytest.approx(1.0)
+    assert np.sum(summed) == pytest.approx(1.0)
 
 
 def test_approximate_tris_gaussian_beam_map_uses_e_and_h_principal_axes():
@@ -660,6 +718,25 @@ def test_linear_fit_rejects_duplicate_or_free_map_shaped_designs_before_solving(
         fit_tris_linear_model(ring, design)
 
     assert "parameter count={}".format(parameter_count) in str(error.value)
+
+
+def test_linear_fit_rejects_rank_tolerance_below_machine_safe_floor():
+    """Caller tolerance must not make duplicated columns appear identifiable."""
+    ring = _inference_ring([0.0, 90.0, 180.0], [1.0, 2.0, 3.0], [0.1] * 3)
+    duplicated = np.column_stack((np.ones(3), np.ones(3)))
+
+    with pytest.raises(ValueError, match="rank_rtol.*at least"):
+        fit_tris_linear_model(ring, duplicated, rank_rtol=1e-30)
+
+
+def test_linear_fit_applies_valid_explicit_rank_tolerance():
+    """A conservative caller tolerance is retained in the rank diagnostic."""
+    ring = _inference_ring([0.0, 90.0, 180.0], [2.0, 4.0, 2.0], [0.2] * 3)
+    design = np.column_stack((np.ones(3), [0.0, 1.0, 0.0]))
+
+    fit = fit_tris_linear_model(ring, design, rank_rtol=1e-8)
+
+    assert fit.rank_diagnostic.rank_rtol == 1e-8
 
 
 def test_linear_fit_rejects_saturated_square_design_before_solving():

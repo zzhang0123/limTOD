@@ -17,6 +17,25 @@ from typing import Optional, Tuple, Union
 import healpy as hp
 import numpy as np
 
+__all__ = [
+    "AsymmetricUncertainty",
+    "TRISRing",
+    "TRISPointSet",
+    "TRISPrincipalPlaneCuts",
+    "TRISZenithGeometry",
+    "TRISRankDiagnostic",
+    "TRISLinearFit",
+    "parse_tris_ra",
+    "read_tris_ring",
+    "read_tris_point_set",
+    "read_tris_beam_cuts",
+    "approximate_tris_gaussian_beam_map",
+    "tris_beam_func",
+    "tris_zenith_geometry",
+    "build_tris_fourier_design",
+    "fit_tris_linear_model",
+]
+
 _RA_RE = re.compile(r"(\d{1,2})h(\d{2})m(?:(\d{2})s)?\Z")
 _RING_FREQUENCIES = {
     0.6: (600.0, 600.5, 0.3),
@@ -30,6 +49,7 @@ _VectorLike = Union[np.ndarray, _typing.Sequence[_RealScalarInput]]
 _MatrixLike = Union[np.ndarray, _typing.Sequence[_typing.Sequence[_RealScalarInput]]]
 _CommonUncertaintyInput = Union[_RealScalarInput, "AsymmetricUncertainty"]
 _StoredCommonUncertainty = Union[float, "AsymmetricUncertainty"]
+_Header = _typing.List[Tuple[int, str]]
 _Rows = _typing.List[Tuple[int, _typing.List[str]]]
 
 
@@ -267,7 +287,9 @@ class TRISPointSet:
         object.__setattr__(
             self,
             "zero_level_uncertainty_k",
-            _validate_common_uncertainty(self.zero_level_uncertainty_k),
+            _validate_nonnegative_scalar(
+                self.zero_level_uncertainty_k, "zero_level_uncertainty_k"
+            ),
         )
 
 
@@ -370,6 +392,13 @@ def _validate_common_uncertainty(
     return normalized
 
 
+def _validate_nonnegative_scalar(value: _RealScalarInput, name: str) -> float:
+    normalized = _coerce_real_scalar(value, name)
+    if normalized < 0:
+        raise ValueError("{} must be finite and non-negative".format(name))
+    return normalized
+
+
 def _source_location(
     source: Optional[_PathInput], line_number: Optional[int] = None
 ) -> str:
@@ -416,8 +445,8 @@ def _read_ascii_lines(
 
 def _header_and_rows(
     source: _PathInput, expected_columns: int
-) -> Tuple[Path, _typing.List[str], _Rows]:
-    header: _typing.List[str] = []
+) -> Tuple[Path, _Header, _Rows]:
+    header: _Header = []
     rows: _Rows = []
     path, lines = _read_ascii_lines(source)
     for line_number, line in enumerate(lines, 1):
@@ -425,7 +454,7 @@ def _header_and_rows(
         if not stripped:
             continue
         if stripped.startswith("#"):
-            header.append(stripped)
+            header.append((line_number, stripped))
             continue
         fields = stripped.split()
         if len(fields) != expected_columns:
@@ -464,49 +493,68 @@ def _parse_finite_float(
 
 
 def _find_ring_metadata(
-    source: _PathInput, header: _typing.Sequence[str]
+    source: _PathInput, header: _typing.Sequence[Tuple[int, str]]
 ) -> Tuple[float, float, float, _StoredCommonUncertainty]:
-    joined = "\n".join(header)
-    frequency_match = re.search(
-        r"Frequency\s*=\s*([0-9.]+)\s*GHz", joined, re.IGNORECASE
-    )
+    frequency_match = None
+    frequency_line = None
+    for line_number, line in header:
+        frequency_match = re.search(r"Frequency\s*=\s*(\S+)\s*GHz", line, re.IGNORECASE)
+        if frequency_match is not None:
+            frequency_line = line_number
+            break
     if frequency_match is None:
         raise ValueError("{}: ring file is missing its frequency header".format(source))
-    frequency_ghz = _parse_finite_float(frequency_match.group(1), "frequency")
+    frequency_ghz = _parse_finite_float(
+        frequency_match.group(1), "frequency", source, frequency_line
+    )
     try:
         frequency = _RING_FREQUENCIES[frequency_ghz]
     except KeyError:
         raise ValueError(
             "{}: unsupported TRIS ring frequency: {} GHz".format(source, frequency_ghz)
         )
-    zero_match = re.search(
-        r"Systematic Zero Level Uncertainty\s*=\s*([^\n]+)", joined, re.IGNORECASE
-    )
+    zero_match = None
+    zero_line = None
+    for line_number, line in header:
+        zero_match = re.search(
+            r"Systematic Zero Level Uncertainty\s*=\s*(.+)", line, re.IGNORECASE
+        )
+        if zero_match is not None:
+            zero_line = line_number
+            break
     if zero_match is None:
         raise ValueError(
             "{}: ring file is missing its zero-level uncertainty header".format(source)
         )
     zero_text = zero_match.group(1).strip()
     zero_level: _StoredCommonUncertainty
-    asymmetry = re.fullmatch(r"\+?([0-9.]+)K\s*/\s*-([0-9.]+)K(?:\s*.*)?", zero_text)
+    asymmetry = re.fullmatch(r"\+?(\S+)K\s*/\s*-(\S+)K(?:\s*.*)?", zero_text)
     if asymmetry is not None:
         zero_level = AsymmetricUncertainty(
             positive_k=_parse_finite_float(
-                asymmetry.group(1), "positive zero-level uncertainty"
+                asymmetry.group(1),
+                "positive zero-level uncertainty",
+                source,
+                zero_line,
             ),
             negative_k=_parse_finite_float(
-                asymmetry.group(2), "negative zero-level uncertainty"
+                asymmetry.group(2),
+                "negative zero-level uncertainty",
+                source,
+                zero_line,
             ),
         )
     else:
-        single = re.match(r"([0-9.]+)K(?:\s*.*)?\Z", zero_text)
+        single = re.match(r"(\S+)K(?:\s*.*)?\Z", zero_text)
         if single is None:
             raise ValueError(
-                "{}: invalid zero-level uncertainty header: {!r}".format(
-                    source, zero_text
+                "{}invalid zero-level uncertainty header: {!r}".format(
+                    _source_location(source, zero_line), zero_text
                 )
             )
-        zero_level = _parse_finite_float(single.group(1), "zero-level uncertainty")
+        zero_level = _parse_finite_float(
+            single.group(1), "zero-level uncertainty", source, zero_line
+        )
     return frequency + (zero_level,)
 
 
@@ -550,7 +598,9 @@ def read_tris_ring(source: _PathInput) -> TRISRing:
 def read_tris_point_set(source: _PathInput) -> TRISPointSet:
     """Read the local sparse 2.5-GHz TRIS absolute-temperature samples."""
     path, header, rows = _header_and_rows(source, expected_columns=3)
-    if not re.search(r"2\.5\s*GHz", "\n".join(header), re.IGNORECASE):
+    if not re.search(
+        r"2\.5\s*GHz", "\n".join(line for _line_number, line in header), re.IGNORECASE
+    ):
         raise ValueError(
             "{}: point-set file is missing its 2.5-GHz header".format(path)
         )
@@ -652,11 +702,25 @@ def approximate_tris_gaussian_beam_map(
     sigma_h = np.deg2rad(normalized_h / (2.0 * np.sqrt(2.0 * np.log(2.0))))
     e_offset = theta * np.cos(phi)
     h_offset = theta * np.sin(phi)
-    beam_map = np.exp(-0.5 * ((e_offset / sigma_e) ** 2 + (h_offset / sigma_h) ** 2))
+    if normalization == "none":
+        beam_map = np.exp(
+            -0.5 * ((e_offset / sigma_e) ** 2 + (h_offset / sigma_h) ** 2)
+        )
+        return beam_map
 
-    if normalization == "peak":
-        beam_map /= np.max(beam_map)
-    elif normalization == "sum":
+    extended = np.longdouble
+    sigma_e_extended = np.deg2rad(extended(normalized_e)) / (
+        extended(2.0) * np.sqrt(extended(2.0) * np.log(extended(2.0)))
+    )
+    sigma_h_extended = np.deg2rad(extended(normalized_h)) / (
+        extended(2.0) * np.sqrt(extended(2.0) * np.log(extended(2.0)))
+    )
+    log_response = -extended(0.5) * (
+        (e_offset.astype(extended) / sigma_e_extended) ** 2
+        + (h_offset.astype(extended) / sigma_h_extended) ** 2
+    )
+    beam_map = np.asarray(np.exp(log_response - np.max(log_response)), dtype=float)
+    if normalization == "sum":
         beam_map /= np.sum(beam_map)
     return beam_map
 
@@ -964,7 +1028,8 @@ def fit_tris_linear_model(
     and, only if requested, a symmetric common-mode covariance.  Its SVD rank
     is checked before coefficients are solved, preventing this API from being
     used as a free-pixel mapmaker.  Archive zero-level metadata is deliberately
-    not read or converted by this function.
+    not read or converted by this function.  An explicit ``rank_rtol`` must be
+    at least machine epsilon times the largest whitened-design dimension.
     """
     if not isinstance(ring, TRISRing):
         raise TypeError("fit_tris_linear_model requires a TRISRing")
@@ -1007,11 +1072,14 @@ def fit_tris_linear_model(
     left_vectors, singular_values, right_vectors_t = np.linalg.svd(
         whitened_design, full_matrices=False
     )
-    applied_rtol = (
-        np.finfo(float).eps * max(whitened_design.shape)
-        if supplied_rtol is None
-        else supplied_rtol
-    )
+    safe_rank_rtol = np.finfo(float).eps * max(whitened_design.shape)
+    if supplied_rtol is not None and supplied_rtol < safe_rank_rtol:
+        raise ValueError(
+            "rank_rtol must be at least {:.17g} for this whitened design".format(
+                safe_rank_rtol
+            )
+        )
+    applied_rtol = safe_rank_rtol if supplied_rtol is None else supplied_rtol
     tolerance = applied_rtol * singular_values[0]
     numerical_rank = int(np.count_nonzero(singular_values > tolerance))
     condition_number = (
