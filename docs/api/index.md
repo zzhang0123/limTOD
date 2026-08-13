@@ -13,4 +13,5 @@ patchbeam
 uvbeam
 sky-and-noise
 limtod-jax
+tris
 ```

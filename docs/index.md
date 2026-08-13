@@ -54,6 +54,7 @@ uvbeam
 cstbeam
 limtod-jax
 driftscan
+tris
 ```
 
 ```{toctree}

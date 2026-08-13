@@ -58,7 +58,7 @@ intersphinx_mapping = {
 }
 
 templates_path = []
-exclude_patterns = ["_build", "README.md"]
+exclude_patterns = ["_build", "README.md", "superpowers/**"]
 
 html_theme = "sphinx_rtd_theme"
 html_title = f"limTOD {release}"
