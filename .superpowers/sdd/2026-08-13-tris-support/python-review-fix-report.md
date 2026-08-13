@@ -302,3 +302,203 @@ Exit code: 0.
   PEP 604 unions and Python-3.9 built-in collection generics and use
   `typing.Protocol`, which is available in Python 3.8; a Python 3.8 interpreter
   was not invoked in this environment.
+
+## Round 2: accurate input contracts and private typing helpers
+
+Review base: `3785a63`
+
+### Scope
+
+- Split the former dimension-ambiguous `_NumericArrayLike` into private real
+  scalar, vector, and matrix input aliases. The matrix alias explicitly accepts
+  nested sequences.
+- Applied the real-scalar input alias to public dataclass constructor fields,
+  beam/geometry scalars, the returned beam callable, and optional fit scalars.
+- Added a tracked positive typing fixture covering nested-list design matrices,
+  NumPy real scalars, and zero-dimensional arrays.
+- Imported the six newly needed helper names only through private module aliases,
+  while retaining the pre-existing `Optional`, `Tuple`, and `Union` star-import
+  surface for compatibility.
+
+### RED: positive input fixture
+
+Command:
+
+```text
+mypy --ignore-missing-imports --disallow-untyped-defs limTOD/tris.py tests/typecheck_tris_inputs.py
+```
+
+Output summary:
+
+```text
+tests/typecheck_tris_inputs.py:21: error: Argument "negative_k" to "AsymmetricUncertainty" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]]"; expected "float"  [arg-type]
+tests/typecheck_tris_inputs.py:25: error: Argument "effective_frequency_mhz" to "TRISRing" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]]"; expected "float"  [arg-type]
+tests/typecheck_tris_inputs.py:26: error: Argument "bandwidth_mhz" to "TRISRing" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]]"; expected "float"  [arg-type]
+tests/typecheck_tris_inputs.py:32: error: Argument "declination_label_deg" to "TRISRing" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]]"; expected "float"  [arg-type]
+tests/typecheck_tris_inputs.py:35: error: Argument "nominal_frequency_mhz" to "TRISPointSet" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]]"; expected "float"  [arg-type]
+tests/typecheck_tris_inputs.py:37: error: Argument "bandwidth_mhz" to "TRISPointSet" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]]"; expected "float"  [arg-type]
+tests/typecheck_tris_inputs.py:42: error: Argument "zero_level_uncertainty_k" to "TRISPointSet" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]]"; expected "float"  [arg-type]
+tests/typecheck_tris_inputs.py:49: error: Argument "tolerance" to "TRISRankDiagnostic" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]]"; expected "float"  [arg-type]
+tests/typecheck_tris_inputs.py:51: error: Argument "condition_number" to "TRISRankDiagnostic" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]]"; expected "float"  [arg-type]
+tests/typecheck_tris_inputs.py:56: error: List item 0 has incompatible type "list[float]"; expected "float"  [list-item]
+tests/typecheck_tris_inputs.py:56: error: List item 1 has incompatible type "list[float]"; expected "float"  [list-item]
+tests/typecheck_tris_inputs.py:56: error: List item 2 has incompatible type "list[float]"; expected "float"  [list-item]
+tests/typecheck_tris_inputs.py:57: error: Argument "uncertainty_floor_k" to "fit_tris_linear_model" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]]"; expected "float | None"  [arg-type]
+tests/typecheck_tris_inputs.py:59: error: Argument "rank_rtol" to "fit_tris_linear_model" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]]"; expected "float | None"  [arg-type]
+tests/typecheck_tris_inputs.py:62: error: Argument "fwhm_e_deg" to "approximate_tris_gaussian_beam_map" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]]"; expected "float"  [arg-type]
+tests/typecheck_tris_inputs.py:65: error: Argument "fwhm_e_deg" to "tris_beam_func" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]]"; expected "float"  [arg-type]
+tests/typecheck_tris_inputs.py:67: error: Argument "freq" to "__call__" of "_BeamFunc" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]]"; expected "float"  [arg-type]
+tests/typecheck_tris_inputs.py:70: error: Argument "latitude_deg" to "tris_zenith_geometry" has incompatible type "ndarray[tuple[Any, ...], dtype[Any]]"; expected "float"  [arg-type]
+Found 18 errors in 1 file (checked 2 source files)
+```
+
+Exit code: 1.
+
+### RED: star-import surface
+
+Command:
+
+```text
+env PYTHONPATH=. MPLCONFIGDIR=/private/tmp/limtod-mpl-cache LIMTOD_FORCE_SERIAL=1 python -m pytest -q tests/test_tris.py -k star_import_does_not_expose_private_typing_helpers
+```
+
+Output summary:
+
+```text
+F                                                                        [100%]
+E       AssertionError: assert False
+E        +  where False = <built-in method isdisjoint ...>({'AsymmetricUncertainty': ..., 'Dict': typing.Dict, 'List': typing.List, 'Optional': typing.Optional, ...})
+1 failed, 56 deselected in 0.90s
+```
+
+Exit code: 1. The test exposed `Real`, `PathLike`, `Dict`, `List`, `Protocol`,
+and `Sequence`. A follow-up characterization also proved that the pre-existing
+`Optional`, `Tuple`, and `Union` names had to be retained for compatibility.
+
+### GREEN: focused TRIS suite
+
+Command:
+
+```text
+env PYTHONPATH=. MPLCONFIGDIR=/private/tmp/limtod-mpl-cache LIMTOD_FORCE_SERIAL=1 python -m pytest -q tests/test_tris.py
+```
+
+Output:
+
+```text
+.........................................................                [100%]
+57 passed in 1.33s
+```
+
+Exit code: 0.
+
+### GREEN: strict type check and positive fixture
+
+Command:
+
+```text
+mypy --ignore-missing-imports --disallow-untyped-defs limTOD/tris.py tests/typecheck_tris_inputs.py
+```
+
+Output:
+
+```text
+Success: no issues found in 2 source files
+```
+
+Exit code: 0.
+
+### GREEN: format check
+
+Command:
+
+```text
+black --check --fast limTOD/tris.py tests/test_tris.py tests/typecheck_tris_inputs.py
+```
+
+Output:
+
+```text
+All done! ✨ 🍰 ✨
+3 files would be left unchanged.
+```
+
+Exit code: 0.
+
+### GREEN: Python 3.8 grammar parse
+
+Command:
+
+```text
+python -c 'import ast
+from pathlib import Path
+for name in ("limTOD/tris.py", "tests/typecheck_tris_inputs.py"):
+    path = Path(name)
+    ast.parse(path.read_text(encoding="utf-8"), filename=str(path), feature_version=(3, 8))
+print("Python 3.8 grammar parse passed for 2 files")'
+```
+
+Output:
+
+```text
+Python 3.8 grammar parse passed for 2 files
+```
+
+Exit code: 0.
+
+### GREEN: whitespace checks
+
+Commands:
+
+```text
+git diff --check 3785a63
+git diff --check 0fd227c..HEAD
+```
+
+Output: empty for both commands. Exit code: 0 for both commands. The exact
+baseline-to-new-HEAD command is rerun after the round-2 commit.
+
+Post-commit command:
+
+```text
+git diff --check 0fd227c..HEAD
+```
+
+Output: empty. Exit code: 0.
+
+### GREEN: full suite
+
+Command:
+
+```text
+env PYTHONPATH=. MPLCONFIGDIR=/private/tmp/limtod-mpl-cache LIMTOD_FORCE_SERIAL=1 python -m pytest -q
+```
+
+Output:
+
+```text
+........................................................................ [ 26%]
+........................................................................ [ 52%]
+........................................................................ [ 78%]
+............................................................             [100%]
+=============================== warnings summary ===============================
+tests/test_beam_orientation.py: 16 warnings
+  /private/tmp/limtod-tris-support/limTOD/simulator.py:397: UserWarning: Gimbal lock detected. Setting third angle to zero since it is not possible to uniquely determine all angles.
+    psi_rad, theta_rad, phi_rad = zyz_of_pointing(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+276 passed, 2 skipped, 16 warnings in 77.45s (0:01:17)
+```
+
+Exit code: 0.
+
+### Round-2 files and concerns
+
+- `limTOD/tris.py`
+- `tests/test_tris.py`
+- `tests/typecheck_tris_inputs.py`
+- `.superpowers/sdd/2026-08-13-tris-support/python-review-fix-report.md`
+
+The full suite continues to emit only the 16 existing gimbal-lock warnings.
+Python 3.8 grammar was checked explicitly; runtime verification remained on
+Python 3.12 because a Python 3.8 interpreter was not invoked.

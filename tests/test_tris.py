@@ -57,6 +57,22 @@ BEAM_CUTS = """# Column 1= angle (degree)
 """
 
 
+def test_star_import_does_not_expose_private_typing_helpers():
+    """Typing-only imports must not silently expand the public module surface."""
+    namespace = {}
+    exec("from limTOD.tris import *", {}, namespace)
+
+    assert {
+        "Real",
+        "PathLike",
+        "Dict",
+        "List",
+        "Protocol",
+        "Sequence",
+    }.isdisjoint(namespace)
+    assert {"Optional", "Tuple", "Union"}.issubset(namespace)
+
+
 def _write_ascii(tmp_path, name, text, newline="\n"):
     path = tmp_path / name
     path.write_bytes(text.replace("\n", newline).encode("ascii"))

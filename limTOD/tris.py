@@ -7,11 +7,12 @@ uncertainties separately from per-sample statistical uncertainties.
 
 from dataclasses import dataclass
 import math
-from numbers import Real
-from os import PathLike
+import numbers as _numbers
+import os as _os
 from pathlib import Path
 import re
-from typing import Dict, List, Optional, Protocol, Sequence, Tuple, Union
+import typing as _typing
+from typing import Optional, Tuple, Union
 
 import healpy as hp
 import numpy as np
@@ -22,17 +23,19 @@ _RING_FREQUENCIES = {
     0.82: (820.0, 817.8, 0.3),
 }
 
-_PathInput = Union[str, Path, PathLike]
-_NumericArrayLike = Union[np.ndarray, Sequence[float]]
-_CommonUncertainty = Union[float, "AsymmetricUncertainty"]
-_Rows = List[Tuple[int, List[str]]]
+_PathInput = Union[str, Path, _os.PathLike]
+_RealScalarInput = Union[int, float, np.integer, np.floating, np.ndarray]
+_VectorLike = Union[np.ndarray, _typing.Sequence[_RealScalarInput]]
+_MatrixLike = Union[np.ndarray, _typing.Sequence[_typing.Sequence[_RealScalarInput]]]
+_CommonUncertainty = Union[_RealScalarInput, "AsymmetricUncertainty"]
+_Rows = _typing.List[Tuple[int, _typing.List[str]]]
 
 
-class _BeamFunc(Protocol):
-    def __call__(self, *, freq: float, nside: int) -> np.ndarray: ...
+class _BeamFunc(_typing.Protocol):
+    def __call__(self, *, freq: _RealScalarInput, nside: int) -> np.ndarray: ...
 
 
-def _readonly_finite_array(values: _NumericArrayLike, name: str) -> np.ndarray:
+def _readonly_finite_array(values: _VectorLike, name: str) -> np.ndarray:
     """Return a one-dimensional immutable finite float array."""
     array = np.asarray(values, dtype=float)
     if array.ndim != 1 or array.size == 0:
@@ -53,7 +56,7 @@ def _coerce_real_scalar(value: object, name: str, *, finite: bool = True) -> flo
             raise ValueError("{} must be a real scalar".format(name))
         value = value.item()
     if isinstance(value, (bool, np.bool_)) or not isinstance(
-        value, (Real, np.integer, np.floating)
+        value, (_numbers.Real, np.integer, np.floating)
     ):
         raise ValueError("{} must be a real scalar".format(name))
     try:
@@ -67,7 +70,9 @@ def _coerce_real_scalar(value: object, name: str, *, finite: bool = True) -> flo
 
 
 def _validate_frequency_metadata(
-    nominal: object, effective: object, bandwidth: object
+    nominal: _RealScalarInput,
+    effective: _RealScalarInput,
+    bandwidth: _RealScalarInput,
 ) -> Tuple[float, float, float]:
     normalized = []
     for name, value in (
@@ -82,11 +87,11 @@ def _validate_frequency_metadata(
     return normalized[0], normalized[1], normalized[2]
 
 
-def _validate_finite_scalar(value: object, name: str) -> float:
+def _validate_finite_scalar(value: _RealScalarInput, name: str) -> float:
     return _coerce_real_scalar(value, name)
 
 
-def _validate_latitude(value: object, name: str) -> float:
+def _validate_latitude(value: _RealScalarInput, name: str) -> float:
     latitude = _validate_finite_scalar(value, name)
     if latitude < -90.0 or latitude > 90.0:
         raise ValueError("{} must be in [-90, 90] degrees".format(name))
@@ -97,8 +102,8 @@ def _validate_latitude(value: object, name: str) -> float:
 class AsymmetricUncertainty:
     """A positive and negative common uncertainty in kelvin."""
 
-    positive_k: float
-    negative_k: float
+    positive_k: _RealScalarInput
+    negative_k: _RealScalarInput
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -115,15 +120,15 @@ class AsymmetricUncertainty:
 class TRISRing:
     """One fixed-declination TRIS drift ring."""
 
-    nominal_frequency_mhz: float
-    effective_frequency_mhz: float
-    bandwidth_mhz: float
+    nominal_frequency_mhz: _RealScalarInput
+    effective_frequency_mhz: _RealScalarInput
+    bandwidth_mhz: _RealScalarInput
     ra_text: Tuple[str, ...]
     ra_deg: np.ndarray
     temperature_k: np.ndarray
     statistical_uncertainty_k: np.ndarray
-    zero_level_uncertainty_k: Union[float, AsymmetricUncertainty]
-    declination_label_deg: float = 42.0
+    zero_level_uncertainty_k: _CommonUncertainty
+    declination_label_deg: _RealScalarInput = 42.0
 
     def __post_init__(self) -> None:
         nominal, effective, bandwidth = _validate_frequency_metadata(
@@ -165,15 +170,15 @@ class TRISRing:
 class TRISPointSet:
     """The sparse 2.5-GHz TRIS measurements."""
 
-    nominal_frequency_mhz: float
-    effective_frequency_mhz: float
-    bandwidth_mhz: float
+    nominal_frequency_mhz: _RealScalarInput
+    effective_frequency_mhz: _RealScalarInput
+    bandwidth_mhz: _RealScalarInput
     ra_text: Tuple[str, ...]
     ra_deg: np.ndarray
     temperature_k: np.ndarray
     statistical_uncertainty_k: Optional[np.ndarray]
-    zero_level_uncertainty_k: float
-    declination_label_deg: float = 42.0
+    zero_level_uncertainty_k: _RealScalarInput
+    declination_label_deg: _RealScalarInput = 42.0
 
     def __post_init__(self) -> None:
         nominal, effective, bandwidth = _validate_frequency_metadata(
@@ -243,7 +248,7 @@ class TRISPrincipalPlaneCuts:
         return 10.0 ** (self.e_plane_db / 10.0)
 
 
-def _validate_ra_data(ra_text: Tuple[str, ...], ra_deg: _NumericArrayLike) -> None:
+def _validate_ra_data(ra_text: Tuple[str, ...], ra_deg: _VectorLike) -> None:
     if not isinstance(ra_text, tuple) or not ra_text:
         raise ValueError("ra_text must be a non-empty tuple")
     values = _readonly_finite_array(ra_deg, "ra_deg")
@@ -254,8 +259,8 @@ def _validate_ra_data(ra_text: Tuple[str, ...], ra_deg: _NumericArrayLike) -> No
     _validate_unique_coordinates(values, "ra_deg")
 
 
-def _validate_matching_samples(*arrays: _NumericArrayLike) -> None:
-    lengths: List[int] = []
+def _validate_matching_samples(*arrays: _VectorLike) -> None:
+    lengths: _typing.List[int] = []
     for array in arrays:
         lengths.append(_readonly_finite_array(array, "sample array").size)
     if len(set(lengths)) != 1:
@@ -263,13 +268,13 @@ def _validate_matching_samples(*arrays: _NumericArrayLike) -> None:
 
 
 def _validate_unique_coordinates(
-    values: _NumericArrayLike,
+    values: _VectorLike,
     name: str,
     source: Optional[_PathInput] = None,
-    line_numbers: Optional[Sequence[int]] = None,
+    line_numbers: Optional[_typing.Sequence[int]] = None,
 ) -> None:
     """Reject repeated coordinates, retaining reader source rows when available."""
-    first_indices: Dict[float, int] = {}
+    first_indices: _typing.Dict[float, int] = {}
     for index, value in enumerate(values):
         coordinate = float(value)
         if coordinate in first_indices:
@@ -288,7 +293,9 @@ def _validate_unique_coordinates(
         first_indices[coordinate] = index
 
 
-def _validate_common_uncertainty(value: object) -> _CommonUncertainty:
+def _validate_common_uncertainty(
+    value: _CommonUncertainty,
+) -> _CommonUncertainty:
     if isinstance(value, AsymmetricUncertainty):
         return value
     normalized = _coerce_real_scalar(value, "zero_level_uncertainty_k")
@@ -333,7 +340,9 @@ def parse_tris_ra(
     return 15.0 * (hour + minute / 60.0 + second / 3600.0)
 
 
-def _read_ascii_lines(source: _PathInput) -> Tuple[Path, List[str]]:
+def _read_ascii_lines(
+    source: _PathInput,
+) -> Tuple[Path, _typing.List[str]]:
     path = Path(source)
     with path.open("r", encoding="ascii", newline=None) as handle:
         return path, handle.readlines()
@@ -341,8 +350,8 @@ def _read_ascii_lines(source: _PathInput) -> Tuple[Path, List[str]]:
 
 def _header_and_rows(
     source: _PathInput, expected_columns: int
-) -> Tuple[Path, List[str], _Rows]:
-    header: List[str] = []
+) -> Tuple[Path, _typing.List[str], _Rows]:
+    header: _typing.List[str] = []
     rows: _Rows = []
     path, lines = _read_ascii_lines(source)
     for line_number, line in enumerate(lines, 1):
@@ -389,7 +398,7 @@ def _parse_finite_float(
 
 
 def _find_ring_metadata(
-    source: _PathInput, header: Sequence[str]
+    source: _PathInput, header: _typing.Sequence[str]
 ) -> Tuple[float, float, float, _CommonUncertainty]:
     joined = "\n".join(header)
     frequency_match = re.search(
@@ -550,8 +559,8 @@ def read_tris_beam_cuts(source: _PathInput) -> TRISPrincipalPlaneCuts:
 def approximate_tris_gaussian_beam_map(
     *,
     nside: int,
-    fwhm_e_deg: float = 18.0,
-    fwhm_h_deg: float = 23.0,
+    fwhm_e_deg: _RealScalarInput = 18.0,
+    fwhm_h_deg: _RealScalarInput = 23.0,
     normalization: str = "peak",
 ) -> np.ndarray:
     """Return an approximate scalar TRIS main-lobe HEALPix RING beam map.
@@ -562,17 +571,19 @@ def approximate_tris_gaussian_beam_map(
     beam is an approximation.  ``normalization`` may be ``"peak"`,
     ``"sum"``, or ``"none"``; ``"sum"`` uses limTOD's discrete HEALPix sum.
     """
-    for name, value in (("fwhm_e_deg", fwhm_e_deg), ("fwhm_h_deg", fwhm_h_deg)):
-        _validate_finite_scalar(value, name)
-        if value <= 0.0:
-            raise ValueError("{} must be positive".format(name))
+    normalized_e = _validate_finite_scalar(fwhm_e_deg, "fwhm_e_deg")
+    normalized_h = _validate_finite_scalar(fwhm_h_deg, "fwhm_h_deg")
+    if normalized_e <= 0.0:
+        raise ValueError("fwhm_e_deg must be positive")
+    if normalized_h <= 0.0:
+        raise ValueError("fwhm_h_deg must be positive")
     if normalization not in ("peak", "sum", "none"):
         raise ValueError('normalization must be "peak", "sum", or "none"')
 
     npix = hp.nside2npix(nside)
     theta, phi = hp.pix2ang(nside, np.arange(npix), nest=False)
-    sigma_e = np.deg2rad(fwhm_e_deg / (2.0 * np.sqrt(2.0 * np.log(2.0))))
-    sigma_h = np.deg2rad(fwhm_h_deg / (2.0 * np.sqrt(2.0 * np.log(2.0))))
+    sigma_e = np.deg2rad(normalized_e / (2.0 * np.sqrt(2.0 * np.log(2.0))))
+    sigma_h = np.deg2rad(normalized_h / (2.0 * np.sqrt(2.0 * np.log(2.0))))
     e_offset = theta * np.cos(phi)
     h_offset = theta * np.sin(phi)
     beam_map = np.exp(-0.5 * ((e_offset / sigma_e) ** 2 + (h_offset / sigma_h) ** 2))
@@ -585,7 +596,10 @@ def approximate_tris_gaussian_beam_map(
 
 
 def tris_beam_func(
-    *, fwhm_e_deg: float = 18.0, fwhm_h_deg: float = 23.0, normalization: str = "peak"
+    *,
+    fwhm_e_deg: _RealScalarInput = 18.0,
+    fwhm_h_deg: _RealScalarInput = 23.0,
+    normalization: str = "peak",
 ) -> _BeamFunc:
     """Return an achromatic callable for the approximate scalar TRIS beam.
 
@@ -595,14 +609,21 @@ def tris_beam_func(
     and the returned two-dimensional Gaussian is only an approximation.
     """
 
-    def beam_func(*, freq: float, nside: int) -> np.ndarray:
+    normalized_e = _validate_finite_scalar(fwhm_e_deg, "fwhm_e_deg")
+    normalized_h = _validate_finite_scalar(fwhm_h_deg, "fwhm_h_deg")
+    if normalized_e <= 0.0:
+        raise ValueError("fwhm_e_deg must be positive")
+    if normalized_h <= 0.0:
+        raise ValueError("fwhm_h_deg must be positive")
+
+    def beam_func(*, freq: _RealScalarInput, nside: int) -> np.ndarray:
         normalized_freq = _validate_finite_scalar(freq, "freq")
         if normalized_freq <= 0.0:
             raise ValueError("freq must be finite and positive MHz")
         return approximate_tris_gaussian_beam_map(
             nside=nside,
-            fwhm_e_deg=fwhm_e_deg,
-            fwhm_h_deg=fwhm_h_deg,
+            fwhm_e_deg=normalized_e,
+            fwhm_h_deg=normalized_h,
             normalization=normalization,
         )
 
@@ -617,7 +638,7 @@ class TRISZenithGeometry:
     azimuth_deg: np.ndarray
     elevation_deg: np.ndarray
     selfrot_deg: np.ndarray
-    latitude_deg: float
+    latitude_deg: _RealScalarInput
 
     def __post_init__(self) -> None:
         latitude = _validate_latitude(self.latitude_deg, "latitude_deg")
@@ -638,7 +659,7 @@ class TRISZenithGeometry:
         object.__setattr__(self, "latitude_deg", latitude)
 
 
-def _readonly_finite_matrix(values: _NumericArrayLike, name: str) -> np.ndarray:
+def _readonly_finite_matrix(values: _MatrixLike, name: str) -> np.ndarray:
     """Return an immutable, finite two-dimensional float array."""
     try:
         array = np.asarray(values, dtype=float)
@@ -662,9 +683,9 @@ class TRISRankDiagnostic:
     singular_values: np.ndarray
     numerical_rank: int
     parameter_count: int
-    tolerance: float
-    rank_rtol: float
-    condition_number: float
+    tolerance: _RealScalarInput
+    rank_rtol: _RealScalarInput
+    condition_number: _RealScalarInput
 
     def __post_init__(self) -> None:
         singular_values = _readonly_finite_array(
@@ -750,21 +771,21 @@ class TRISLinearFit:
     @property
     def tolerance(self) -> float:
         """SVD rank tolerance."""
-        return self.rank_diagnostic.tolerance
+        return _typing.cast(float, self.rank_diagnostic.tolerance)
 
     @property
     def rank_rtol(self) -> float:
         """Relative SVD rank tolerance."""
-        return self.rank_diagnostic.rank_rtol
+        return _typing.cast(float, self.rank_diagnostic.rank_rtol)
 
     @property
     def condition_number(self) -> float:
         """Whitened-design condition number."""
-        return self.rank_diagnostic.condition_number
+        return _typing.cast(float, self.rank_diagnostic.condition_number)
 
 
 def build_tris_fourier_design(
-    ra_deg: _NumericArrayLike, m_max: int, *, include_constant: bool = True
+    ra_deg: _VectorLike, m_max: int, *, include_constant: bool = True
 ) -> np.ndarray:
     """Build a finite low-dimensional Fourier design at the supplied TRIS RAs.
 
@@ -782,7 +803,7 @@ def build_tris_fourier_design(
         raise ValueError("ra_deg must be in [0, 360)")
 
     alpha = np.deg2rad(ra)
-    columns: List[np.ndarray] = []
+    columns: _typing.List[np.ndarray] = []
     if include_constant:
         columns.append(np.ones(ra.size))
     for mode in range(1, int(m_max) + 1):
@@ -795,7 +816,7 @@ def build_tris_fourier_design(
 
 
 def _validate_optional_positive_scalar(
-    value: Optional[float], name: str
+    value: Optional[_RealScalarInput], name: str
 ) -> Optional[float]:
     if value is None:
         return None
@@ -806,7 +827,7 @@ def _validate_optional_positive_scalar(
 
 
 def _validate_optional_nonnegative_scalar(
-    value: Optional[float], name: str
+    value: Optional[_RealScalarInput], name: str
 ) -> Optional[float]:
     if value is None:
         return None
@@ -818,11 +839,11 @@ def _validate_optional_nonnegative_scalar(
 
 def fit_tris_linear_model(
     ring: TRISRing,
-    design_matrix: _NumericArrayLike,
+    design_matrix: _MatrixLike,
     *,
-    uncertainty_floor_k: Optional[float] = None,
-    common_mode_sigma_k: Optional[float] = None,
-    rank_rtol: Optional[float] = None,
+    uncertainty_floor_k: Optional[_RealScalarInput] = None,
+    common_mode_sigma_k: Optional[_RealScalarInput] = None,
+    rank_rtol: Optional[_RealScalarInput] = None,
 ) -> TRISLinearFit:
     """Fit an identifiable caller-supplied template model to one ``TRISRing``.
 
@@ -916,10 +937,10 @@ def fit_tris_linear_model(
 
 
 def tris_zenith_geometry(
-    ra_deg: _NumericArrayLike,
+    ra_deg: _VectorLike,
     *,
-    latitude_deg: float = 42.0 + 26.0 / 60.0,
-    e_plane_east_of_meridian_deg: float = 7.0,
+    latitude_deg: _RealScalarInput = 42.0 + 26.0 / 60.0,
+    e_plane_east_of_meridian_deg: _RealScalarInput = 7.0,
 ) -> TRISZenithGeometry:
     """Translate TRIS RA labels to its approximate parked-zenith geometry.
 
