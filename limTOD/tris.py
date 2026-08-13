@@ -144,6 +144,7 @@ class TRISPrincipalPlaneCuts:
 
     def __post_init__(self):
         _validate_matching_samples(self.angle_deg, self.h_plane_db, self.e_plane_db)
+        _validate_unique_coordinates(self.angle_deg, "angle_deg")
         object.__setattr__(
             self, "angle_deg", _readonly_finite_array(self.angle_deg, "angle_deg")
         )
@@ -173,6 +174,7 @@ def _validate_ra_data(ra_text, ra_deg):
         raise ValueError("ra_text and ra_deg must have the same length")
     if np.any(values < 0) or np.any(values >= 360):
         raise ValueError("ra_deg must be in [0, 360)")
+    _validate_unique_coordinates(values, "ra_deg")
 
 
 def _validate_matching_samples(*arrays):
@@ -181,6 +183,27 @@ def _validate_matching_samples(*arrays):
         lengths.append(_readonly_finite_array(array, "sample array").size)
     if len(set(lengths)) != 1:
         raise ValueError("sample arrays must have the same length")
+
+
+def _validate_unique_coordinates(values, name, source=None, line_numbers=None):
+    """Reject repeated coordinates, retaining reader source rows when available."""
+    first_indices = {}
+    for index, value in enumerate(values):
+        coordinate = float(value)
+        if coordinate in first_indices:
+            first_index = first_indices[coordinate]
+            if source is not None and line_numbers is not None:
+                raise ValueError(
+                    "{}: duplicate {} {} at line {}; first occurs at line {}".format(
+                        source,
+                        name,
+                        coordinate,
+                        line_numbers[index],
+                        line_numbers[first_index],
+                    )
+                )
+            raise ValueError("duplicate {} {}".format(name, coordinate))
+        first_indices[coordinate] = index
 
 
 def _validate_common_uncertainty(value):
@@ -194,28 +217,47 @@ def _validate_common_uncertainty(value):
         raise ValueError("zero_level_uncertainty_k must be finite and non-negative")
 
 
-def parse_tris_ra(token):
+def _source_location(source, line_number=None):
+    if source is None:
+        return ""
+    location = str(source)
+    if line_number is not None:
+        location = "{}: line {}".format(location, line_number)
+    return "{}: ".format(location)
+
+
+def parse_tris_ra(token, source=None, line_number=None):
     """Convert an archive ``hh hmm`` or ``hh hmm ss`` token to degrees."""
     match = _RA_RE.fullmatch(token)
     if match is None:
-        raise ValueError("invalid TRIS right-ascension token: {!r}".format(token))
+        raise ValueError(
+            "{}invalid TRIS right-ascension token: {!r}".format(
+                _source_location(source, line_number), token
+            )
+        )
     hour, minute, second = (
         int(value) if value is not None else 0 for value in match.groups()
     )
     if hour >= 24 or minute >= 60 or second >= 60:
-        raise ValueError("TRIS right ascension is out of range: {!r}".format(token))
+        raise ValueError(
+            "{}TRIS right ascension is out of range: {!r}".format(
+                _source_location(source, line_number), token
+            )
+        )
     return 15.0 * (hour + minute / 60.0 + second / 3600.0)
 
 
 def _read_ascii_lines(source):
-    with Path(source).open("r", encoding="ascii", newline=None) as handle:
-        return handle.readlines()
+    path = Path(source)
+    with path.open("r", encoding="ascii", newline=None) as handle:
+        return path, handle.readlines()
 
 
 def _header_and_rows(source, expected_columns):
     header = []
     rows = []
-    for line_number, line in enumerate(_read_ascii_lines(source), 1):
+    path, lines = _read_ascii_lines(source)
+    for line_number, line in enumerate(lines, 1):
         stripped = line.strip()
         if not stripped:
             continue
@@ -225,45 +267,55 @@ def _header_and_rows(source, expected_columns):
         fields = stripped.split()
         if len(fields) != expected_columns:
             raise ValueError(
-                "line {} has {} columns; expected {}".format(
-                    line_number, len(fields), expected_columns
+                "{}: line {} has {} columns; expected {}".format(
+                    path, line_number, len(fields), expected_columns
                 )
             )
-        rows.append(fields)
+        rows.append((line_number, fields))
     if not rows:
-        raise ValueError("TRIS archive file contains no data rows")
-    return header, rows
+        raise ValueError("{}: TRIS archive file contains no data rows".format(path))
+    return path, header, rows
 
 
-def _parse_finite_float(value, description):
+def _parse_finite_float(value, description, source=None, line_number=None):
     try:
         result = float(value)
     except ValueError:
-        raise ValueError("{} must be numeric: {!r}".format(description, value))
+        raise ValueError(
+            "{}{} must be numeric: {!r}".format(
+                _source_location(source, line_number), description, value
+            )
+        )
     if not math.isfinite(result):
-        raise ValueError("{} must be finite".format(description))
+        raise ValueError(
+            "{}{} must be finite".format(
+                _source_location(source, line_number), description
+            )
+        )
     return result
 
 
-def _find_ring_metadata(header):
+def _find_ring_metadata(source, header):
     joined = "\n".join(header)
     frequency_match = re.search(
         r"Frequency\s*=\s*([0-9.]+)\s*GHz", joined, re.IGNORECASE
     )
     if frequency_match is None:
-        raise ValueError("ring file is missing its frequency header")
+        raise ValueError("{}: ring file is missing its frequency header".format(source))
     frequency_ghz = _parse_finite_float(frequency_match.group(1), "frequency")
     try:
         frequency = _RING_FREQUENCIES[frequency_ghz]
     except KeyError:
         raise ValueError(
-            "unsupported TRIS ring frequency: {} GHz".format(frequency_ghz)
+            "{}: unsupported TRIS ring frequency: {} GHz".format(source, frequency_ghz)
         )
     zero_match = re.search(
         r"Systematic Zero Level Uncertainty\s*=\s*([^\n]+)", joined, re.IGNORECASE
     )
     if zero_match is None:
-        raise ValueError("ring file is missing its zero-level uncertainty header")
+        raise ValueError(
+            "{}: ring file is missing its zero-level uncertainty header".format(source)
+        )
     zero_text = zero_match.group(1).strip()
     asymmetry = re.fullmatch(r"\+?([0-9.]+)K\s*/\s*-([0-9.]+)K(?:\s*.*)?", zero_text)
     if asymmetry is not None:
@@ -279,7 +331,9 @@ def _find_ring_metadata(header):
         single = re.match(r"([0-9.]+)K(?:\s*.*)?\Z", zero_text)
         if single is None:
             raise ValueError(
-                "invalid zero-level uncertainty header: {!r}".format(zero_text)
+                "{}: invalid zero-level uncertainty header: {!r}".format(
+                    source, zero_text
+                )
             )
         zero_level = _parse_finite_float(single.group(1), "zero-level uncertainty")
     return frequency + (zero_level,)
@@ -287,16 +341,28 @@ def _find_ring_metadata(header):
 
 def read_tris_ring(source):
     """Read a local 600- or 820-MHz TRIS absolute-temperature drift ring."""
-    header, rows = _header_and_rows(source, expected_columns=3)
-    nominal, effective, bandwidth, zero_level = _find_ring_metadata(header)
-    ra_text = tuple(row[0] for row in rows)
-    ra_deg = [parse_tris_ra(token) for token in ra_text]
-    temperature = [_parse_finite_float(row[1], "temperature") for row in rows]
-    statistical = [
-        _parse_finite_float(row[2], "statistical uncertainty") for row in rows
+    path, header, rows = _header_and_rows(source, expected_columns=3)
+    nominal, effective, bandwidth, zero_level = _find_ring_metadata(path, header)
+    ra_text = tuple(row[0] for _line_number, row in rows)
+    ra_deg = [parse_tris_ra(row[0], path, line_number) for line_number, row in rows]
+    _validate_unique_coordinates(
+        ra_deg, "ra_deg", path, [line_number for line_number, _row in rows]
+    )
+    temperature = [
+        _parse_finite_float(row[1], "temperature", path, line_number)
+        for line_number, row in rows
     ]
-    if any(value < 0 for value in statistical):
-        raise ValueError("statistical uncertainty must be non-negative")
+    statistical = [
+        _parse_finite_float(row[2], "statistical uncertainty", path, line_number)
+        for line_number, row in rows
+    ]
+    for (line_number, _row), value in zip(rows, statistical):
+        if value < 0:
+            raise ValueError(
+                "{}: line {} statistical uncertainty must be non-negative".format(
+                    path, line_number
+                )
+            )
     return TRISRing(
         nominal_frequency_mhz=nominal,
         effective_frequency_mhz=effective,
@@ -311,21 +377,41 @@ def read_tris_ring(source):
 
 def read_tris_point_set(source):
     """Read the local sparse 2.5-GHz TRIS absolute-temperature samples."""
-    header, rows = _header_and_rows(source, expected_columns=3)
+    path, header, rows = _header_and_rows(source, expected_columns=3)
     if not re.search(r"2\.5\s*GHz", "\n".join(header), re.IGNORECASE):
-        raise ValueError("point-set file is missing its 2.5-GHz header")
-    ra_text = tuple(row[0] for row in rows)
-    ra_deg = [parse_tris_ra(token) for token in ra_text]
-    temperature = [_parse_finite_float(row[1], "temperature") for row in rows]
-    common_uncertainties = [
-        _parse_finite_float(row[2], "zero-level uncertainty") for row in rows
+        raise ValueError(
+            "{}: point-set file is missing its 2.5-GHz header".format(path)
+        )
+    ra_text = tuple(row[0] for _line_number, row in rows)
+    ra_deg = [parse_tris_ra(row[0], path, line_number) for line_number, row in rows]
+    _validate_unique_coordinates(
+        ra_deg, "ra_deg", path, [line_number for line_number, _row in rows]
+    )
+    temperature = [
+        _parse_finite_float(row[1], "temperature", path, line_number)
+        for line_number, row in rows
     ]
-    if any(value < 0 for value in common_uncertainties):
-        raise ValueError("zero-level uncertainty must be non-negative")
-    if not np.allclose(
-        common_uncertainties, common_uncertainties[0], rtol=0.0, atol=0.0
-    ):
-        raise ValueError("2.5-GHz zero-level uncertainty must be common to every row")
+    common_uncertainties = [
+        _parse_finite_float(row[2], "zero-level uncertainty", path, line_number)
+        for line_number, row in rows
+    ]
+    for (line_number, _row), value in zip(rows, common_uncertainties):
+        if value < 0:
+            raise ValueError(
+                "{}: line {} zero-level uncertainty must be non-negative".format(
+                    path, line_number
+                )
+            )
+    first_line_number = rows[0][0]
+    first_value = common_uncertainties[0]
+    for (line_number, _row), value in zip(rows[1:], common_uncertainties[1:]):
+        if value != first_value:
+            raise ValueError(
+                "{}: 2.5-GHz zero-level uncertainty must be common; {} at line {} "
+                "differs from {} at line {}".format(
+                    path, first_value, first_line_number, value, line_number
+                )
+            )
     return TRISPointSet(
         nominal_frequency_mhz=2500.0,
         effective_frequency_mhz=2427.8,
@@ -340,10 +426,22 @@ def read_tris_point_set(source):
 
 def read_tris_beam_cuts(source):
     """Read local TRIS H- and E-principal-plane beam cuts in raw dB units."""
-    _header, rows = _header_and_rows(source, expected_columns=3)
-    angle = [_parse_finite_float(row[0], "beam angle") for row in rows]
-    h_cut = [_parse_finite_float(row[1], "H-plane dB cut") for row in rows]
-    e_cut = [_parse_finite_float(row[2], "E-plane dB cut") for row in rows]
+    path, _header, rows = _header_and_rows(source, expected_columns=3)
+    angle = [
+        _parse_finite_float(row[0], "beam angle", path, line_number)
+        for line_number, row in rows
+    ]
+    _validate_unique_coordinates(
+        angle, "angle_deg", path, [line_number for line_number, _row in rows]
+    )
+    h_cut = [
+        _parse_finite_float(row[1], "H-plane dB cut", path, line_number)
+        for line_number, row in rows
+    ]
+    e_cut = [
+        _parse_finite_float(row[2], "E-plane dB cut", path, line_number)
+        for line_number, row in rows
+    ]
     return TRISPrincipalPlaneCuts(
         angle_deg=np.asarray(angle),
         h_plane_db=np.asarray(h_cut),

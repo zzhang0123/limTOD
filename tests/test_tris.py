@@ -51,6 +51,13 @@ def _write_ascii(tmp_path, name, text, newline="\n"):
     return path
 
 
+def _assert_diagnostic(error, path, *line_numbers):
+    message = str(error.value)
+    assert str(path) in message
+    for line_number in line_numbers:
+        assert "line {}".format(line_number) in message
+
+
 @pytest.mark.parametrize(
     ("token", "expected_deg"),
     [("1h02m", 15.5), ("1h02m03s", 15.5125)],
@@ -138,8 +145,10 @@ def test_readers_reject_wrong_column_count_or_nonfinite_values(
 def test_point_reader_rejects_noncommon_repeated_zero_level(tmp_path):
     """Per-row values that disagree cannot represent a single common zero-level error."""
     bad_points = POINTS_2500.replace("2.331 0.284", "2.331 0.285")
-    with pytest.raises(ValueError, match="common"):
-        read_tris_point_set(_write_ascii(tmp_path, "2500-bad.txt", bad_points))
+    path = _write_ascii(tmp_path, "2500-bad.txt", bad_points)
+    with pytest.raises(ValueError, match="common") as error:
+        read_tris_point_set(path)
+    _assert_diagnostic(error, path, 5, 6)
 
 
 def test_beam_cuts_keep_raw_db_and_expose_power_relative_to_peak(tmp_path):
@@ -152,3 +161,66 @@ def test_beam_cuts_keep_raw_db_and_expose_power_relative_to_peak(tmp_path):
     np.testing.assert_allclose(cuts.e_plane_db, [0.0, -0.335])
     np.testing.assert_allclose(cuts.h_plane_relative_power, [1.0, 10 ** (-0.175 / 10)])
     np.testing.assert_allclose(cuts.e_plane_relative_power, [1.0, 10 ** (-0.335 / 10)])
+
+
+def test_ring_reader_rejects_duplicate_parsed_ra_with_source_rows(tmp_path):
+    """Distinct raw tokens at one RA would otherwise make a drift ring ambiguous."""
+    duplicate_ring = RING_600.replace("1h11m", "0h00m00s")
+    path = _write_ascii(tmp_path, "duplicate-ring.txt", duplicate_ring)
+
+    with pytest.raises(ValueError, match="duplicate") as error:
+        read_tris_ring(path)
+
+    _assert_diagnostic(error, path, 6, 7)
+    assert "0.0" in str(error.value)
+
+
+def test_point_reader_rejects_duplicate_parsed_ra_with_source_rows(tmp_path):
+    """Sparse point coordinates must remain uniquely identifiable after parsing."""
+    duplicate_points = POINTS_2500.replace("13h42m32s", "11h26m04s")
+    path = _write_ascii(tmp_path, "duplicate-points.txt", duplicate_points)
+
+    with pytest.raises(ValueError, match="duplicate") as error:
+        read_tris_point_set(path)
+
+    _assert_diagnostic(error, path, 5, 6)
+
+
+def test_beam_reader_rejects_duplicate_angle_with_source_rows(tmp_path):
+    """Duplicate angles would make an archive principal-plane cut ill-defined."""
+    duplicate_cuts = BEAM_CUTS.replace("3 -0.175 -0.335", "0 -0.175 -0.335")
+    path = _write_ascii(tmp_path, "duplicate-beam.txt", duplicate_cuts)
+
+    with pytest.raises(ValueError, match="duplicate") as error:
+        read_tris_beam_cuts(path)
+
+    _assert_diagnostic(error, path, 4, 5)
+
+
+@pytest.mark.parametrize(
+    ("reader", "contents", "line_number"),
+    [
+        (read_tris_ring, "# Frequency = 0.6 GHz\n0h00m 15.145\n", 2),
+        (
+            read_tris_ring,
+            RING_600.replace("1h11m", "1h60m"),
+            7,
+        ),
+        (
+            read_tris_point_set,
+            POINTS_2500.replace("2.331 0.284", "2.331 nope"),
+            6,
+        ),
+        (read_tris_beam_cuts, BEAM_CUTS.replace("-0.335", "nan"), 5),
+    ],
+)
+def test_reader_row_errors_identify_source_and_line(
+    tmp_path, reader, contents, line_number
+):
+    """A malformed public row must be traceable to its exact source location."""
+    path = _write_ascii(tmp_path, "diagnostic.txt", contents)
+
+    with pytest.raises(ValueError) as error:
+        reader(path)
+
+    _assert_diagnostic(error, path, line_number)
