@@ -82,4 +82,3 @@ and document an approximation or use an external asymmetric likelihood.
   coefficients.
 - `docs/tris.md` is the compact user-facing convention report and includes a
   runnable offline example and explicit unsupported claims.
-

@@ -6,10 +6,12 @@ uncertainties separately from per-sample statistical uncertainties.
 """
 
 from dataclasses import dataclass
-from pathlib import Path
 import math
+from numbers import Real
+from os import PathLike
+from pathlib import Path
 import re
-from typing import Optional, Tuple, Union
+from typing import Dict, List, Optional, Protocol, Sequence, Tuple, Union
 
 import healpy as hp
 import numpy as np
@@ -20,8 +22,17 @@ _RING_FREQUENCIES = {
     0.82: (820.0, 817.8, 0.3),
 }
 
+_PathInput = Union[str, Path, PathLike]
+_NumericArrayLike = Union[np.ndarray, Sequence[float]]
+_CommonUncertainty = Union[float, "AsymmetricUncertainty"]
+_Rows = List[Tuple[int, List[str]]]
 
-def _readonly_finite_array(values, name):
+
+class _BeamFunc(Protocol):
+    def __call__(self, *, freq: float, nside: int) -> np.ndarray: ...
+
+
+def _readonly_finite_array(values: _NumericArrayLike, name: str) -> np.ndarray:
     """Return a one-dimensional immutable finite float array."""
     array = np.asarray(values, dtype=float)
     if array.ndim != 1 or array.size == 0:
@@ -33,25 +44,53 @@ def _readonly_finite_array(values, name):
     return array
 
 
-def _validate_frequency_metadata(nominal, effective, bandwidth):
+def _coerce_real_scalar(value: object, name: str, *, finite: bool = True) -> float:
+    """Return a detached built-in float for one strict real scalar."""
+    if isinstance(value, (bool, np.bool_)):
+        raise ValueError("{} must be a real scalar".format(name))
+    if isinstance(value, np.ndarray):
+        if value.ndim != 0:
+            raise ValueError("{} must be a real scalar".format(name))
+        value = value.item()
+    if isinstance(value, (bool, np.bool_)) or not isinstance(
+        value, (Real, np.integer, np.floating)
+    ):
+        raise ValueError("{} must be a real scalar".format(name))
+    try:
+        result = float(value)
+    except (OverflowError, TypeError, ValueError) as error:
+        raise ValueError("{} must be a real scalar".format(name)) from error
+    if math.isnan(result) or (finite and not math.isfinite(result)):
+        requirement = "finite " if finite else "non-NaN "
+        raise ValueError("{} must be a {}real scalar".format(name, requirement))
+    return result
+
+
+def _validate_frequency_metadata(
+    nominal: object, effective: object, bandwidth: object
+) -> Tuple[float, float, float]:
+    normalized = []
     for name, value in (
         ("nominal_frequency_mhz", nominal),
         ("effective_frequency_mhz", effective),
         ("bandwidth_mhz", bandwidth),
     ):
-        if not math.isfinite(value) or value <= 0:
+        scalar = _coerce_real_scalar(value, name)
+        if scalar <= 0:
             raise ValueError("{} must be finite and positive".format(name))
+        normalized.append(scalar)
+    return normalized[0], normalized[1], normalized[2]
 
 
-def _validate_finite_scalar(value, name):
-    if not isinstance(value, (int, float, np.floating)) or not math.isfinite(value):
-        raise ValueError("{} must be finite".format(name))
+def _validate_finite_scalar(value: object, name: str) -> float:
+    return _coerce_real_scalar(value, name)
 
 
-def _validate_latitude(value, name):
-    _validate_finite_scalar(value, name)
-    if value < -90.0 or value > 90.0:
+def _validate_latitude(value: object, name: str) -> float:
+    latitude = _validate_finite_scalar(value, name)
+    if latitude < -90.0 or latitude > 90.0:
         raise ValueError("{} must be in [-90, 90] degrees".format(name))
+    return latitude
 
 
 @dataclass(frozen=True)
@@ -61,13 +100,15 @@ class AsymmetricUncertainty:
     positive_k: float
     negative_k: float
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         for name, value in (
             ("positive_k", self.positive_k),
             ("negative_k", self.negative_k),
         ):
-            if not math.isfinite(value) or value < 0:
+            normalized = _coerce_real_scalar(value, name)
+            if normalized < 0:
                 raise ValueError("{} must be finite and non-negative".format(name))
+            object.__setattr__(self, name, normalized)
 
 
 @dataclass(frozen=True)
@@ -84,11 +125,13 @@ class TRISRing:
     zero_level_uncertainty_k: Union[float, AsymmetricUncertainty]
     declination_label_deg: float = 42.0
 
-    def __post_init__(self):
-        _validate_frequency_metadata(
+    def __post_init__(self) -> None:
+        nominal, effective, bandwidth = _validate_frequency_metadata(
             self.nominal_frequency_mhz, self.effective_frequency_mhz, self.bandwidth_mhz
         )
-        _validate_latitude(self.declination_label_deg, "declination_label_deg")
+        declination = _validate_latitude(
+            self.declination_label_deg, "declination_label_deg"
+        )
         _validate_ra_data(self.ra_text, self.ra_deg)
         _validate_matching_samples(
             self.ra_deg, self.temperature_k, self.statistical_uncertainty_k
@@ -107,7 +150,15 @@ class TRISRing:
         if np.any(statistical < 0):
             raise ValueError("statistical_uncertainty_k must be non-negative")
         object.__setattr__(self, "statistical_uncertainty_k", statistical)
-        _validate_common_uncertainty(self.zero_level_uncertainty_k)
+        object.__setattr__(self, "nominal_frequency_mhz", nominal)
+        object.__setattr__(self, "effective_frequency_mhz", effective)
+        object.__setattr__(self, "bandwidth_mhz", bandwidth)
+        object.__setattr__(self, "declination_label_deg", declination)
+        object.__setattr__(
+            self,
+            "zero_level_uncertainty_k",
+            _validate_common_uncertainty(self.zero_level_uncertainty_k),
+        )
 
 
 @dataclass(frozen=True)
@@ -124,11 +175,13 @@ class TRISPointSet:
     zero_level_uncertainty_k: float
     declination_label_deg: float = 42.0
 
-    def __post_init__(self):
-        _validate_frequency_metadata(
+    def __post_init__(self) -> None:
+        nominal, effective, bandwidth = _validate_frequency_metadata(
             self.nominal_frequency_mhz, self.effective_frequency_mhz, self.bandwidth_mhz
         )
-        _validate_latitude(self.declination_label_deg, "declination_label_deg")
+        declination = _validate_latitude(
+            self.declination_label_deg, "declination_label_deg"
+        )
         _validate_ra_data(self.ra_text, self.ra_deg)
         _validate_matching_samples(self.ra_deg, self.temperature_k)
         object.__setattr__(
@@ -147,7 +200,15 @@ class TRISPointSet:
             if np.any(statistical < 0):
                 raise ValueError("statistical_uncertainty_k must be non-negative")
             object.__setattr__(self, "statistical_uncertainty_k", statistical)
-        _validate_common_uncertainty(self.zero_level_uncertainty_k)
+        object.__setattr__(self, "nominal_frequency_mhz", nominal)
+        object.__setattr__(self, "effective_frequency_mhz", effective)
+        object.__setattr__(self, "bandwidth_mhz", bandwidth)
+        object.__setattr__(self, "declination_label_deg", declination)
+        object.__setattr__(
+            self,
+            "zero_level_uncertainty_k",
+            _validate_common_uncertainty(self.zero_level_uncertainty_k),
+        )
 
 
 @dataclass(frozen=True)
@@ -158,7 +219,7 @@ class TRISPrincipalPlaneCuts:
     h_plane_db: np.ndarray
     e_plane_db: np.ndarray
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         _validate_matching_samples(self.angle_deg, self.h_plane_db, self.e_plane_db)
         _validate_unique_coordinates(self.angle_deg, "angle_deg")
         object.__setattr__(
@@ -172,17 +233,17 @@ class TRISPrincipalPlaneCuts:
         )
 
     @property
-    def h_plane_relative_power(self):
+    def h_plane_relative_power(self) -> np.ndarray:
         """H-plane power relative to the peak, assuming the archive dB cuts are power."""
         return 10.0 ** (self.h_plane_db / 10.0)
 
     @property
-    def e_plane_relative_power(self):
+    def e_plane_relative_power(self) -> np.ndarray:
         """E-plane power relative to the peak, assuming the archive dB cuts are power."""
         return 10.0 ** (self.e_plane_db / 10.0)
 
 
-def _validate_ra_data(ra_text, ra_deg):
+def _validate_ra_data(ra_text: Tuple[str, ...], ra_deg: _NumericArrayLike) -> None:
     if not isinstance(ra_text, tuple) or not ra_text:
         raise ValueError("ra_text must be a non-empty tuple")
     values = _readonly_finite_array(ra_deg, "ra_deg")
@@ -193,17 +254,22 @@ def _validate_ra_data(ra_text, ra_deg):
     _validate_unique_coordinates(values, "ra_deg")
 
 
-def _validate_matching_samples(*arrays):
-    lengths = []
+def _validate_matching_samples(*arrays: _NumericArrayLike) -> None:
+    lengths: List[int] = []
     for array in arrays:
         lengths.append(_readonly_finite_array(array, "sample array").size)
     if len(set(lengths)) != 1:
         raise ValueError("sample arrays must have the same length")
 
 
-def _validate_unique_coordinates(values, name, source=None, line_numbers=None):
+def _validate_unique_coordinates(
+    values: _NumericArrayLike,
+    name: str,
+    source: Optional[_PathInput] = None,
+    line_numbers: Optional[Sequence[int]] = None,
+) -> None:
     """Reject repeated coordinates, retaining reader source rows when available."""
-    first_indices = {}
+    first_indices: Dict[float, int] = {}
     for index, value in enumerate(values):
         coordinate = float(value)
         if coordinate in first_indices:
@@ -222,18 +288,18 @@ def _validate_unique_coordinates(values, name, source=None, line_numbers=None):
         first_indices[coordinate] = index
 
 
-def _validate_common_uncertainty(value):
+def _validate_common_uncertainty(value: object) -> _CommonUncertainty:
     if isinstance(value, AsymmetricUncertainty):
-        return
-    if (
-        not isinstance(value, (int, float, np.floating))
-        or not math.isfinite(value)
-        or value < 0
-    ):
+        return value
+    normalized = _coerce_real_scalar(value, "zero_level_uncertainty_k")
+    if normalized < 0:
         raise ValueError("zero_level_uncertainty_k must be finite and non-negative")
+    return normalized
 
 
-def _source_location(source, line_number=None):
+def _source_location(
+    source: Optional[_PathInput], line_number: Optional[int] = None
+) -> str:
     if source is None:
         return ""
     location = str(source)
@@ -242,7 +308,11 @@ def _source_location(source, line_number=None):
     return "{}: ".format(location)
 
 
-def parse_tris_ra(token, source=None, line_number=None):
+def parse_tris_ra(
+    token: str,
+    source: Optional[_PathInput] = None,
+    line_number: Optional[int] = None,
+) -> float:
     """Convert an archive ``hh hmm`` or ``hh hmm ss`` token to degrees."""
     match = _RA_RE.fullmatch(token)
     if match is None:
@@ -263,15 +333,17 @@ def parse_tris_ra(token, source=None, line_number=None):
     return 15.0 * (hour + minute / 60.0 + second / 3600.0)
 
 
-def _read_ascii_lines(source):
+def _read_ascii_lines(source: _PathInput) -> Tuple[Path, List[str]]:
     path = Path(source)
     with path.open("r", encoding="ascii", newline=None) as handle:
         return path, handle.readlines()
 
 
-def _header_and_rows(source, expected_columns):
-    header = []
-    rows = []
+def _header_and_rows(
+    source: _PathInput, expected_columns: int
+) -> Tuple[Path, List[str], _Rows]:
+    header: List[str] = []
+    rows: _Rows = []
     path, lines = _read_ascii_lines(source)
     for line_number, line in enumerate(lines, 1):
         stripped = line.strip()
@@ -293,7 +365,12 @@ def _header_and_rows(source, expected_columns):
     return path, header, rows
 
 
-def _parse_finite_float(value, description, source=None, line_number=None):
+def _parse_finite_float(
+    value: str,
+    description: str,
+    source: Optional[_PathInput] = None,
+    line_number: Optional[int] = None,
+) -> float:
     try:
         result = float(value)
     except ValueError:
@@ -311,7 +388,9 @@ def _parse_finite_float(value, description, source=None, line_number=None):
     return result
 
 
-def _find_ring_metadata(source, header):
+def _find_ring_metadata(
+    source: _PathInput, header: Sequence[str]
+) -> Tuple[float, float, float, _CommonUncertainty]:
     joined = "\n".join(header)
     frequency_match = re.search(
         r"Frequency\s*=\s*([0-9.]+)\s*GHz", joined, re.IGNORECASE
@@ -333,6 +412,7 @@ def _find_ring_metadata(source, header):
             "{}: ring file is missing its zero-level uncertainty header".format(source)
         )
     zero_text = zero_match.group(1).strip()
+    zero_level: _CommonUncertainty
     asymmetry = re.fullmatch(r"\+?([0-9.]+)K\s*/\s*-([0-9.]+)K(?:\s*.*)?", zero_text)
     if asymmetry is not None:
         zero_level = AsymmetricUncertainty(
@@ -355,7 +435,7 @@ def _find_ring_metadata(source, header):
     return frequency + (zero_level,)
 
 
-def read_tris_ring(source):
+def read_tris_ring(source: _PathInput) -> TRISRing:
     """Read a local 600- or 820-MHz TRIS absolute-temperature drift ring."""
     path, header, rows = _header_and_rows(source, expected_columns=3)
     nominal, effective, bandwidth, zero_level = _find_ring_metadata(path, header)
@@ -392,7 +472,7 @@ def read_tris_ring(source):
     )
 
 
-def read_tris_point_set(source):
+def read_tris_point_set(source: _PathInput) -> TRISPointSet:
     """Read the local sparse 2.5-GHz TRIS absolute-temperature samples."""
     path, header, rows = _header_and_rows(source, expected_columns=3)
     if not re.search(r"2\.5\s*GHz", "\n".join(header), re.IGNORECASE):
@@ -442,7 +522,7 @@ def read_tris_point_set(source):
     )
 
 
-def read_tris_beam_cuts(source):
+def read_tris_beam_cuts(source: _PathInput) -> TRISPrincipalPlaneCuts:
     """Read local TRIS H- and E-principal-plane beam cuts in raw dB units."""
     path, _header, rows = _header_and_rows(source, expected_columns=3)
     angle = [
@@ -468,8 +548,12 @@ def read_tris_beam_cuts(source):
 
 
 def approximate_tris_gaussian_beam_map(
-    *, nside, fwhm_e_deg=18.0, fwhm_h_deg=23.0, normalization="peak"
-):
+    *,
+    nside: int,
+    fwhm_e_deg: float = 18.0,
+    fwhm_h_deg: float = 23.0,
+    normalization: str = "peak",
+) -> np.ndarray:
     """Return an approximate scalar TRIS main-lobe HEALPix RING beam map.
 
     The archive supplies only E- and H-principal-plane cuts, so this is an
@@ -500,7 +584,9 @@ def approximate_tris_gaussian_beam_map(
     return beam_map
 
 
-def tris_beam_func(*, fwhm_e_deg=18.0, fwhm_h_deg=23.0, normalization="peak"):
+def tris_beam_func(
+    *, fwhm_e_deg: float = 18.0, fwhm_h_deg: float = 23.0, normalization: str = "peak"
+) -> _BeamFunc:
     """Return an achromatic callable for the approximate scalar TRIS beam.
 
     The returned ``beam_func(*, freq, nside)`` follows limTOD's existing
@@ -509,9 +595,9 @@ def tris_beam_func(*, fwhm_e_deg=18.0, fwhm_h_deg=23.0, normalization="peak"):
     and the returned two-dimensional Gaussian is only an approximation.
     """
 
-    def beam_func(*, freq, nside):
-        _validate_finite_scalar(freq, "freq")
-        if freq <= 0.0:
+    def beam_func(*, freq: float, nside: int) -> np.ndarray:
+        normalized_freq = _validate_finite_scalar(freq, "freq")
+        if normalized_freq <= 0.0:
             raise ValueError("freq must be finite and positive MHz")
         return approximate_tris_gaussian_beam_map(
             nside=nside,
@@ -533,8 +619,8 @@ class TRISZenithGeometry:
     selfrot_deg: np.ndarray
     latitude_deg: float
 
-    def __post_init__(self):
-        _validate_latitude(self.latitude_deg, "latitude_deg")
+    def __post_init__(self) -> None:
+        latitude = _validate_latitude(self.latitude_deg, "latitude_deg")
         arrays = (
             ("lst_deg", self.lst_deg),
             ("azimuth_deg", self.azimuth_deg),
@@ -549,9 +635,10 @@ class TRISZenithGeometry:
             raise ValueError("TRIS geometry arrays must have the same length")
         for name, array in validated:
             object.__setattr__(self, name, array)
+        object.__setattr__(self, "latitude_deg", latitude)
 
 
-def _readonly_finite_matrix(values, name):
+def _readonly_finite_matrix(values: _NumericArrayLike, name: str) -> np.ndarray:
     """Return an immutable, finite two-dimensional float array."""
     try:
         array = np.asarray(values, dtype=float)
@@ -579,7 +666,7 @@ class TRISRankDiagnostic:
     rank_rtol: float
     condition_number: float
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         singular_values = _readonly_finite_array(
             self.singular_values, "singular_values"
         )
@@ -596,18 +683,21 @@ class TRISRankDiagnostic:
             or self.parameter_count <= 0
         ):
             raise ValueError("parameter_count must be a positive integer")
-        for name, value in (
-            ("tolerance", self.tolerance),
-            ("rank_rtol", self.rank_rtol),
-            ("condition_number", self.condition_number),
-        ):
-            if not isinstance(value, (int, float, np.floating)) or math.isnan(value):
-                raise ValueError("{} must not be NaN".format(name))
-        if self.tolerance < 0.0 or self.rank_rtol <= 0.0:
+        tolerance = _coerce_real_scalar(self.tolerance, "tolerance")
+        rank_rtol = _coerce_real_scalar(self.rank_rtol, "rank_rtol")
+        condition_number = _coerce_real_scalar(
+            self.condition_number, "condition_number", finite=False
+        )
+        if tolerance < 0.0 or rank_rtol <= 0.0:
             raise ValueError("tolerance must be non-negative and rank_rtol positive")
-        if self.condition_number < 1.0:
+        if condition_number < 1.0:
             raise ValueError("condition_number must be at least one")
         object.__setattr__(self, "singular_values", singular_values)
+        object.__setattr__(self, "numerical_rank", int(self.numerical_rank))
+        object.__setattr__(self, "parameter_count", int(self.parameter_count))
+        object.__setattr__(self, "tolerance", tolerance)
+        object.__setattr__(self, "rank_rtol", rank_rtol)
+        object.__setattr__(self, "condition_number", condition_number)
 
 
 @dataclass(frozen=True)
@@ -620,7 +710,7 @@ class TRISLinearFit:
     residual_k: np.ndarray
     rank_diagnostic: TRISRankDiagnostic
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         coefficients = _readonly_finite_array(self.coefficients, "coefficients")
         covariance = _readonly_finite_matrix(
             self.coefficient_covariance, "coefficient_covariance"
@@ -643,37 +733,39 @@ class TRISLinearFit:
         object.__setattr__(self, "residual_k", residual)
 
     @property
-    def singular_values(self):
+    def singular_values(self) -> np.ndarray:
         """Whitened-design singular values from the rank diagnostic."""
         return self.rank_diagnostic.singular_values
 
     @property
-    def numerical_rank(self):
+    def numerical_rank(self) -> int:
         """Whitened-design numerical rank."""
         return self.rank_diagnostic.numerical_rank
 
     @property
-    def parameter_count(self):
+    def parameter_count(self) -> int:
         """Number of fitted template coefficients."""
         return self.rank_diagnostic.parameter_count
 
     @property
-    def tolerance(self):
+    def tolerance(self) -> float:
         """SVD rank tolerance."""
         return self.rank_diagnostic.tolerance
 
     @property
-    def rank_rtol(self):
+    def rank_rtol(self) -> float:
         """Relative SVD rank tolerance."""
         return self.rank_diagnostic.rank_rtol
 
     @property
-    def condition_number(self):
+    def condition_number(self) -> float:
         """Whitened-design condition number."""
         return self.rank_diagnostic.condition_number
 
 
-def build_tris_fourier_design(ra_deg, m_max, *, include_constant=True):
+def build_tris_fourier_design(
+    ra_deg: _NumericArrayLike, m_max: int, *, include_constant: bool = True
+) -> np.ndarray:
     """Build a finite low-dimensional Fourier design at the supplied TRIS RAs.
 
     With ``include_constant=True``, columns are ordered as ``[1, cos(alpha),
@@ -690,7 +782,7 @@ def build_tris_fourier_design(ra_deg, m_max, *, include_constant=True):
         raise ValueError("ra_deg must be in [0, 360)")
 
     alpha = np.deg2rad(ra)
-    columns = []
+    columns: List[np.ndarray] = []
     if include_constant:
         columns.append(np.ones(ra.size))
     for mode in range(1, int(m_max) + 1):
@@ -702,40 +794,36 @@ def build_tris_fourier_design(ra_deg, m_max, *, include_constant=True):
     return design
 
 
-def _validate_optional_positive_scalar(value, name):
+def _validate_optional_positive_scalar(
+    value: Optional[float], name: str
+) -> Optional[float]:
     if value is None:
         return None
-    if (
-        not isinstance(value, (int, float, np.floating))
-        or isinstance(value, bool)
-        or not math.isfinite(value)
-        or value <= 0.0
-    ):
+    normalized = _coerce_real_scalar(value, name)
+    if normalized <= 0.0:
         raise ValueError("{} must be a finite positive scalar".format(name))
-    return float(value)
+    return normalized
 
 
-def _validate_optional_nonnegative_scalar(value, name):
+def _validate_optional_nonnegative_scalar(
+    value: Optional[float], name: str
+) -> Optional[float]:
     if value is None:
         return None
-    if (
-        not isinstance(value, (int, float, np.floating))
-        or isinstance(value, bool)
-        or not math.isfinite(value)
-        or value < 0.0
-    ):
+    normalized = _coerce_real_scalar(value, name)
+    if normalized < 0.0:
         raise ValueError("{} must be a finite non-negative scalar".format(name))
-    return float(value)
+    return normalized
 
 
 def fit_tris_linear_model(
-    ring,
-    design_matrix,
+    ring: TRISRing,
+    design_matrix: _NumericArrayLike,
     *,
-    uncertainty_floor_k=None,
-    common_mode_sigma_k=None,
-    rank_rtol=None,
-):
+    uncertainty_floor_k: Optional[float] = None,
+    common_mode_sigma_k: Optional[float] = None,
+    rank_rtol: Optional[float] = None,
+) -> TRISLinearFit:
     """Fit an identifiable caller-supplied template model to one ``TRISRing``.
 
     The data design is Cholesky-whitened using the per-row statistical errors
@@ -828,8 +916,11 @@ def fit_tris_linear_model(
 
 
 def tris_zenith_geometry(
-    ra_deg, *, latitude_deg=42.0 + 26.0 / 60.0, e_plane_east_of_meridian_deg=7.0
-):
+    ra_deg: _NumericArrayLike,
+    *,
+    latitude_deg: float = 42.0 + 26.0 / 60.0,
+    e_plane_east_of_meridian_deg: float = 7.0,
+) -> TRISZenithGeometry:
     """Translate TRIS RA labels to its approximate parked-zenith geometry.
 
     Supplied RA samples are preserved as LST samples.  The park is azimuth
@@ -839,8 +930,8 @@ def tris_zenith_geometry(
     measured 42 deg 26 arcmin site latitude; callers may explicitly request
     42 degrees for the rounded archive declination-label approximation.
     """
-    _validate_latitude(latitude_deg, "latitude_deg")
-    _validate_finite_scalar(
+    latitude = _validate_latitude(latitude_deg, "latitude_deg")
+    e_plane_offset = _validate_finite_scalar(
         e_plane_east_of_meridian_deg, "e_plane_east_of_meridian_deg"
     )
     lst_deg = _readonly_finite_array(ra_deg, "ra_deg")
@@ -849,6 +940,6 @@ def tris_zenith_geometry(
         lst_deg=lst_deg,
         azimuth_deg=np.zeros(ntime),
         elevation_deg=np.full(ntime, 90.0),
-        selfrot_deg=np.full(ntime, -e_plane_east_of_meridian_deg),
-        latitude_deg=latitude_deg,
+        selfrot_deg=np.full(ntime, -e_plane_offset),
+        latitude_deg=latitude,
     )

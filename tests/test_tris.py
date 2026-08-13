@@ -270,6 +270,98 @@ def test_tris_sample_products_reject_nonfinite_declination_labels(
         model(**common)
 
 
+def test_frozen_scalar_metadata_is_detached_from_zero_dimensional_arrays():
+    """Accepted scalar arrays must not leave frozen metadata caller-mutable."""
+    sources = {
+        "nominal_frequency_mhz": np.array(2500.0),
+        "effective_frequency_mhz": np.array(2427.8),
+        "bandwidth_mhz": np.array(3.0),
+        "zero_level_uncertainty_k": np.array(0.284),
+        "declination_label_deg": np.array(42.0),
+    }
+    points = TRISPointSet(
+        **sources,
+        ra_text=("0h00m",),
+        ra_deg=np.array([0.0]),
+        temperature_k=np.array([2.3]),
+        statistical_uncertainty_k=None,
+    )
+    positive = np.array(0.43)
+    negative = np.array(0.30)
+    uncertainty = AsymmetricUncertainty(positive, negative)
+
+    for source in sources.values():
+        source[...] = -99.0
+    positive[...] = -99.0
+    negative[...] = -99.0
+
+    assert points.nominal_frequency_mhz == 2500.0
+    assert points.effective_frequency_mhz == 2427.8
+    assert points.bandwidth_mhz == 3.0
+    assert points.zero_level_uncertainty_k == 0.284
+    assert points.declination_label_deg == 42.0
+    assert uncertainty == AsymmetricUncertainty(0.43, 0.30)
+    assert all(
+        isinstance(value, float)
+        for value in (
+            points.nominal_frequency_mhz,
+            points.effective_frequency_mhz,
+            points.bandwidth_mhz,
+            points.zero_level_uncertainty_k,
+            points.declination_label_deg,
+            uncertainty.positive_k,
+            uncertainty.negative_k,
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [
+        True,
+        np.bool_(True),
+        1.0 + 0.0j,
+        "1.0",
+        [1.0],
+        np.array([1.0]),
+        pytest.param(10**10000, id="overflowing-int"),
+    ],
+)
+def test_real_scalar_metadata_rejects_boolean_and_non_scalar_values(bad_value):
+    """Coercion must not admit truth values or size-one vectors as physics."""
+    with pytest.raises(ValueError, match="positive_k"):
+        AsymmetricUncertainty(positive_k=bad_value, negative_k=0.3)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "nominal_frequency_mhz",
+        "effective_frequency_mhz",
+        "bandwidth_mhz",
+        "zero_level_uncertainty_k",
+        "declination_label_deg",
+    ],
+)
+def test_point_set_rejects_boolean_public_scalar_metadata(field):
+    """Every point-set physics scalar must use the strict coercion contract."""
+    values = dict(
+        nominal_frequency_mhz=2500.0,
+        effective_frequency_mhz=2427.8,
+        bandwidth_mhz=3.0,
+        ra_text=("0h00m",),
+        ra_deg=np.array([0.0]),
+        temperature_k=np.array([2.3]),
+        statistical_uncertainty_k=None,
+        zero_level_uncertainty_k=0.284,
+        declination_label_deg=42.0,
+    )
+    values[field] = True
+
+    with pytest.raises(ValueError, match=field):
+        TRISPointSet(**values)
+
+
 def test_approximate_tris_gaussian_beam_map_has_ring_shape_and_normalizations():
     """The explicitly approximate scalar beam follows limTOD's RING convention."""
     nside = 32
@@ -492,6 +584,47 @@ def test_common_mode_covariance_only_expands_constant_mode_when_requested():
     )
     with pytest.raises(ValueError, match="common_mode_sigma_k"):
         fit_tris_linear_model(ring, design, common_mode_sigma_k=float("nan"))
+
+
+def test_correlated_gls_matches_direct_normal_equation_oracle():
+    """A general correlated fit must agree beyond an axis-aligned constant case."""
+    design = np.array(
+        [
+            [1.0, 0.2, -1.1],
+            [1.0, 1.4, 0.3],
+            [1.0, -0.7, 2.2],
+            [1.0, 2.1, -0.4],
+            [1.0, -1.3, 0.8],
+            [1.0, 0.5, 1.7],
+        ]
+    )
+    statistical = np.array([0.12, 0.31, 0.18, 0.44, 0.27, 0.36])
+    common_mode = 0.23
+    temperature = design @ np.array([2.5, -0.7, 1.2])
+    temperature += np.array([0.03, -0.07, 0.11, -0.02, 0.08, -0.05])
+    ring = _inference_ring(
+        np.array([0.0, 37.0, 83.0, 151.0, 224.0, 319.0]),
+        temperature,
+        statistical,
+    )
+
+    covariance = np.diag(statistical**2) + common_mode**2 * np.ones((6, 6))
+    precision = np.linalg.inv(covariance)
+    normal_matrix = design.T @ precision @ design
+    expected_covariance = np.linalg.inv(normal_matrix)
+    expected_coefficients = expected_covariance @ design.T @ precision @ temperature
+
+    fit = fit_tris_linear_model(ring, design, common_mode_sigma_k=common_mode)
+
+    np.testing.assert_allclose(
+        fit.coefficients, expected_coefficients, rtol=2e-12, atol=2e-12
+    )
+    np.testing.assert_allclose(
+        fit.coefficient_covariance,
+        expected_covariance,
+        rtol=2e-12,
+        atol=2e-12,
+    )
 
 
 @pytest.mark.parametrize(

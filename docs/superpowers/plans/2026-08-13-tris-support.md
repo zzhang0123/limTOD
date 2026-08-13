@@ -90,4 +90,3 @@ interface and scientific failure modes.
    changes to existing mapmaker defaults, or unsupported 2D/full-Stokes claims.
 5. Obtain Python-specific and whole-change code reviews; address all high and
    medium findings and re-run affected verification.
-
