@@ -11,6 +11,7 @@ import math
 import re
 from typing import Optional, Tuple, Union
 
+import healpy as hp
 import numpy as np
 
 _RA_RE = re.compile(r"(\d{1,2})h(\d{2})m(?:(\d{2})s)?\Z")
@@ -42,6 +43,17 @@ def _validate_frequency_metadata(nominal, effective, bandwidth):
             raise ValueError("{} must be finite and positive".format(name))
 
 
+def _validate_finite_scalar(value, name):
+    if not isinstance(value, (int, float, np.floating)) or not math.isfinite(value):
+        raise ValueError("{} must be finite".format(name))
+
+
+def _validate_latitude(value, name):
+    _validate_finite_scalar(value, name)
+    if value < -90.0 or value > 90.0:
+        raise ValueError("{} must be in [-90, 90] degrees".format(name))
+
+
 @dataclass(frozen=True)
 class AsymmetricUncertainty:
     """A positive and negative common uncertainty in kelvin."""
@@ -70,11 +82,13 @@ class TRISRing:
     temperature_k: np.ndarray
     statistical_uncertainty_k: np.ndarray
     zero_level_uncertainty_k: Union[float, AsymmetricUncertainty]
+    declination_label_deg: float = 42.0
 
     def __post_init__(self):
         _validate_frequency_metadata(
             self.nominal_frequency_mhz, self.effective_frequency_mhz, self.bandwidth_mhz
         )
+        _validate_latitude(self.declination_label_deg, "declination_label_deg")
         _validate_ra_data(self.ra_text, self.ra_deg)
         _validate_matching_samples(
             self.ra_deg, self.temperature_k, self.statistical_uncertainty_k
@@ -108,11 +122,13 @@ class TRISPointSet:
     temperature_k: np.ndarray
     statistical_uncertainty_k: Optional[np.ndarray]
     zero_level_uncertainty_k: float
+    declination_label_deg: float = 42.0
 
     def __post_init__(self):
         _validate_frequency_metadata(
             self.nominal_frequency_mhz, self.effective_frequency_mhz, self.bandwidth_mhz
         )
+        _validate_latitude(self.declination_label_deg, "declination_label_deg")
         _validate_ra_data(self.ra_text, self.ra_deg)
         _validate_matching_samples(self.ra_deg, self.temperature_k)
         object.__setattr__(
@@ -372,6 +388,7 @@ def read_tris_ring(source):
         temperature_k=np.asarray(temperature),
         statistical_uncertainty_k=np.asarray(statistical),
         zero_level_uncertainty_k=zero_level,
+        declination_label_deg=42.0,
     )
 
 
@@ -421,6 +438,7 @@ def read_tris_point_set(source):
         temperature_k=np.asarray(temperature),
         statistical_uncertainty_k=None,
         zero_level_uncertainty_k=common_uncertainties[0],
+        declination_label_deg=42.0,
     )
 
 
@@ -446,4 +464,117 @@ def read_tris_beam_cuts(source):
         angle_deg=np.asarray(angle),
         h_plane_db=np.asarray(h_cut),
         e_plane_db=np.asarray(e_cut),
+    )
+
+
+def approximate_tris_gaussian_beam_map(
+    *, nside, fwhm_e_deg=18.0, fwhm_h_deg=23.0, normalization="peak"
+):
+    """Return an approximate scalar TRIS main-lobe HEALPix RING beam map.
+
+    The archive supplies only E- and H-principal-plane cuts, so this is an
+    explicitly approximate elliptical Gaussian: its intrinsic E axis is
+    ``phi=0/180`` and its H axis is ``phi=90/270``.  This two-dimensional
+    beam is an approximation.  ``normalization`` may be ``"peak"`,
+    ``"sum"``, or ``"none"``; ``"sum"`` uses limTOD's discrete HEALPix sum.
+    """
+    for name, value in (("fwhm_e_deg", fwhm_e_deg), ("fwhm_h_deg", fwhm_h_deg)):
+        _validate_finite_scalar(value, name)
+        if value <= 0.0:
+            raise ValueError("{} must be positive".format(name))
+    if normalization not in ("peak", "sum", "none"):
+        raise ValueError('normalization must be "peak", "sum", or "none"')
+
+    npix = hp.nside2npix(nside)
+    theta, phi = hp.pix2ang(nside, np.arange(npix), nest=False)
+    sigma_e = np.deg2rad(fwhm_e_deg / (2.0 * np.sqrt(2.0 * np.log(2.0))))
+    sigma_h = np.deg2rad(fwhm_h_deg / (2.0 * np.sqrt(2.0 * np.log(2.0))))
+    e_offset = theta * np.cos(phi)
+    h_offset = theta * np.sin(phi)
+    beam_map = np.exp(
+        -0.5 * ((e_offset / sigma_e) ** 2 + (h_offset / sigma_h) ** 2)
+    )
+
+    if normalization == "peak":
+        beam_map /= np.max(beam_map)
+    elif normalization == "sum":
+        beam_map /= np.sum(beam_map)
+    return beam_map
+
+
+def tris_beam_func(*, fwhm_e_deg=18.0, fwhm_h_deg=23.0, normalization="peak"):
+    """Return an achromatic callable for the approximate scalar TRIS beam.
+
+    The returned ``beam_func(*, freq, nside)`` follows limTOD's existing
+    keyword-only protocol.  It validates a positive finite MHz frequency but
+    deliberately does not use it: the public archive states one common beam,
+    and the returned two-dimensional Gaussian is only an approximation.
+    """
+
+    def beam_func(*, freq, nside):
+        _validate_finite_scalar(freq, "freq")
+        if freq <= 0.0:
+            raise ValueError("freq must be finite and positive MHz")
+        return approximate_tris_gaussian_beam_map(
+            nside=nside,
+            fwhm_e_deg=fwhm_e_deg,
+            fwhm_h_deg=fwhm_h_deg,
+            normalization=normalization,
+        )
+
+    return beam_func
+
+
+@dataclass(frozen=True)
+class TRISZenithGeometry:
+    """Immutable zenith geometry for the approximate TRIS drift-ring bridge."""
+
+    lst_deg: np.ndarray
+    azimuth_deg: np.ndarray
+    elevation_deg: np.ndarray
+    selfrot_deg: np.ndarray
+    latitude_deg: float
+
+    def __post_init__(self):
+        _validate_latitude(self.latitude_deg, "latitude_deg")
+        arrays = (
+            ("lst_deg", self.lst_deg),
+            ("azimuth_deg", self.azimuth_deg),
+            ("elevation_deg", self.elevation_deg),
+            ("selfrot_deg", self.selfrot_deg),
+        )
+        validated = [
+            (name, _readonly_finite_array(array, name)) for name, array in arrays
+        ]
+        lengths = {array.size for _name, array in validated}
+        if len(lengths) != 1:
+            raise ValueError("TRIS geometry arrays must have the same length")
+        for name, array in validated:
+            object.__setattr__(self, name, array)
+
+
+def tris_zenith_geometry(
+    ra_deg, *, latitude_deg=42.0 + 26.0 / 60.0, e_plane_east_of_meridian_deg=7.0
+):
+    """Translate TRIS RA labels to its approximate parked-zenith geometry.
+
+    Supplied RA samples are preserved as LST samples.  The park is azimuth
+    zero and elevation 90 degrees, while the E plane lies east of the
+    meridian, so limTOD's roll convention uses
+    ``selfrot=-e_plane_east_of_meridian_deg``.  The default latitude is the
+    measured 42 deg 26 arcmin site latitude; callers may explicitly request
+    42 degrees for the rounded archive declination-label approximation.
+    """
+    _validate_latitude(latitude_deg, "latitude_deg")
+    _validate_finite_scalar(
+        e_plane_east_of_meridian_deg, "e_plane_east_of_meridian_deg"
+    )
+    lst_deg = _readonly_finite_array(ra_deg, "ra_deg")
+    ntime = lst_deg.size
+    return TRISZenithGeometry(
+        lst_deg=lst_deg,
+        azimuth_deg=np.zeros(ntime),
+        elevation_deg=np.full(ntime, 90.0),
+        selfrot_deg=np.full(ntime, -e_plane_east_of_meridian_deg),
+        latitude_deg=latitude_deg,
     )

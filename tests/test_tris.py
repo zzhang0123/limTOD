@@ -2,17 +2,25 @@
 
 from dataclasses import FrozenInstanceError
 
+import healpy as hp
 import numpy as np
 import pytest
 
 from limTOD.tris import (
     AsymmetricUncertainty,
+    TRISPointSet,
     TRISPrincipalPlaneCuts,
+    TRISRing,
+    TRISZenithGeometry,
+    approximate_tris_gaussian_beam_map,
     parse_tris_ra,
     read_tris_beam_cuts,
     read_tris_point_set,
     read_tris_ring,
+    tris_beam_func,
+    tris_zenith_geometry,
 )
+from limTOD.simulator import pointing_beam_in_eq_sys
 
 RING_600 = """# Frequency = 0.6 GHz
 # Systematic Zero Level Uncertainty = 0.066K
@@ -82,6 +90,7 @@ def test_ring_reader_preserves_ra_text_and_supports_crlf(tmp_path):
     np.testing.assert_allclose(ring.ra_deg, [0.0, 17.75])
     np.testing.assert_allclose(ring.temperature_k, [15.145, 15.335])
     np.testing.assert_allclose(ring.statistical_uncertainty_k, [0.004, 0.012])
+    assert ring.declination_label_deg == 42.0
 
 
 def test_ring_reader_separates_nominal_effective_and_statistical_uncertainty(tmp_path):
@@ -124,6 +133,7 @@ def test_point_reader_keeps_repeated_2500_zero_level_as_one_common_uncertainty(
     np.testing.assert_allclose(points.ra_deg, [171.5166666667, 205.6333333333])
     assert points.statistical_uncertainty_k is None
     assert points.zero_level_uncertainty_k == 0.284
+    assert points.declination_label_deg == 42.0
 
 
 @pytest.mark.parametrize(
@@ -224,3 +234,154 @@ def test_reader_row_errors_identify_source_and_line(
         reader(path)
 
     _assert_diagnostic(error, path, line_number)
+
+
+@pytest.mark.parametrize("model", [TRISRing, TRISPointSet])
+@pytest.mark.parametrize("declination_label_deg", [float("nan"), float("inf")])
+def test_tris_sample_products_reject_nonfinite_declination_labels(
+    model, declination_label_deg
+):
+    """A rounded archive label must still be finite metadata."""
+    common = dict(
+        nominal_frequency_mhz=600.0,
+        effective_frequency_mhz=600.5,
+        bandwidth_mhz=0.3,
+        ra_text=("0h00m",),
+        ra_deg=np.array([0.0]),
+        temperature_k=np.array([1.0]),
+        declination_label_deg=declination_label_deg,
+    )
+    if model is TRISRing:
+        common.update(
+            statistical_uncertainty_k=np.array([0.1]),
+            zero_level_uncertainty_k=0.1,
+        )
+    else:
+        common.update(
+            statistical_uncertainty_k=None,
+            zero_level_uncertainty_k=0.1,
+        )
+
+    with pytest.raises(ValueError, match="declination_label_deg"):
+        model(**common)
+
+
+def test_approximate_tris_gaussian_beam_map_has_ring_shape_and_normalizations():
+    """The explicitly approximate scalar beam follows limTOD's RING convention."""
+    nside = 32
+    peak = approximate_tris_gaussian_beam_map(nside=nside, normalization="peak")
+    summed = approximate_tris_gaussian_beam_map(nside=nside, normalization="sum")
+    unnormalized = approximate_tris_gaussian_beam_map(nside=nside, normalization="none")
+
+    assert peak.shape == (hp.nside2npix(nside),)
+    assert np.all(np.isfinite(peak))
+    assert np.all(peak >= 0.0)
+    assert np.max(peak) == pytest.approx(1.0)
+    assert np.sum(summed) == pytest.approx(1.0)
+    np.testing.assert_allclose(peak, unnormalized / np.max(unnormalized))
+    np.testing.assert_allclose(summed, unnormalized / np.sum(unnormalized))
+
+
+def test_approximate_tris_gaussian_beam_map_uses_e_and_h_principal_axes():
+    """The public one-dimensional cuts define an approximate 18/23-degree ellipse."""
+    beam = approximate_tris_gaussian_beam_map(nside=256, normalization="peak")
+    e_half_power = hp.get_interp_val(beam, np.deg2rad(9.0), 0.0)
+    h_half_power = hp.get_interp_val(beam, np.deg2rad(11.5), np.pi / 2.0)
+    e_on_h_axis = hp.get_interp_val(beam, np.deg2rad(9.0), np.pi / 2.0)
+    h_on_e_axis = hp.get_interp_val(beam, np.deg2rad(11.5), 0.0)
+
+    assert e_half_power == pytest.approx(0.5, abs=0.01)
+    assert h_half_power == pytest.approx(0.5, abs=0.01)
+    assert e_on_h_axis > 0.5
+    assert h_on_e_axis < 0.5
+
+
+def test_tris_beam_func_is_achromatic_but_validates_mhz_frequency():
+    """The archive's one common beam does not justify frequency scaling."""
+    beam_func = tris_beam_func(normalization="sum")
+
+    np.testing.assert_array_equal(
+        beam_func(freq=600.0, nside=32), beam_func(freq=2500.0, nside=32)
+    )
+    for invalid_frequency in (0.0, -1.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="freq"):
+            beam_func(freq=invalid_frequency, nside=32)
+
+
+def test_tris_zenith_geometry_keeps_ra_labels_and_distinguishes_site_from_label():
+    """The rounded archive label is distinct from the measured site latitude."""
+    geometry = tris_zenith_geometry([0.0, 17.75])
+    nominal_label_geometry = tris_zenith_geometry([0.0], latitude_deg=42.0)
+
+    assert isinstance(geometry, TRISZenithGeometry)
+    np.testing.assert_array_equal(geometry.lst_deg, [0.0, 17.75])
+    np.testing.assert_array_equal(geometry.azimuth_deg, [0.0, 0.0])
+    np.testing.assert_array_equal(geometry.elevation_deg, [90.0, 90.0])
+    np.testing.assert_array_equal(geometry.selfrot_deg, [-7.0, -7.0])
+    assert geometry.latitude_deg == pytest.approx(42.0 + 26.0 / 60.0)
+    assert nominal_label_geometry.latitude_deg == 42.0
+    with pytest.raises(ValueError):
+        geometry.lst_deg[0] = 1.0
+
+
+def _displaced_marker_map(nside, phi_deg):
+    """An asymmetric marker that independently reveals the pointing-chain roll."""
+    theta0 = np.deg2rad(10.0)
+    sigma = np.deg2rad(1.5)
+    target = np.asarray(hp.ang2vec(theta0, np.deg2rad(phi_deg))).ravel()
+    theta, phi = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
+    vectors = np.asarray(hp.ang2vec(theta, phi))
+    separation = np.arccos(np.clip(vectors @ target, -1.0, 1.0))
+    return np.exp(-0.5 * (separation / sigma) ** 2)
+
+
+def _landing_azimuth_deg(geometry, phi_deg):
+    nside = 64
+    marker_alm = hp.map2alm(_displaced_marker_map(nside, phi_deg), lmax=3 * nside - 1)
+    pointed = pointing_beam_in_eq_sys(
+        marker_alm,
+        LST_deg=geometry.lst_deg[0],
+        lat_deg=geometry.latitude_deg,
+        azimuth_deg=geometry.azimuth_deg[0],
+        elevation_deg=geometry.elevation_deg[0],
+        selfrot_deg=geometry.selfrot_deg[0],
+        nside=nside,
+        normalize=False,
+    )
+    vector = np.asarray(hp.pix2vec(nside, int(np.argmax(pointed))))
+    # At latitude=0 and LST=0, north/east are the equatorial +z/+y axes.
+    return float(np.rad2deg(np.arctan2(vector[1], vector[2])) % 360.0)
+
+
+def test_tris_zenith_geometry_roll_carries_e_axis_north_to_ne_and_south_to_sw():
+    """An asymmetric marker through limTOD's pointing chain pins selfrot=-7."""
+    geometry = tris_zenith_geometry([0.0], latitude_deg=0.0)
+
+    north_branch_azimuth = _landing_azimuth_deg(geometry, phi_deg=180.0)
+    south_branch_azimuth = _landing_azimuth_deg(geometry, phi_deg=0.0)
+
+    assert north_branch_azimuth == pytest.approx(7.0, abs=1.5)
+    assert south_branch_azimuth == pytest.approx(187.0, abs=1.5)
+
+
+def test_tris_zenith_geometry_zenith_has_ra_equal_to_lst_and_dec_equal_to_latitude():
+    """Parking at zenith retains the supplied LST without hidden coordinate shifts."""
+    geometry = tris_zenith_geometry([31.0], latitude_deg=42.0 + 26.0 / 60.0)
+    nside = 64
+    theta, _phi = hp.pix2ang(nside, np.arange(hp.nside2npix(nside)))
+    boresight_alm = hp.map2alm(np.exp(-0.5 * (theta / np.deg2rad(1.5)) ** 2))
+    pointed = pointing_beam_in_eq_sys(
+        boresight_alm,
+        LST_deg=geometry.lst_deg[0],
+        lat_deg=geometry.latitude_deg,
+        azimuth_deg=geometry.azimuth_deg[0],
+        elevation_deg=geometry.elevation_deg[0],
+        selfrot_deg=geometry.selfrot_deg[0],
+        nside=nside,
+        normalize=False,
+    )
+    theta_peak, phi_peak = hp.pix2ang(nside, int(np.argmax(pointed)))
+    assert np.rad2deg(phi_peak) == pytest.approx(geometry.lst_deg[0], abs=1.5)
+    assert 90.0 - np.rad2deg(theta_peak) == pytest.approx(
+        geometry.latitude_deg, abs=1.5
+    )
