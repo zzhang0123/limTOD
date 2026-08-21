@@ -732,8 +732,14 @@ def test_operator_equals_functions(fields):
         beam_ref, sky_alm, _dphi(), lmax=LMAX, normalize=True, ones_alm=ones_alm
     )
     np.testing.assert_allclose(np.asarray(op(sky_alm)), np.asarray(manual), rtol=1e-13)
+    # mmodes delegates to mmodes_from_sky only where that is the right object
+    # — i.e. UNNORMALIZED. On `op` it refuses; see
+    # test_operator_mmodes_refuse_a_normalized_operator.
+    plain = DriftScanMmode.from_pointing(
+        beam_alm, LSTS, LAT, AZ, EL, SELFROT, lmax=LMAX, lst_ref_deg=LST_REF
+    )
     np.testing.assert_allclose(
-        np.asarray(op.mmodes(sky_alm)),
+        np.asarray(plain.mmodes(sky_alm)),
         np.asarray(mmodes_from_sky(beam_ref, sky_alm, lmax=LMAX)),
         rtol=1e-13,
     )
@@ -746,6 +752,56 @@ def test_operator_equals_functions(fields):
             )
         ),
         rtol=1e-13,
+    )
+
+
+def _uniform_op(beam_alm, *, normalize):
+    """Operator on a uniform full-turn LST grid — the sampling on which
+    :func:`mmodes_from_tod_uniform` is an EXACT analysis, so the m-modes of
+    the returned TOD can be compared with the operator's own."""
+    n_t = 4 * (LMAX + 1)  # > 2·lmax
+    return DriftScanMmode.from_pointing(
+        beam_alm,
+        np.linspace(0.0, 360.0, n_t, endpoint=False),
+        LAT, AZ, EL, SELFROT,
+        lmax=LMAX, normalize=normalize, nside=NSIDE, uniform_sampling=True,
+    )
+
+
+def test_operator_mmodes_are_the_mmodes_of_the_operator_tod(fields):
+    """``op.mmodes`` is the harmonic view of ``op(sky)``, so on a uniform
+    full-turn grid the two must agree to roundoff."""
+    beam_alm, _, sky_alm, _ = fields
+    op = _uniform_op(beam_alm, normalize=False)
+    vm = np.asarray(op.mmodes(sky_alm))
+    from_tod = np.asarray(
+        mmodes_from_tod_uniform(op(sky_alm), lmax=LMAX, phase0=op.dphi[0])
+    )
+    np.testing.assert_allclose(vm, from_tod, atol=1e-13 * np.max(np.abs(from_tod)))
+
+
+def test_operator_mmodes_refuse_a_normalized_operator(fields):
+    """``normalize=True`` divides the TOD by the beam's solid angle, which the
+    m-mode projection knows nothing about. Returning the projection anyway
+    would be wrong by that factor — so the method refuses and names the
+    replacement instead of disagreeing with ``__call__`` silently."""
+    beam_alm, _, sky_alm, _ = fields
+    op = _uniform_op(beam_alm, normalize=True)
+    with pytest.raises(ValueError, match="mmodes_from_tod_uniform"):
+        op.mmodes(sky_alm)
+
+    # The refusal is not pedantry. What the method WOULD have returned is the
+    # truth times the beam's solid angle — a large scale, not a small one.
+    projection = np.asarray(mmodes_from_sky(op.beam_ref_alm, sky_alm, lmax=LMAX))
+    from_tod = np.asarray(
+        mmodes_from_tod_uniform(op(sky_alm), lmax=LMAX, phase0=op.dphi[0])
+    )
+    omega = float(np.real(projection[0] / from_tod[0]))
+    assert omega > 10.0, f"beam solid angle collapsed to {omega:.4f} — trap gone?"
+    # ...and it IS a scale: a drift cannot change the beam's solid angle, so
+    # the two differ by one number, up to the ones-map quadrature residue.
+    np.testing.assert_allclose(
+        projection / omega, from_tod, atol=1e-4 * np.max(np.abs(from_tod))
     )
 
 

@@ -1102,7 +1102,34 @@ class DriftScanMmode(eqx.Module):
         )
 
     def mmodes(self, sky_alm: jnp.ndarray) -> jnp.ndarray:
-        """m-modes ``Ṽ_m`` (complex, ``(lmax+1,)``) of the drift-scan TOD."""
+        """m-modes ``Ṽ_m`` (complex, ``(lmax+1,)``) of the drift-scan TOD.
+
+        Raises:
+            ValueError: if the operator is ``normalize=True``. The
+                normalization divides the TOD by the rotated beam's solid
+                angle, and that division is NOT diagonal in ``m`` — so no
+                ``(lmax+1,)`` array is the m-mode content of what
+                :meth:`__call__` returns, and the projection this method
+                computes would disagree with it by that solid angle (a
+                factor of ~33 for a 20° beam at nside 16, not a small
+                correction). See the error message for the two ways out.
+        """
+        if self.normalize:
+            raise ValueError(
+                "mmodes() is undefined for a normalize=True operator: the "
+                "m-mode projection is the beam-weighted INTEGRAL, while "
+                "__call__ returns it divided by the rotated beam's solid "
+                "angle (~33x at nside 16 / lmax 47 / 20 deg FWHM). The "
+                "division is by a t-dependent denominator, so it is not "
+                "diagonal in m and no (lmax+1,) array is exactly the "
+                "m-mode content of the normalized TOD.\n"
+                "  - m-modes of the TOD the operator returns (uniform "
+                "full-turn grid): mmodes_from_tod_uniform(op(sky_alm), "
+                "lmax=op.lmax, phase0=op.dphi[0])\n"
+                "  - the un-normalized projection, if that is what you "
+                "wanted: mmodes_from_sky(op.beam_ref_alm, sky_alm, "
+                "lmax=op.lmax, npol=op.npol)"
+            )
         return mmodes_from_sky(
             self.beam_ref_alm, sky_alm, lmax=self.lmax, npol=self.npol
         )
