@@ -1,12 +1,42 @@
 /* limTOD docs — small additions on top of sphinx_rtd_theme.
  *
- * The theme's 800px content column was chosen for prose. These pages carry
- * two-panel figures, wide comparison tables and side-by-side cards, all of
- * which were being squeezed into it; 1100px is still a comfortable measure
- * for text while letting a 7.6in figure render near its native size.
+ * The theme's 800px content column was chosen for prose, and everything else
+ * on these pages inherited it: two-panel figures, wide comparison tables and
+ * side-by-side cards were all squeezed into a text measure. The column is
+ * 1100px here so a 7.6in figure renders near native size -- and the rule
+ * below then hands the prose its measure back, rather than letting text run
+ * to 1100px as well.
  */
 .wy-nav-content {
   max-width: 1100px;
+}
+
+/* Running prose to a readable measure, while figures, tables, cards and code
+ * keep the full column above.
+ *
+ * 45rem is about 90 characters at this theme's 16px body text (measured:
+ * 7.96px average glyph width), against about 125 at the full 1100px. Only
+ * DIRECT children of a section are capped, so text inside cards, table cells
+ * and figure captions is left to its own container -- each of those is sized
+ * by something else already. Admonitions ARE capped, as whole boxes: a
+ * warning is running prose too, and leaving those uncapped put 125-character
+ * lines inside exactly the callouts a reader is meant to slow down for.
+ *
+ * `dl.myst` is MyST's definition lists. Of autodoc's output only the plain
+ * prose paragraphs of a docstring body (`dl.py > dd > p`) are matched --
+ * a docstring is prose and reads no better at 122 characters than the rest
+ * of the page did. The signature line, the `dl.field-list` parameter tables
+ * and anything nested deeper keep the full column: squeezing those is how
+ * this kind of rule usually goes wrong.
+ */
+[role="main"] section > p,
+[role="main"] section > ul,
+[role="main"] section > ol,
+[role="main"] section > dl.myst,
+[role="main"] section > blockquote,
+[role="main"] section > div.admonition,
+[role="main"] dl.py > dd > p {
+  max-width: 45rem;
 }
 
 /*

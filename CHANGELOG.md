@@ -69,8 +69,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 📐 **Documentation content column widened to 1100px** (`sphinx_rtd_theme`
   caps it at 800). The pages carry two-panel figures, wide comparison tables
   and side-by-side cards that were all being squeezed; the drift-scan
-  waterfall in particular now renders near its native size. Trade-off worth
-  knowing: running prose goes from ~90 characters per line to ~125.
+  waterfall in particular now renders near its native size. Running prose is
+  capped separately at 45rem (~90 characters, the measure the 800px column
+  used to give) so only the things that wanted the room take it: figures,
+  tables, cards, code blocks, autodoc signatures and parameter tables. The cap
+  covers admonition boxes and docstring prose too — a warning and a docstring
+  are running prose, and were the worst of the 125-character lines.
 - 🧹 **Read the Docs builds clean.** The four warnings it had been carrying —
   invisible because `.readthedocs.yaml` sets `fail_on_warning: false` — are
   gone. `limTOD.visual` could not import there (matplotlib is in the `dev` and
