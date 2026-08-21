@@ -66,6 +66,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `horizon_truncated_beam` / `horizon_beam_fraction` / `horizon_partition_weights`
   — the f_sky split, the T_collected weighting, and the horizon-ring
   convention that is worth ~8.6 K of a 200 K effect.
+- 🔒 **The two TRIS pages are no longer published.** `limTOD.tris` is still
+  unreleased, so `docs/tris.md` and `docs/api/tris.md` are excluded from the
+  documentation build by default and restored with a `-t tris` tag:
+  `python -m sphinx -b html docs docs/_build -t tris`. Opt-in rather than
+  opt-out on purpose — keying it off an environment variable Read the Docs
+  happens to set would publish the pages the moment that variable changed.
+  Note that the changelog entries below still describe the module, and the
+  changelog *is* published.
 - 📐 **Documentation content column widened to 1100px** (`sphinx_rtd_theme`
   caps it at 800). The pages carry two-panel figures, wide comparison tables
   and side-by-side cards that were all being squeezed; the drift-scan
