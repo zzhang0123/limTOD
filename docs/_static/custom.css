@@ -1,10 +1,24 @@
 /* limTOD docs — small additions on top of sphinx_rtd_theme.
  *
- * The theme caps `.wy-nav-content` at 800px, so a two-column sphinx-design
- * grid leaves each card's code block ~290px wide — about 37 monospace
- * characters, which real Python signatures overrun. Shrinking the font
- * inside cards only (not in the page's ordinary code blocks, which have the
- * full column) buys the ~10 characters the side-by-side comparison needs.
+ * The theme's 800px content column was chosen for prose. These pages carry
+ * two-panel figures, wide comparison tables and side-by-side cards, all of
+ * which were being squeezed into it; 1100px is still a comfortable measure
+ * for text while letting a 7.6in figure render near its native size.
+ */
+.wy-nav-content {
+  max-width: 1100px;
+}
+
+/*
+ * A two-column sphinx-design grid halves whatever the column above gives it,
+ * so a card's code block is narrow even when the page is not: ~380px at a
+ * 1280px viewport, ~254px at 1024px, where the sidebar is still shown but the
+ * cap above never binds. Real Python signatures overrun that. Shrinking the
+ * font inside cards only — the theme's own `pre` is 12px, this is 11.5px, and
+ * ordinary code blocks keep the full column — clears the wide case outright
+ * and cuts the tight one from 45px of overflow to 34px, which the code
+ * block's own scrollbar then absorbs without the page ever scrolling
+ * sideways.
  */
 .sd-card div.highlight pre {
   font-size: 0.72rem;
