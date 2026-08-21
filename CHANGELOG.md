@@ -33,8 +33,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 📊 `TRISLinearFit` now reports `chi_square`, `degrees_of_freedom` and
   `reduced_chi_square`.
 
+### Changed
+
+- 🔗 **The companion digital-twin project is now
+  [rheplicant](https://github.com/RHINO-Experiment/rheplicant)** (Python
+  package `rheplicant`), moved to the RHINO Experiment organisation; the docs
+  and the `limtod_jax` module docstrings that still said
+  `replicant-telescope` are updated, as is `NativeLimTODProjector`, renamed
+  upstream to `GeneralPointingProjector`. Historical changelog entries keep
+  the old names.
+- 🧭 **"Who uses this" now lives in exactly one place.** limTOD is upstream —
+  it depends on nothing that consumes it — so naming a specific downstream
+  pipeline across five pages read as a coupling that does not exist. The name
+  is now confined to a new `Downstream` section on the docs front page (and
+  the README's one-line twin); the body pages and the `limtod_jax` module
+  docstrings describe the capability instead and link there when a reader
+  actually needs the pointer.
+
+### Docs
+
+- 📈 **`docs/driftscan.md` now shows the m-mode path rather than only
+  describing it.** Ported the drift-scan narrative from the rheplicant
+  documentation and rewrote it against limTOD's own API: four generated
+  figures (a sidereal-day waterfall, the m-mode spectrum, the generic-vs-m-mode
+  agreement at float64 roundoff, and wall-clock scaling against band-limit),
+  side-by-side `generate_tod_sky` / `DriftScanMmode` cards, and the measured
+  headline — 69 s against 58 ms at `lmax` 191, agreeing to 1.2e-15.
+- 🌡️ **Two sections that were only in docstrings before.** *Is the output a
+  temperature?* measures the `normalize=False` trap (a hand-normalized beam
+  map still carries +0.19 % at `nside` 16, +4.2 % at `nside` 8) and explains
+  why `op.mmodes()` now refuses a normalized operator. *Where does the beam stop?* documents
+  `horizon_truncated_beam` / `horizon_beam_fraction` / `horizon_partition_weights`
+  — the f_sky split, the T_collected weighting, and the horizon-ring
+  convention that is worth ~8.6 K of a 200 K effect.
+- 🩹 **`limtod_jax` no longer lists horizon masking as out of scope** — it has
+  been in the module since 1.9 (`horizon_truncated_beam`,
+  `horizon_masked_beam_alm`, `horizon_beam_fraction`), so the page now points
+  at the section documenting it instead of disclaiming it.
+- 🖼️ `docs/make_engine_figures.py` generates those figures from live code
+  (`--smoke`, `--replot`); `sphinx-design` is now a docs dependency, with
+  `docs/_static/custom.css` sizing card code against the RTD theme's 800px
+  content column.
+
 ### Fixed
 
+- 📐 **`DriftScanMmode.mmodes()` no longer disagrees with `__call__`.** It
+  forwarded neither `normalize` nor `ones_alm`, so a `normalize=True`
+  operator returned the m-modes of the *un-normalized* TOD — wrong by the
+  beam's solid angle (×33 for a 20° FWHM beam at `nside` 16 / `lmax` 47,
+  ×165 for 45°), silently. It now raises `ValueError` naming both
+  replacements. Dividing the projection by the scalar $d_0$ is deliberately
+  not offered: division by the $t$-dependent denominator is not diagonal in
+  $m$, so the approximation's per-mode error reaches 2e-4 in the high-$m$
+  tail, and it would leave `mmodes()` and `adjoint()` normalized by
+  different quantities.
 - 🔢 **TRIS common-mode whitening is now exact for any `sigma_c`.** The dense
   `diag(σ²) + σ_c²11ᵀ` Cholesky kept succeeding after the matrix had lost
   positive definiteness in float64: at `σ_c = 1e5` coefficients were wrong by

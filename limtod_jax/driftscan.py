@@ -941,7 +941,7 @@ class DriftScanMmode(eqx.Module):
 
     An :class:`equinox.Module` (frozen pytree) bundling the reference-frame
     beam with the LST sampling, ready for jit/vmap/grad and for use as a
-    field of larger rheplicant models. Build it with
+    field of larger models. Build it with
     :meth:`from_pointing` (friendly constructor: beam-local alms +
     pointing) or directly from a precomputed ``beam_ref_alm``.
 

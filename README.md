@@ -41,7 +41,7 @@ ships:
 - **`limtod_jax`** — a pure-JAX, jit/vmap/grad-safe port of the sky→TOD
   chain, verified against the numpy implementation to ~1e-12 in float64.
   It powers the differentiable pipeline of
-  [replicant-telescope](https://github.com/zzhang0123/replicant-telescope).
+  [rheplicant](https://github.com/RHINO-Experiment/rheplicant).
 
 Latest changes:
 [CHANGELOG](https://github.com/zzhang0123/limTOD/blob/main/CHANGELOG.md).
