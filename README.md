@@ -123,7 +123,7 @@ Full documentation: **<https://limtod.readthedocs.io>**
 | [Patch-beam path](https://limtod.readthedocs.io/en/latest/patchbeam.html) | `limTOD.patchbeam`: disc-restricted (l, m) beam interpolation |
 | [UVBeam support](https://limtod.readthedocs.io/en/latest/uvbeam.html) | pyuvdata beams as `beam_func` or patch beams |
 | [CST beams](https://limtod.readthedocs.io/en/latest/cstbeam.html) | CST Studio far-field exports as `beam_func` or HEALPix maps |
-| [TRIS support](https://limtod.readthedocs.io/en/latest/tris.html) | Public TRIS archive conventions, offline readers, and safe reduced inference |
+| [TRIS support](docs/tris.md) | Public TRIS archive conventions, offline readers, and safe reduced inference. Unreleased, so this one is not published to Read the Docs — the source renders on GitHub, or build the docs with `-t tris` |
 | [Theory & conventions](https://limtod.readthedocs.io/en/latest/theory.html) | Signal model, coordinate chain, Euler-angle conventions |
 | [API reference](https://limtod.readthedocs.io/en/latest/api/index.html) | Generated from docstrings |
 | [limtod_jax](https://limtod.readthedocs.io/en/latest/limtod-jax.html) | The JAX port: usage, exactness contract, precision requirements |
