@@ -3,11 +3,12 @@
 `limtod_jax` reimplements limTOD's sky→TOD chain
 (pointing → ZYZ Euler angles → Wigner rotation of beam alms →
 beam-weighted sum) in pure JAX: **jit/vmap/grad-safe and differentiable
-with respect to both the sky and the beam**. It was built to the port
-contract of the
-[replicant-telescope](https://github.com/zzhang0123/replicant-telescope)
-digital-twin project (formerly e-RHINO; Python package `replicant`), whose
-`NativeLimTODProjector` and CG map-making run on top of it.
+with respect to both the sky and the beam**. It was written to a port
+contract set by a downstream digital-twin pipeline — sky projectors and CG
+map-making run on top of it, with gradients flowing back through the beam —
+so it is a library with no pipeline of its own, and the dependency runs one
+way: consumers require limTOD, never the reverse.
+[Downstream](index.md#downstream) names the pipeline it was built for.
 
 ```bash
 pip install "limTOD[jax]"     # requires Python >= 3.11 (s2fft floor)
@@ -109,9 +110,14 @@ space would need a spin-2 transform).
 
 **Out of scope** (deliberately): `truncate_frac_thres` (a *nonlinear*
 cleanup of synthesis ringing — the port is the linear chain; compare
-against the oracle with `truncate_frac_thres=0.0`), horizontal masks,
-noise generation, and map-making (replicant-telescope's
-`SkySpaceFilter` covers that in JAX).
+against the oracle with `truncate_frac_thres=0.0`), noise generation, and
+map-making — the projector and its exact adjoint live here, the solver that
+consumes them belongs to the calling pipeline.
+
+Horizon masking was on that list until 1.9 and no longer is:
+`horizon_truncated_beam`, `horizon_masked_beam_alm` and
+`horizon_beam_fraction` are part of the module — see
+[Where does the beam stop?](driftscan.md#where-does-the-beam-stop).
 
 ## Precision: enable x64
 

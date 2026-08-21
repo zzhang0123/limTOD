@@ -21,9 +21,9 @@ the package ships:
 - **`limTOD.cstbeam`** — the same for CST Studio far-field exports, the
   format a simulated horn usually arrives in;
 - **`limtod_jax`** — a pure-JAX, jit/vmap/grad-safe port of the sky→TOD
-  chain, verified against the numpy implementation to ~1e-12 in float64.
-  It powers the differentiable pipeline of
-  [replicant-telescope](https://github.com/zzhang0123/replicant-telescope).
+  chain, verified against the numpy implementation to ~1e-12 in float64,
+  written to be the forward model of a differentiable inference pipeline
+  (see [Downstream](#downstream)).
 
 :::{admonition} 🧭 Beam convention, in one line
 :class: important
@@ -65,6 +65,25 @@ theory
 api/index
 changelog
 ```
+
+## Downstream
+
+The dependency runs one way. limTOD needs numpy, healpy, astropy, scipy, tqdm
+and mpmath, and nothing that consumes it; the pages here name a downstream
+pipeline only where something is deliberately *not* limTOD's job.
+
+That pipeline is
+[rheplicant](https://github.com/RHINO-Experiment/rheplicant) — the RHINO
+experiment's digital twin, formerly e-RHINO and package `replicant` — which
+requires limTOD and wraps the projectors here as signal-path operators
+(`GeneralPointingProjector`, `DriftScanProjector`, `MatrixProjector`), with
+`SkySpaceFilter` supplying the matrix-free CG map-making that
+[Map-making](mapmaking.md#jax-alternative) and
+[limtod_jax](limtod-jax.md) point at.
+
+The split of subject matter is deliberate, and it runs both ways: how a beam
+weights the sky, where the horizon falls in it and what share of it survives
+are limTOD's subject; placing the result on a signal path is not.
 
 ## Citation
 

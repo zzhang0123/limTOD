@@ -1,0 +1,18 @@
+/* limTOD docs — small additions on top of sphinx_rtd_theme.
+ *
+ * The theme caps `.wy-nav-content` at 800px, so a two-column sphinx-design
+ * grid leaves each card's code block ~290px wide — about 37 monospace
+ * characters, which real Python signatures overrun. Shrinking the font
+ * inside cards only (not in the page's ordinary code blocks, which have the
+ * full column) buys the ~10 characters the side-by-side comparison needs.
+ */
+.sd-card div.highlight pre {
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+/* Cards used as a stat readout ("69 s", "58 ms"): the title IS the number,
+ * so give it size rather than the header-label weight cards use elsewhere. */
+.sd-card-title {
+  font-size: 1.15rem;
+}

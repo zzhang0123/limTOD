@@ -162,8 +162,9 @@ Notes:
 
 ## JAX alternative
 
-For differentiable map-making inside a JAX pipeline,
-[replicant-telescope](https://github.com/zzhang0123/replicant-telescope)'s
-`SkySpaceFilter` implements the same normal-equations solve with
-matrix-free conjugate gradients on top of the
-[limtod_jax](limtod-jax.md) projector.
+For differentiable map-making inside a JAX pipeline, the same
+normal-equations solve runs matrix-free: conjugate gradients on top of the
+[limtod_jax](limtod-jax.md) projector and its exact adjoint, with the
+operator never formed. limTOD ships the projector and the adjoint; the CG
+solver belongs to the pipeline that consumes them
+([Downstream](index.md#downstream)).

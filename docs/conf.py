@@ -28,6 +28,9 @@ extensions = [
     "sphinx.ext.mathjax",
     "sphinx.ext.viewcode",
     "sphinx.ext.intersphinx",
+    # Grid cards on the drift-scan page. Self-contained CSS, so it renders on
+    # sphinx_rtd_theme as well as on the themes it is usually seen with.
+    "sphinx_design",
 ]
 
 source_suffix = {".md": "markdown", ".rst": "restructuredtext"}
@@ -58,6 +61,10 @@ intersphinx_mapping = {
 }
 
 templates_path = []
+# One stylesheet, `_static/custom.css`: see the file for what it fixes (the
+# theme's 800px content cap against two-column sphinx-design cards).
+html_static_path = ["_static"]
+html_css_files = ["custom.css"]
 exclude_patterns = ["_build", "README.md", "superpowers/**"]
 
 html_theme = "sphinx_rtd_theme"
