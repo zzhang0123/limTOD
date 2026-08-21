@@ -14,8 +14,8 @@ Three entry points, all lazy on the optional ``pyuvdata`` dependency
   bridging measured beams into the disc-restricted
   :mod:`limTOD.patchbeam` path.
 
-Conventions
------------
+UVBeam conventions
+------------------
 
 * UVBeam zenith angle maps directly to the HEALPix polar angle
   (``za = theta``: boresight at the pole).
