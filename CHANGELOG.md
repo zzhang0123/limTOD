@@ -66,6 +66,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `horizon_truncated_beam` / `horizon_beam_fraction` / `horizon_partition_weights`
   — the f_sky split, the T_collected weighting, and the horizon-ring
   convention that is worth ~8.6 K of a 200 K effect.
+- 🧹 **Read the Docs builds clean.** The four warnings it had been carrying —
+  invisible because `.readthedocs.yaml` sets `fail_on_warning: false` — are
+  gone. `limTOD.visual` could not import there (matplotlib is in the `dev` and
+  `notebooks` extras but was missing from `docs`, and RTD installs only
+  `.[docs,jax]`), so its API section rendered empty; it is added to `docs`.
+  That alone would not have filled the section, because neither
+  `view_patch_map` nor `gnomview_patch` had a docstring for `:members:` to
+  pick up — both now do. The other two were `conventions` label collisions:
+  `docs/cstbeam.md` restates the `limTOD.cstbeam` docstring and then autodocs
+  it onto the same page, and `limTOD.uvbeam` used the same section title, so
+  those docstring sections are now `CST conventions` and `UVBeam conventions`.
 - 🩹 **`limtod_jax` no longer lists horizon masking as out of scope** — it has
   been in the module since 1.9 (`horizon_truncated_beam`,
   `horizon_masked_beam_alm`, `horizon_beam_fraction`), so the page now points

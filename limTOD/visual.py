@@ -13,6 +13,24 @@ except ImportError as exc:  # pragma: no cover — matplotlib is not a base dep
 
 
 def view_patch_map(map: np.ndarray, pixel_indices: np.ndarray) -> np.ndarray:
+    """
+    Blank everything outside a patch so healpy draws the patch alone.
+
+    Parameters
+    ----------
+    map : np.ndarray
+        Full-sky HEALPix map (RING ordering).
+    pixel_indices : np.ndarray
+        Indices of the pixels belonging to the patch.
+
+    Returns
+    -------
+    np.ndarray
+        A copy of `map` in which every pixel outside `pixel_indices` is
+        `healpy.UNSEEN`. healpy renders those with the `badcolor` of the
+        plotting call rather than as a value, so the patch is the only thing
+        carrying the colour scale.
+    """
     # Create a new map with just the patch (other pixels set to UNSEEN)
     patch_only_map = np.full(len(map), hp.UNSEEN)
     patch_only_map[pixel_indices] = map[pixel_indices]
@@ -39,6 +57,60 @@ def gnomview_patch(*,
                    xlabel: Optional[str] = None,
                    ylabel: Optional[str] = None,
                    ) -> None:
+    """
+    Gnomonic plot of a patch, framed on the patch itself.
+
+    Wraps `healpy.gnomview` with the framing and annotation a disc-restricted
+    map needs: the projection is centred on the median longitude and latitude
+    of `pixel_indices`, so the patch lands in the middle wherever on the sky
+    it sits; everything outside it is drawn grey through
+    :func:`view_patch_map`; and a 10-degree graticule is added. Draws into the
+    current matplotlib figure and returns None.
+
+    Parameters
+    ----------
+    map : np.ndarray
+        Patch values in the order of `pixel_indices` (the default, with
+        `turn_into_map=True`) -- the form a patch-based map-maker returns --
+        or a full-sky map when `turn_into_map=False`.
+    nside : int
+        HEALPix resolution of the full sky the patch belongs to.
+    pixel_indices : np.ndarray
+        Indices of the patch pixels.
+    sky_min, sky_max : float, optional
+        Colour-scale limits; healpy autoscales when omitted.
+    res : float, optional
+        Projected resolution in arcmin per pixel (healpy's `reso`).
+        Default 5.
+    title : str, optional
+        Plot title; a blank title draws none.
+    save_path : str, optional
+        When given, the figure is written here with a tight bounding box.
+    cmap : str, optional
+        Matplotlib colormap name. Default 'jet'.
+    cbar : bool, optional
+        Draw the colourbar. Its presence shifts where the tick and axis
+        labels below are placed. Default True.
+    xtick, ytick : bool, optional
+        Annotate the projection centre's longitude / latitude.
+    unit : str, optional
+        Colourbar unit label. Default 'K'.
+    turn_into_map : bool, optional
+        Whether `map` holds patch values (True, default) or a full sky
+        (False).
+    fts : float, optional
+        Base font size for the annotations. Default 16.
+    xsize, ysize : int, optional
+        Size of the projected image in pixels; healpy's defaults when
+        omitted.
+    xlabel, ylabel : str, optional
+        Axis labels, placed with `figure.text` because gnomview draws no
+        axes of its own.
+
+    Returns
+    -------
+    None
+    """
     NPIX = hp.nside2npix(nside)
     if turn_into_map:
         aux_map = np.zeros(NPIX, dtype=float)

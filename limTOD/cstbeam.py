@@ -15,8 +15,8 @@ file per frequency. Three entry points:
 Needs only ``healpy`` and ``scipy``, both base dependencies — there is no extra
 to install for this module.
 
-Conventions
------------
+CST conventions
+---------------
 
 Stated because getting one wrong returns a finite, correctly shaped, wrong
 beam.

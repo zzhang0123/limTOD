@@ -103,6 +103,10 @@ docs = [
     "myst-parser>=2.0",
     "sphinx-rtd-theme>=2.0",
     "sphinx-design>=0.5",
+    # limTOD.visual imports matplotlib at module level and is autodoc'd in
+    # docs/api/sky-and-noise.md; without it here that page renders EMPTY on
+    # Read the Docs, which installs only this extra plus [jax].
+    "matplotlib>=3.3.0",
 ]
 notebooks = [
     "jupyter>=1.0",
