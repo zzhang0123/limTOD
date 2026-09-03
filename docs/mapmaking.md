@@ -199,8 +199,17 @@ Write the assumed weight $W$ and $M = (U^\mathsf{T} W U)^{-1}$, so the
   | $\alpha$: 2 → 1.5 | 3.57 | 3.6x underconfident |
 
   Underestimating the knee is the dangerous direction: the map claims a
-  precision it does not have. Both facts are pinned by
-  `tests/test_gls_noise_misspecification.py`.
+  precision it does not have.
+
+Both statements above are exact only for the **additive** model, where
+$\hat p$ is linear in the data. On the default multiplicative path the
+IRLS weights depend on $U\hat p$, so the estimator is nonlinear and
+inherits neither result for free: unbiasedness survives only to the order
+the data model itself is derived to — the same $O(n^2)$ at which
+`generate_TOD`'s $n_g n_w$ cross term is dropped, ~1e-4 at the default
+noise levels. Measured, both paths agree to two decimals on every ratio
+above, so the reweighting neither causes the breakage nor cures it. All
+of this is pinned by `tests/test_gls_noise_misspecification.py`.
 
 So the reported uncertainties are only as good as the noise model handed
 in, and misplaced confidence in $N$ shows up as misplaced confidence in

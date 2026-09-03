@@ -37,11 +37,11 @@ reported sigma / true scatter, with [min, max]::
 The committed run below shrinks that to nside=2 / 150 samples /
 42 pixels / 800 realisations (a couple of seconds) and measures::
 
-    true N (matched)      1.00 [0.95, 1.04]    ||U(p_hat-p)|| = 0.059
-    white, 1/f ignored    0.78 [0.60, 1.03]                     0.081
-    knee 10x too high     0.73 [0.56, 0.96]                     0.083
-    knee 10x too low      0.39 [0.37, 0.54]  <- overconfident    0.137
-    alpha 2 -> 1.5        3.24 [2.98, 3.61]                     0.063
+    true N (matched)      1.00 [0.95, 1.08]    ||U(p_hat-p)|| = 0.058
+    white, 1/f ignored    0.79 [0.65, 1.06]                     0.079
+    knee 10x too high     0.75 [0.61, 0.98]                     0.081
+    knee 10x too low      0.40 [0.35, 0.54]  <- overconfident    0.137
+    alpha 2 -> 1.5        3.28 [2.98, 3.89]                     0.062
 
 Note that the *sign* of the milder deviations is geometry-dependent (the
 white and knee-too-high models land on the other side of 1 here); what is
@@ -49,6 +49,13 @@ robust, and all the assertions below rely on, is that the matched model
 reports honest error bars, that an underestimated knee is badly
 overconfident, and that a wrong spectral index is badly underconfident.
 The thresholds are loosened to cover both runs.
+
+Both facts are then re-measured on the DEFAULT ``noise_model``
+(``"multiplicative"``, the IRLS path), where the estimator is nonlinear
+and inherits neither of them for free. It comes out at 1.00 / 0.40 /
+3.25 for the matched / knee-too-low / wrong-alpha models — the same
+numbers to two decimals, so the reweighting neither causes the breakage
+nor cures it.
 """
 
 import healpy as hp
@@ -63,6 +70,7 @@ N_TIME = 150
 DTIME = 2.0
 WVAR = 2.5e-6
 N_REAL = 800
+N_REAL_IRLS = 300
 SEED = 42
 
 MATCHED = "true N (matched)"
@@ -71,6 +79,9 @@ KNEE_HIGH = "knee 10x too high"
 WHITE = "white (1/f ignored)"
 ALPHA = "alpha 2 -> 1.5"
 MISSPECIFIED = (WHITE, KNEE_HIGH, KNEE_LOW, ALPHA)
+# The IRLS path is ~30x dearer per solve, so it gets the three
+# models that carry the argument: the control and both directions.
+MULTIPLICATIVE_MODELS = (MATCHED, KNEE_LOW, ALPHA)
 
 # max over pixels of |bias| in Monte-Carlo sigmas. 42 pixels of pure
 # noise peak at ~3; measured here is 1.8. A real bias grows as
@@ -93,12 +104,11 @@ TRUE_FLICKER = _flicker_at_knee(8.0)
 
 
 @pytest.fixture(scope="module")
-def misspec():
-    """Monte Carlo of ``GLS_mapmaking`` run under five assumed noise models.
+def geometry():
+    """The drift-scan system, the truth, and the five assumed covariances.
 
-    The TOD is always drawn from the same ``N_true``; only the covariance
-    handed to the map-maker changes. Returns the per-model estimate
-    ensemble, the sigmas the map-maker reported, and the truth.
+    Shared by the additive and multiplicative Monte Carlos so the scan
+    operator is built once.
     """
     rng = np.random.default_rng(SEED)
     mm = GLS_mapmaking(
@@ -116,14 +126,37 @@ def misspec():
 
     t = np.arange(N_TIME) * DTIME
     N_true = flicker_noise_cov(t, TRUE_FLICKER, WVAR)
-    assumed = {
-        MATCHED: N_true,
-        # "I saw a variance and called it white."
-        WHITE: flicker_noise_cov(t, None, N_true[0, 0]),
-        KNEE_HIGH: flicker_noise_cov(t, _flicker_at_knee(80.0), WVAR),
-        KNEE_LOW: flicker_noise_cov(t, _flicker_at_knee(0.8), WVAR),
-        ALPHA: flicker_noise_cov(t, _flicker_at_knee(8.0, alpha=1.5), WVAR),
+    flicker = {
+        MATCHED: TRUE_FLICKER,
+        WHITE: None,  # "I saw a variance and called it white."
+        KNEE_HIGH: _flicker_at_knee(80.0),
+        KNEE_LOW: _flicker_at_knee(0.8),
+        ALPHA: _flicker_at_knee(8.0, alpha=1.5),
     }
+    # The white model keeps the total variance it would have measured;
+    # the others keep the true white floor and get the knee wrong.
+    wvar = {name: (N_true[0, 0] if fl is None else WVAR)
+            for name, fl in flicker.items()}
+    assumed = {
+        name: flicker_noise_cov(t, fl, wvar[name])
+        for name, fl in flicker.items()
+    }
+    return dict(mm=mm, U=U, p_true=p_true, t=t, N_true=N_true,
+                flicker=flicker, wvar=wvar, assumed=assumed)
+
+
+@pytest.fixture(scope="module")
+def misspec(geometry):
+    """Monte Carlo of ``GLS_mapmaking`` run under five assumed noise models.
+
+    The TOD is always drawn from the same ``N_true``; only the covariance
+    handed to the map-maker changes. Returns the per-model estimate
+    ensemble, the sigmas the map-maker reported, and the truth.
+    """
+    rng = np.random.default_rng(SEED + 1)
+    mm, U = geometry["mm"], geometry["U"]
+    p_true, N_true = geometry["p_true"], geometry["N_true"]
+    assumed = geometry["assumed"]
 
     L = np.linalg.cholesky(N_true)
     data = [U @ p_true + L @ rng.standard_normal(N_TIME) for _ in range(N_REAL)]
@@ -143,6 +176,50 @@ def misspec():
         reported[name] = np.asarray(sigma)
     return dict(U=U, p_true=p_true, N_true=N_true, assumed=assumed,
                 estimates=estimates, reported=reported)
+
+
+@pytest.fixture(scope="module")
+def misspec_multiplicative(geometry):
+    """The same question on the DEFAULT code path.
+
+    ``noise_model`` defaults to ``"multiplicative"``, whose IRLS estimate
+    is *not* linear in the data — its weights depend on ``U p_hat`` — so
+    the exact unbiasedness algebra above does not carry over. What
+    survives is unbiasedness to the order the model itself is derived to:
+    ``generate_TOD``'s data model drops the ``n_g * n_w`` cross term, and
+    the IRLS nonlinearity enters at the same O(n^2) — here a fractional
+    noise rms of ~0.012, so ~1e-4. That is far below what this ensemble
+    can resolve, which is the honest statement: no *detectable* bias,
+    rather than the exact identity the additive case enjoys.
+    """
+    rng = np.random.default_rng(SEED + 2)
+    mm, U = geometry["mm"], geometry["U"]
+    p_true = geometry["p_true"]
+    signal = U @ p_true
+
+    L = np.linalg.cholesky(geometry["N_true"])
+    noise = [L @ rng.standard_normal(N_TIME) for _ in range(N_REAL_IRLS)]
+
+    estimates, reported = {}, {}
+    for name in MULTIPLICATIVE_MODELS:
+        # Hand in the inverse directly rather than the flicker parameters:
+        # identical weights (pinned by
+        # ``test_precomputed_inverse_matches_the_flicker_parameters``), but
+        # the 150-term Toeplitz build and its Cholesky inverse happen once
+        # instead of once per realisation — 155 ms/call down to ~3 ms.
+        Ninv = np.linalg.inv(geometry["assumed"][name])
+        ens = np.empty((N_REAL_IRLS, U.shape[1]))
+        sigma = None
+        for i, n_frac in enumerate(noise):
+            est, unc = mm(
+                TOD_group=signal * (1.0 + n_frac),
+                noise_inv_cov_group=[Ninv],
+            )
+            ens[i] = est
+            sigma = np.asarray(unc)  # depends on p_hat, but only at O(n^2)
+        estimates[name] = ens
+        reported[name] = sigma
+    return dict(estimates=estimates, reported=reported, p_true=p_true, U=U)
 
 
 def _sigma_ratio(misspec, name):
@@ -262,3 +339,57 @@ class TestReportedUncertaintiesUnderMisspecification:
             np.testing.assert_allclose(
                 misspec["reported"][model], np.sqrt(np.diag(M)), rtol=1e-6
             )
+
+
+# ---------------------------------------------------------------------- #
+# The same two facts on the DEFAULT (multiplicative / IRLS) code path     #
+# ---------------------------------------------------------------------- #
+class TestMultiplicativeIRLSPath:
+    """``noise_model="multiplicative"`` is the default, and its estimator
+    is nonlinear — so neither fact is inherited from the additive case.
+    Measured, they both hold, with the weaker sense of "unbiased" that
+    ``misspec_multiplicative`` documents.
+    """
+
+    def test_precomputed_inverse_matches_the_flicker_parameters(
+        self, geometry, misspec_multiplicative
+    ):
+        """The fixture's shortcut is exactly the route it stands in for."""
+        mm, U = geometry["mm"], geometry["U"]
+        rng = np.random.default_rng(SEED + 99)
+        L = np.linalg.cholesky(geometry["N_true"])
+        d = (U @ geometry["p_true"]) * (1.0 + L @ rng.standard_normal(N_TIME))
+        via_params, unc_params = mm(
+            TOD_group=d, dtime=DTIME,
+            gain_noise_params=geometry["flicker"][MATCHED],
+            white_noise_var=geometry["wvar"][MATCHED],
+        )
+        via_inverse, unc_inverse = mm(
+            TOD_group=d,
+            noise_inv_cov_group=[np.linalg.inv(geometry["assumed"][MATCHED])],
+        )
+        np.testing.assert_allclose(via_inverse, via_params, rtol=1e-8)
+        np.testing.assert_allclose(unc_inverse, unc_params, rtol=1e-8)
+
+    @pytest.mark.parametrize("model", MULTIPLICATIVE_MODELS)
+    def test_no_detectable_bias(self, misspec_multiplicative, model):
+        ens = misspec_multiplicative["estimates"][model]
+        bias = ens.mean(axis=0) - misspec_multiplicative["p_true"]
+        z = np.abs(bias) / (ens.std(axis=0) / np.sqrt(N_REAL_IRLS))
+        assert z.max() < Z_MAX, (model, z.max())
+
+    def test_matched_model_reports_honest_error_bars(self, misspec_multiplicative):
+        ratio = _sigma_ratio(misspec_multiplicative, MATCHED)
+        assert 0.9 < np.median(ratio) < 1.1, np.median(ratio)
+
+    def test_underestimated_knee_is_overconfident(self, misspec_multiplicative):
+        """Same 0.39 as the additive path: the breakage is the weighting,
+        and the IRLS reweighting neither causes nor cures it."""
+        assert np.median(_sigma_ratio(misspec_multiplicative, KNEE_LOW)) < 1 / 1.5
+
+    def test_wrong_alpha_is_underconfident(self, misspec_multiplicative):
+        assert np.median(_sigma_ratio(misspec_multiplicative, ALPHA)) > 1.5
+
+    def test_underestimated_knee_costs_efficiency(self, misspec_multiplicative):
+        matched = _projected_error(misspec_multiplicative, MATCHED)
+        assert _projected_error(misspec_multiplicative, KNEE_LOW) > 1.5 * matched
