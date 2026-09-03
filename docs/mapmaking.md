@@ -160,6 +160,58 @@ Notes:
   `flicker_noise_inv_cov` (the Toeplitz builder) and `iterative_gls`
   (the faithful single-TOD hydra-tod solver).
 
+### What a wrong noise covariance costs
+
+The GLS assumes $N$ is **known**. It estimates no noise parameters of its
+own: `gain_noise_params` defaults to the simulator's own truth
+(`DEFAULT_GAIN_NOISE_PARAMS`), which on simulated TOD makes the weights
+exact and on real data makes them an *assertion*, not a measurement. It is
+worth being precise about what that assertion buys and what it costs.
+
+Write the assumed weight $W$ and $M = (U^\mathsf{T} W U)^{-1}$, so the
+(additive-model) estimate is $\hat p = M U^\mathsf{T} W d$.
+
+- **The map stays unbiased.** $\hat p$ is linear in the data and
+  $\mathbb{E}[d] = Up$, so $\mathbb{E}[\hat p] = M U^\mathsf{T} W U p = p$
+  for *every* invertible $W$ — exactly, not asymptotically. A wrong $N$
+  costs **efficiency**, not accuracy: in a Monte Carlo over the drift-scan
+  geometry of `tests/test_gls_mapmaking.py`, $\|U(\hat p - p)\|$ went
+  0.131 (matched) → 0.182 (1/f ignored, white weights) → 0.196 (knee 10x
+  too high) → 0.250 (knee 10x too low).
+
+- **The error bars do not survive.** The map-maker reports
+  $\sqrt{\mathrm{diag}\,M}$, but the estimator's actual covariance is the
+  sandwich
+
+  $$
+  \mathrm{Cov}[\hat p] = M\,U^\mathsf{T} W N W U\,M ,
+  $$
+
+  which collapses to $M$ only at $W = N^{-1}$. Median over pixels of
+  reported $\sigma$ / true scatter, same Monte Carlo:
+
+  | assumed $N$ | reported $\sigma$ / true scatter | verdict |
+  |---|---|---|
+  | true $N$ (matched) | 1.00 | honest |
+  | white, 1/f ignored | 1.34 | 1.3x underconfident |
+  | knee 10x too high | 0.96 | ~honest, but 1.5x noisier |
+  | knee 10x too low | **0.43** | **2.3x overconfident** |
+  | $\alpha$: 2 → 1.5 | 3.57 | 3.6x underconfident |
+
+  Underestimating the knee is the dangerous direction: the map claims a
+  precision it does not have. Both facts are pinned by
+  `tests/test_gls_noise_misspecification.py`.
+
+So the reported uncertainties are only as good as the noise model handed
+in, and misplaced confidence in $N$ shows up as misplaced confidence in
+the map — never as a shifted map. If the 1/f parameters are not known,
+they should be **sampled jointly with the sky** rather than fixed at a
+default; that is what the sibling
+[hydra-tod](https://github.com/hydra-cosmology/hydra-tod) package does,
+Gibbs-sampling gains, noise parameters and map together. `GLS_mapmaking`
+is the single-shot solve you reach for once you are willing to condition
+on a particular $N$.
+
 ## JAX alternative
 
 For differentiable map-making inside a JAX pipeline, the same
