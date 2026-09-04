@@ -105,6 +105,25 @@ def flicker_noise_cov(
     return toeplitz(corr)
 
 
+def _solve_normal_equations(A: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Solve ``A p = b`` for the GLS normal equations, or say why it cannot.
+
+    ``A = sum_i U_i^T Sigma_i^-1 U_i + S^-1`` carries no ridge, so a
+    singular ``A`` means a parameter combination is constrained by neither
+    the data nor the prior -- information a stabiliser would only hide.
+    """
+    try:
+        return solve(A, b, assume_a="sym")
+    except (LinAlgError, np.linalg.LinAlgError) as e:
+        raise np.linalg.LinAlgError(
+            "the GLS normal-equations matrix sum_i U_i^T Sigma_i^-1 U_i + "
+            "S^-1 is singular: some parameter combination is constrained by "
+            "neither the data nor the prior. Supply an informative "
+            "Tsky_prior_inv_cov_diag (with a matching Tsky_prior_mean) for "
+            "the unconstrained directions, or shrink the parameter set."
+        ) from e
+
+
 def flicker_noise_inv_cov(
     time_list: Union[Sequence[float], np.ndarray],
     gain_noise_params: Optional[Sequence[float]] = DEFAULT_GAIN_NOISE_PARAMS,
@@ -241,7 +260,6 @@ class GLS_mapmaking(_MapmakingBase):
         Tsky_prior_inv_cov_diag: Optional[np.ndarray] = None,
         Tsys_other_prior_mean_group: Optional[Sequence[np.ndarray]] = None,
         Tsys_other_prior_inv_cov_group: Optional[Sequence[np.ndarray]] = None,
-        regularization: float = 1e-12,
         return_full_cov: bool = False,
         tol: float = 1e-10,
         min_iter: int = 5,
@@ -291,8 +309,6 @@ class GLS_mapmaking(_MapmakingBase):
             Prior means for the other-Tsys parameters, per TOD.
         Tsys_other_prior_inv_cov_group : list of arrays, optional
             Prior inverse covariances for the other-Tsys parameters.
-        regularization : float
-            Added to the normal-equation diagonal (default 1e-12).
         return_full_cov : bool
             Also return the full posterior parameter covariance.
         tol : float
@@ -301,6 +317,14 @@ class GLS_mapmaking(_MapmakingBase):
             Minimum IRLS iterations before convergence is checked.
         max_iter : int
             Maximum IRLS iterations.
+
+        Notes
+        -----
+        As in :class:`~limTOD.HPW_filter.HPW_mapmaking`, the Gaussian prior
+        is the only regularisation -- no ridge is added to the normal
+        equations, since a ridge is just an undeclared zero-mean prior that
+        contradicts ``Tsky_prior_mean`` and hides an under-determined pixel
+        set. A singular system raises ``LinAlgError``.
 
         Returns
         -------
@@ -347,8 +371,7 @@ class GLS_mapmaking(_MapmakingBase):
 
         p, A_final = self._solve_blocks(
             d_list, ops, Ninv_list, mu_list,
-            S_inv=S_inv, prior_mean=prior_mean,
-            regularization=regularization, noise_model=noise_model,
+            S_inv=S_inv, prior_mean=prior_mean, noise_model=noise_model,
             tol=tol, min_iter=min_iter, max_iter=max_iter,
         )
 
@@ -476,7 +499,6 @@ class GLS_mapmaking(_MapmakingBase):
         *,
         S_inv: np.ndarray,
         prior_mean: np.ndarray,
-        regularization: float,
         noise_model: str,
         tol: float,
         min_iter: int,
@@ -488,8 +510,8 @@ class GLS_mapmaking(_MapmakingBase):
         ``iterative_gls_mpi_list``), with the Gaussian prior added inside
         each iteration. Additive: single accumulation with ``Σ⁻¹ = N⁻¹``.
         """
-        n_par = ops[0].shape[1]
-        A_prior = S_inv + regularization * np.eye(n_par)
+        # The prior IS the regularisation: A starts at S^-1, with no ridge.
+        A_prior = S_inv
         b_prior = S_inv @ prior_mean
 
         def accumulate(p: Optional[np.ndarray]) -> Tuple[np.ndarray, np.ndarray]:
@@ -510,7 +532,7 @@ class GLS_mapmaking(_MapmakingBase):
 
         if noise_model == "additive":
             A, b = accumulate(None)
-            return solve(A, b, assume_a="sym"), A
+            return _solve_normal_equations(A, b), A
 
         # OLS initialisation over the stacked system (as in hydra-tod).
         U_stack = np.concatenate(ops, axis=0)
@@ -522,7 +544,7 @@ class GLS_mapmaking(_MapmakingBase):
         p_new = p
         for iteration in range(1, max_iter + 1):
             A, b = accumulate(p)
-            p_new = solve(A, b, assume_a="sym")
+            p_new = _solve_normal_equations(A, b)
             if (
                 np.linalg.norm(p_new - p) < tol * np.linalg.norm(p)
                 and iteration >= min_iter
@@ -580,7 +602,8 @@ class GLS_mapmaking(_MapmakingBase):
                 raise np.linalg.LinAlgError(
                     "return_full_cov=True but the posterior covariance could "
                     "not be computed (the normal-equations matrix is "
-                    "numerically singular); increase regularization/priors."
+                    "numerically singular); tighten the prior on the weakly "
+                    "constrained directions."
                 )
             outputs = outputs + (posterior_cov,)
         return outputs

@@ -180,7 +180,6 @@ def run_mapmaking(
         Tsky_prior_mean=prior_mean,
         Tsky_prior_inv_cov_diag=prior_inv,
         noise_variance=nv_per_tod,
-        regularization=1e-12,
         return_full_cov=False,
         filter_order=order,
         use_high_pass=use_hp_filter,
@@ -305,9 +304,12 @@ def parse_args() -> argparse.Namespace:
                         "variability'. (Default 3.0.)")
     p.add_argument("--no-prior", action="store_true",
                    help="Use uninformative prior (zero mean, zero inv-cov). "
-                        "Recovery is then driven by data + Tikhonov "
-                        "regularization only — the honest test of what the "
-                        "scan strategy can resolve on its own.")
+                        "Recovery is then driven by the data alone — the "
+                        "honest test of what the scan strategy can resolve "
+                        "on its own. There is no ridge to fall back on, so "
+                        "an under-determined pixel set raises LinAlgError "
+                        "rather than returning a stabiliser-dominated map; "
+                        "coarsen --nside-target if that happens.")
     p.add_argument("--prior-mean-mode",
                    choices=("truth", "smoothed", "zero", "mean"),
                    default="truth",

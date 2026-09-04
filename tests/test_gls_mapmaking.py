@@ -27,7 +27,6 @@ from limTOD.gls_mapmaking import (
 
 NSIDE = 4
 LAT = -30.713
-REG = 1e-10
 FLICKER = (1.335e-5, 1.099e-3, 2)
 WVAR = 2.5e-6
 
@@ -147,7 +146,7 @@ def geometry():
     return mm, kw, ops, truth, rng
 
 
-def _oracle_irls(d_list, U_list, Ninv_list, mu_list, truth_len, reg=REG,
+def _oracle_irls(d_list, U_list, Ninv_list, mu_list, truth_len,
                  s_inv=None, prior_mean=None, n_iter=60):
     """Independent IRLS implementation (deliberately written differently:
     explicit diag matrices instead of outer-product weighting)."""
@@ -158,7 +157,7 @@ def _oracle_irls(d_list, U_list, Ninv_list, mu_list, truth_len, reg=REG,
     r_stack = np.concatenate([d - mu for d, mu in zip(d_list, mu_list)])
     p = np.linalg.lstsq(U_stack, r_stack, rcond=None)[0]
     for _ in range(n_iter):
-        A = s_inv + reg * np.eye(n_par)
+        A = s_inv.copy()          # the prior is the only regularisation
         b = s_inv @ prior_mean
         for d, U, Ninv, mu in zip(d_list, U_list, Ninv_list, mu_list):
             Dinv = np.diag(1.0 / (U @ p + mu))
@@ -185,7 +184,7 @@ class TestGLSMapmakingOracle:
         est, unc = mm(
             TOD_group=d_list, dtime=2.0,
             gain_noise_params=FLICKER, white_noise_var=WVAR,
-            regularization=REG, tol=1e-13, max_iter=60,
+            tol=1e-13, max_iter=60,
         )
         expected, A = _oracle_irls(
             d_list, ops, Ninv_list, [0.0, 0.0], len(truth)
@@ -204,11 +203,11 @@ class TestGLSMapmakingOracle:
         Ninv = [np.eye(U.shape[0]) / sigma2 for U in ops]
         est, _ = mm(
             TOD_group=d_list, noise_inv_cov_group=Ninv,
-            noise_model="additive", regularization=REG,
+            noise_model="additive",
         )
         a_full = np.vstack(ops)
         d_full = np.concatenate(d_list)
-        lhs = a_full.T @ a_full / sigma2 + REG * np.eye(a_full.shape[1])
+        lhs = a_full.T @ a_full / sigma2
         rhs = a_full.T @ d_full / sigma2
         np.testing.assert_allclose(
             np.asarray(est), np.linalg.solve(lhs, rhs), rtol=1e-8
@@ -220,7 +219,6 @@ class TestGLSMapmakingOracle:
         est, _ = mm(
             TOD_group=d_list, dtime=2.0,
             gain_noise_params=FLICKER, white_noise_var=WVAR,
-            regularization=1e-14,
         )
         np.testing.assert_allclose(np.asarray(est), truth, rtol=1e-6)
 
@@ -241,7 +239,7 @@ class TestGLSMapmakingOracle:
         est, _ = mm(
             TOD_group=d_list, dtime=2.0, known_injection_group=mu_vals,
             gain_noise_params=FLICKER, white_noise_var=WVAR,
-            regularization=REG, tol=1e-13, max_iter=60,
+            tol=1e-13, max_iter=60,
         )
         expected, _ = _oracle_irls(d_list, ops, Ninv_list, mu_vals, len(truth))
         np.testing.assert_allclose(np.asarray(est), expected, rtol=1e-6)
@@ -253,7 +251,6 @@ class TestGLSMapmakingOracle:
         est, _ = mm(
             TOD_group=d_list, dtime=2.0, gain_group=[2.0, 2.0],
             gain_noise_params=FLICKER, white_noise_var=WVAR,
-            regularization=1e-14,
         )
         np.testing.assert_allclose(np.asarray(est), truth, rtol=1e-6)
 
@@ -266,7 +263,7 @@ class TestGLSMapmakingOracle:
             TOD_group=d_list, dtime=2.0,
             gain_noise_params=FLICKER, white_noise_var=WVAR,
             Tsky_prior_mean=prior_mean, Tsky_prior_inv_cov_diag=s_diag,
-            regularization=REG, tol=1e-13, max_iter=60,
+            tol=1e-13, max_iter=60,
         )
         t = np.arange(ops[0].shape[0]) * 2.0
         Ninv_list = [
@@ -285,7 +282,7 @@ class TestGLSMapmakingOracle:
         est, unc, cov = mm(
             TOD_group=d_list, dtime=2.0,
             gain_noise_params=FLICKER, white_noise_var=WVAR,
-            regularization=REG, return_full_cov=True,
+            return_full_cov=True,
         )
         n_par = len(truth)
         assert cov.shape == (n_par, n_par)
@@ -312,7 +309,6 @@ class TestGLSMapmakingOracle:
         est, unc = mm(
             TOD_group=d, dtime=2.0,
             gain_noise_params=FLICKER, white_noise_var=WVAR,
-            regularization=1e-14,
         )
         np.testing.assert_allclose(np.asarray(est), truth, rtol=1e-6)
         assert np.asarray(unc).shape == np.asarray(est).shape
@@ -341,11 +337,11 @@ class TestReviewRegressions:
         est, unc = mm(
             TOD_group=d_list, dtime=2.0,
             gain_noise_params=FLICKER, white_noise_var=WVAR,
-            regularization=REG, tol=1e-300, min_iter=1, max_iter=1,
+            tol=1e-300, min_iter=1, max_iter=1,
         )
         # Independent rebuild of A at the RETURNED estimate.
         n_par = len(truth)
-        A = REG * np.eye(n_par)
+        A = np.zeros((n_par, n_par))
         for d, U, Ninv in zip(d_list, ops, Ninv_list):
             Dinv = np.diag(1.0 / (U @ np.asarray(est)))
             Sinv = Dinv @ Ninv @ Dinv
@@ -361,8 +357,7 @@ class TestReviewRegressions:
         mm, kw, ops, truth, rng = geometry
         d_list = [U @ truth for U in ops]
         with caplog.at_level(logging.WARNING, logger="limTOD.gls_mapmaking"):
-            mm(TOD_group=d_list, dtime=2.0, noise_model="additive",
-               regularization=REG)
+            mm(TOD_group=d_list, dtime=2.0, noise_model="additive")
         assert any("FRACTIONAL" in r.message for r in caplog.records)
 
     def test_additive_with_explicit_cov_does_not_warn(self, geometry, caplog):
@@ -373,7 +368,7 @@ class TestReviewRegressions:
         Ninv = [np.eye(U.shape[0]) for U in ops]
         with caplog.at_level(logging.WARNING, logger="limTOD.gls_mapmaking"):
             mm(TOD_group=d_list, noise_inv_cov_group=Ninv,
-               noise_model="additive", regularization=REG)
+               noise_model="additive")
         assert not any("FRACTIONAL" in r.message for r in caplog.records)
 
 
@@ -452,11 +447,11 @@ class TestGLSvsOLSEndToEnd:
         est_gls, _ = mm(
             TOD_group=d, time_list_group=[t],
             gain_noise_params=red_flicker, white_noise_var=WVAR,
-            regularization=1e-8, tol=1e-13, max_iter=60,
+            tol=1e-13, max_iter=60,
         )
         est_uni, _ = mm(
             TOD_group=d, noise_inv_cov_group=[np.eye(n)],
-            noise_model="additive", regularization=1e-8,
+            noise_model="additive",
         )
         err_gls = np.linalg.norm(np.asarray(est_gls) - truth)
         err_uni = np.linalg.norm(np.asarray(est_uni) - truth)
@@ -496,11 +491,10 @@ class TestGLSvsOLSEndToEnd:
 
         est_g, _ = gls(
             TOD_group=d, noise_inv_cov_group=[np.eye(n) / sigma2],
-            noise_model="additive", regularization=1e-8,
+            noise_model="additive",
         )
         est_h, _ = hpw(
             TOD_group=d, dtime=2.0, noise_variance=sigma2,
-            regularization=1e-8,
         )
         # rtol 1e-5: HPW solves with assume_a='pos' (LAPACK posv), the GLS
         # with assume_a='sym' (sysv) — same equations, different

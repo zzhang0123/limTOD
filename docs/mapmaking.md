@@ -74,7 +74,6 @@ sky_map, sky_uncertainty = mapmaker(
     Tsky_prior_inv_cov_diag=None,
     Tsys_other_prior_mean_group=None,
     Tsys_other_prior_inv_cov_group=None,
-    regularization=1e-12,                   # numerical stabilizer
     return_full_cov=False,
     filter_order=4,                         # Butterworth order
     use_high_pass=False,                    # False: solve on unfiltered TOD
@@ -88,6 +87,16 @@ posterior covariance replaces the diagonal uncertainty.
 
 Notes:
 
+- **The Gaussian prior is the only regularisation.** No ridge is added to
+  the normal equations. A `+ lambda*I` term is exactly a zero-mean
+  Gaussian prior of precision `lambda` on top of the one you declared —
+  and, with no matching `lambda*mu` on the right-hand side, one that
+  contradicts `Tsky_prior_mean`. Its whole effect falls on the directions
+  the scan does not measure, where it answers "zero" and reports
+  `1/sqrt(lambda)` as the uncertainty on that answer. Without it, an
+  under-determined pixel set raises `LinAlgError` instead: the fix is an
+  informative `Tsky_prior_inv_cov_diag`, a coarser `nside_target`, or a
+  higher `threshold`.
 - With `use_high_pass=False`, `cutoff_freq_group` may be `None` — the
   solve then uses the unfiltered TOD and operator.
 - The high-pass filter is applied consistently to both the data and the
@@ -150,8 +159,8 @@ Notes:
   reproduces `HPW_mapmaking`'s unfiltered solution exactly.
 - Explicit per-TOD inverse covariances can be supplied via
   `noise_inv_cov_group` (overriding the flicker/white parameters).
-- Priors, `regularization`, and `return_full_cov` work as in
-  `HPW_mapmaking`; IRLS convergence is controlled by
+- Priors and `return_full_cov` work as in `HPW_mapmaking` (including
+  the no-ridge rule above); IRLS convergence is controlled by
   `tol`/`min_iter`/`max_iter`.
 - Cost adds one dense `(n_time)²` covariance inversion per TOD (once)
   and one reweighted normal-equations solve per iteration (typically

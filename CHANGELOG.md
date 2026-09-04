@@ -35,6 +35,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- 🚫 **The Gaussian prior is now the only regularisation of the map-making
+  solve.** The `regularization` parameter is gone from `wiener_filter_map`,
+  `HPW_mapmaking.__call__`, `GLS_mapmaking.__call__` and
+  `TRISMapMakingInputs.solve`, and no ridge is added to the normal
+  equations. A `+ lambda*I` term is *exactly* a zero-mean Gaussian prior of
+  precision `lambda` imposed on top of `prior_inv_cov` — and, since no
+  matching `lambda*mu` was ever added to the right-hand side, one that
+  contradicts `Tsky_prior_mean`: the effective prior mean was
+  `(S^-1 + lambda I)^-1 S^-1 mu`, not `mu`. Being a fixed absolute
+  precision, it did nothing where the data were strong and everything
+  where they were absent, so its whole effect was to answer "zero" for the
+  directions the scan never measured and to report `1/sqrt(lambda)` as the
+  uncertainty on that answer. **Behaviour change:** a system that is
+  singular without a ridge now raises `LinAlgError` with an actionable
+  message instead of returning a stabiliser-dominated map. The fix is an
+  informative `Tsky_prior_inv_cov_diag` (with a matching prior mean) on the
+  unconstrained directions, a coarser `nside_target`, or a higher
+  `threshold`. `tests/test_no_ridge_regularization.py` pins it: a parameter
+  the data never touch comes back at *exactly* its prior mean with
+  *exactly* its prior sigma (the old 1e-12 default shrank it by a relative
+  1e-8 against a 100 K prior).
+- 🩹 **`wiener_filter_map` no longer falls back to the pseudo-inverse.** On
+  a singular solve it used to log a warning and return
+  `pinv(operator) @ TOD` with `NaN` uncertainties — silently switching
+  estimator, dropping both the noise weighting and the prior. With the
+  ridge removed that path would have become the de-facto stabiliser, so it
+  now raises instead. The covariance-inversion fallback (diagonal
+  approximation when the solve succeeded but the explicit inverse failed)
+  is unchanged.
 - 🔗 **The companion digital-twin project is now
   [rheplicant](https://github.com/RHINO-Experiment/rheplicant)** (Python
   package `rheplicant`), moved to the RHINO Experiment organisation; the docs
@@ -49,6 +78,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the README's one-line twin); the body pages and the `limtod_jax` module
   docstrings describe the capability instead and link there when a reader
   actually needs the pointer.
+
+### Removed
+
+- ➖ `regularization=` keyword from `wiener_filter_map`,
+  `HPW_mapmaking.__call__`, `GLS_mapmaking.__call__` and
+  `TRISMapMakingInputs.solve` (see Changed). Callers passing it get a
+  `TypeError`; delete the argument.
+- ➖ `noise_var=` from `simple_wiener_map`, which is now
+  `lstsq(operator, TOD)`. The argument existed only to scale a hardcoded
+  `noise_var * 1e-6` ridge — an undeclared zero-mean prior whose strength
+  tracked the noise estimate — and a scalar noise variance cancels out of
+  the prior-free normal equations, so it could not affect the result any
+  other way. On a rank-deficient system `lstsq` returns the minimum-norm
+  solution: a stated choice, unlike the ridge it replaces, and different
+  from `wiener_filter_map`, which raises because it has a prior to point
+  the caller at.
 
 ### Docs
 

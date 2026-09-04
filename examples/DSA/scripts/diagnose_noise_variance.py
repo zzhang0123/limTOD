@@ -78,14 +78,13 @@ def auto_noise_variance(TOD, operator, window=100):
 
 
 def run_with_noise_variance(*, hp_tod, hp_op, mm, noise_variance, prior_mean,
-                            prior_inv_diag, regularization):
+                            prior_inv_diag):
     prior_inv_cov = np.diag(prior_inv_diag)
     sky_est, _ = wiener_filter_map(
         hp_tod, hp_op,
         noise_variance=noise_variance,
         prior_inv_cov=prior_inv_cov,
         guess=prior_mean,
-        regularization=regularization,
         return_full_cov=False,
     )
     return sky_est[:mm.num_pixels]
@@ -99,7 +98,6 @@ def main() -> None:
     parser.add_argument("--dtime", type=float, default=2.0)
     parser.add_argument("--prior-sigma-K", type=float, default=50.0)
     parser.add_argument("--explicit-white-var", type=float, default=2.5e-6)
-    parser.add_argument("--regularization", type=float, default=1e-12)
     args = parser.parse_args()
 
     print(f"=== Diagnostic: nside_target={args.nside_target} ===")
@@ -148,7 +146,6 @@ def main() -> None:
             hp_tod=hp_tod, hp_op=hp_op, mm=mm,
             noise_variance=nv, prior_mean=prior_mean,
             prior_inv_diag=prior_inv_diag,
-            regularization=args.regularization,
         )
         bias = est - sky_truth
         rms = float(np.std(bias))
