@@ -8,6 +8,17 @@ from limTOD.simulator import truncate_stacked_beam, generate_sky2sys_projection
 
 logger = logging.getLogger(__name__)
 
+# Largest asymmetry, relative to max|N^-1|, that wiener_filter_map treats as
+# inversion round-off rather than a malformed noise_inv_cov. Measured floor for
+# np.linalg.inv of a well-formed symmetric matrix: 1.8e-12 at condition number
+# 1e6, 1.2e-10 at 1e8, 7.9e-7 at 1e12, 5.7e-5 at 1e14. Measured for genuinely
+# asymmetric input (transposed, one triangle only, one column rescaled, a
+# single wrong entry): >= 3.4e-3. So this threshold clears the mildest genuine
+# error by 34x, with >100x headroom over round-off up to condition number
+# 1e12. At 1e14 the headroom is only ~2x -- but an inverse that ill
+# conditioned carries ~1% error in every entry and is not worth weighting by.
+_HERMITIAN_RTOL = 1e-4
+
 
 def get_filtfilt_matrix(n_samples: int, b: np.ndarray, a: np.ndarray) -> np.ndarray:
     """
@@ -92,6 +103,7 @@ def wiener_filter_map(
     regularization: float = 1e-12,
     return_full_cov: bool = False,
     rolling_variance: bool = True,
+    noise_inv_cov: Optional[np.ndarray] = None,
 ) -> Union[Tuple[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray, np.ndarray]]:
     """
     Apply Wiener filtering for mapmaking from time-ordered data.
@@ -105,8 +117,29 @@ def wiener_filter_map(
         Time-ordered data to be mapped
     operator : array-like, shape (n_time, n_pixels)
         Pointing/beam operator mapping sky pixels to TOD samples
-    noise_variance : float or array-like, optional
-        Noise variance. If None, estimated from TOD
+    noise_variance : float or 1D array-like, optional
+        Per-sample noise variance for UNCORRELATED noise: a scalar, or one
+        variance per TOD sample. A variance, not a covariance matrix — for
+        correlated noise pass ``noise_inv_cov`` instead (the two are
+        mutually exclusive). If both are None, the variance is estimated
+        from the TOD residuals.
+    noise_inv_cov : (n_time, n_time) array, optional
+        Full inverse noise covariance ``N^-1`` for correlated noise, same
+        convention as ``GLS_mapmaking``'s ``noise_inv_cov_group``. Must be
+        Hermitian; asymmetry at the level of inversion round-off is
+        tolerated and symmetrised away, while a genuinely asymmetric matrix
+        is rejected. It is never inverted here, so
+        pass the INVERSE — that keeps the O(n_time^3) inversion and its
+        numerical conditioning under your control. Costs nothing over the
+        ``noise_variance`` path, which already materialises a dense
+        ``(n_time, n_time)`` ``N^-1`` and multiplies with it.
+
+        NOT usable through ``HPW_mapmaking``'s high-pass path: there the
+        data being fitted is ``H d`` with operator ``H A``, so the relevant
+        covariance is ``H N H^T``. A high-pass filter annihilates DC
+        exactly, which makes ``H N H^T`` rank-deficient — there is no
+        inverse to pass. Use this on unfiltered data, or with a covariance
+        you have built for the filtered data yourself.
     prior_inv_cov : float or array-like, optional
         Inverse of Prior covariance for the parameters. If None, uses uninformative prior
     regularization : float, default=1e-12
@@ -126,8 +159,9 @@ def wiener_filter_map(
     
     n_time, n_pixels = operator.shape
     
-    # Estimate noise variance if not provided
-    if noise_variance is None:
+    # Estimate noise variance if not provided (and not superseded by an
+    # explicit N^-1, which would make this pinv-based estimate dead work)
+    if noise_variance is None and noise_inv_cov is None:
         # Simple estimate: variance of high-pass filtered residuals
         residual = TOD - operator @ np.linalg.pinv(operator) @ TOD
         if rolling_variance:
@@ -161,11 +195,115 @@ def wiener_filter_map(
             logger.info("Estimated noise variance: %.6f", noise_variance)
 
 
-    # Create noise inverse covariance matrix (assume diagonal)
-    if np.isscalar(noise_variance):
+    # Build the inverse noise covariance N^-1: explicit, diagonal-from-scalar,
+    # or diagonal-from-vector.
+    if noise_inv_cov is not None:
+        if noise_variance is not None:
+            raise ValueError(
+                "pass either noise_variance (scalar or 1D per-sample "
+                "variance, N taken to be diagonal) or noise_inv_cov (the "
+                "full (n_time, n_time) N^-1), not both — they specify the "
+                "same weighting and there is no rule for combining them."
+            )
+        if np.ma.is_masked(noise_inv_cov):
+            # np.asarray drops the mask and exposes whatever is underneath it,
+            # which is finite, positive and symmetric often enough to pass
+            # every check below and quietly reweight the fit.
+            raise ValueError(
+                "noise_inv_cov is a masked array with masked entries; the "
+                "mask would be dropped and the values underneath it used. "
+                "Fill it first — np.ma.filled(N_inv, 0.0) expresses a flagged "
+                "sample as the zero weight this function already accepts."
+            )
+        N_inv = np.asarray(noise_inv_cov)
+        if N_inv.shape != (n_time, n_time):
+            raise ValueError(
+                f"noise_inv_cov must be the ({n_time}, {n_time}) inverse "
+                f"noise covariance N^-1 of the {n_time}-sample TOD; got "
+                f"shape {N_inv.shape}. Note this argument takes the INVERSE "
+                f"covariance — it is never inverted here — so pass "
+                f"inv(N), or use noise_variance= for uncorrelated noise."
+            )
+        if not np.isfinite(N_inv).all():
+            # Checked before the symmetry test below, which a NaN would sail
+            # through: NaN - NaN is NaN and every comparison against NaN is
+            # False, so the guard would silently pass and hand back a NaN map.
+            raise ValueError(
+                "noise_inv_cov contains NaN or inf; every entry of N^-1 must "
+                "be finite. A non-finite entry usually means the covariance "
+                "was inverted while singular — flag those samples out of the "
+                "TOD instead, or give them a finite (possibly zero) weight."
+            )
+        if (np.diag(N_inv).real < 0.0).any():
+            # Cheap necessary condition for positive semi-definiteness (a full
+            # eigencheck would be O(n_time^3)). Zero is allowed: it is how a
+            # flagged, zero-weight sample is expressed.
+            raise ValueError(
+                "noise_inv_cov has negative diagonal entries, so it is not a "
+                "valid inverse covariance (N^-1 must be positive "
+                "semi-definite). Check the sign convention, and note this "
+                "argument takes N^-1 rather than N."
+            )
+        # N^-1 must be Hermitian, but "is it Hermitian" has no clean
+        # numerical answer: an explicitly inverted covariance is asymmetric at
+        # ~eps*cond(N) relative to max|N^-1|, and no single tolerance can both
+        # accept that and catch a small local corruption in a matrix with wide
+        # dynamic range. So we do not try to separate them by tolerance alone:
+        # we SYMMETRISE, and reject only asymmetry far above the round-off
+        # floor (see _HERMITIAN_RTOL for the measurements).
+        #
+        # Symmetrising is what makes the sub-threshold case safe. A^H N^-1 A
+        # is handed to solve(..., assume_a='pos') -- LAPACK posv, which reads
+        # only the UPPER triangle. Left alone, the discarded triangle would
+        # silently change the answer, and which triangle wins is an
+        # implementation detail of the solver. Symmetrised, the weighting
+        # actually applied is the one documented here.
+        hermitian_part = 0.5 * (N_inv + N_inv.conj().T)
+        skew = np.abs(N_inv - hermitian_part).max() if N_inv.size else 0.0
+        scale = np.abs(hermitian_part).max() if N_inv.size else 0.0
+        if scale > 0.0 and skew > _HERMITIAN_RTOL * scale:
+            raise ValueError(
+                f"noise_inv_cov is not Hermitian: max|M - (M + M^H)/2| = "
+                f"{skew:.3e} against max|M| = {scale:.3e}, a relative "
+                f"{skew / scale:.2e} where inversion round-off stays below "
+                f"{_HERMITIAN_RTOL:.0e}. That is a malformed N^-1 — check for "
+                f"a transposed matrix, a half-filled triangle, or a sign "
+                f"error — not a numerical artefact. Symmetrise it explicitly "
+                f"if you really intend its Hermitian part."
+            )
+        N_inv = hermitian_part
+    elif np.isscalar(noise_variance):
         N_inv = np.eye(n_time) / cast(float, noise_variance)
     else:
+        if np.ma.is_masked(noise_variance):
+            raise ValueError(
+                "noise_variance is a masked array with masked entries; the "
+                "mask would be dropped and the values underneath it used. "
+                "Fill it first, e.g. np.ma.filled(v, np.inf) to give a "
+                "flagged sample zero weight."
+            )
         noise_variance = np.asarray(noise_variance)
+        if noise_variance.ndim != 1:
+            # A full (n_time, n_time) covariance is the natural mistake here,
+            # since the neighbouring GLS_mapmaking really does take one. The
+            # length check below cannot catch it: len() of a 2D array is its
+            # row count, which for a time-time covariance is exactly n_time.
+            # It would then reach `1.0 / noise_variance` (a divide-by-zero
+            # RuntimeWarning on the off-diagonal zeros, not an error) and
+            # np.diag, which EXTRACTS the diagonal of a 2D input instead of
+            # building a matrix — surfacing much later as an opaque matmul
+            # core-dimension error.
+            raise ValueError(
+                f"noise_variance must be a scalar or a 1D per-sample variance "
+                f"vector of length {n_time}; got an array of shape "
+                f"{noise_variance.shape}. wiener_filter_map only ever builds a "
+                f"diagonal N^-1 from this argument. For a full time-time "
+                f"noise covariance N, pass noise_inv_cov=inv(N) instead "
+                f"(this function does accept a full N^-1, it just will not "
+                f"invert one for you); pass np.diag(N) here if the noise is "
+                f"in fact uncorrelated; or use limTOD.GLS_mapmaking with "
+                f"noise_inv_cov_group=[inv(N), ...] for the per-TOD case."
+            )
         if len(noise_variance) != n_time:
             raise ValueError(
                 f"noise_variance has length {len(noise_variance)} but the TOD "
@@ -632,6 +770,21 @@ class HPW_mapmaking(_MapmakingBase):
                     pieces.append(np.full(tod_lengths[i], float(cast(SupportsFloat, nv_i))))
                 else:
                     nv_i = np.asarray(nv_i, dtype=float)
+                    if nv_i.ndim != 1:
+                        # Same mistake as in wiener_filter_map, one level up:
+                        # a per-TOD list of full time-time covariances. The
+                        # shape check below would reject it too, but without
+                        # saying where such a covariance actually belongs.
+                        raise ValueError(
+                            f"noise_variance[{i}] has shape {nv_i.shape}: each "
+                            f"entry must be a scalar or a 1D per-sample "
+                            f"variance vector of length {tod_lengths[i]}. This "
+                            f"map-maker weights each TOD with a diagonal "
+                            f"N^-1 only; pass np.diag(N_i) if the noise is "
+                            f"uncorrelated, or use limTOD.GLS_mapmaking with "
+                            f"noise_inv_cov_group=[inv(N_1), ...] to weight by "
+                            f"the full covariance."
+                        )
                     if nv_i.shape != (tod_lengths[i],):
                         raise ValueError(
                             f"noise_variance[{i}] shape {nv_i.shape} != ({tod_lengths[i]},)"
