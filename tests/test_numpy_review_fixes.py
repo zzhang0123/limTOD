@@ -223,9 +223,9 @@ class TestWienerFullNoiseInvCov:
     INVERSE covariance (as in GLS_mapmaking's ``noise_inv_cov_group``) — the
     O(n^3) inversion and its conditioning stay with the caller.
 
-    None of these tests pass ``regularization``: the ridge is 1e-12 against
-    normal-equation entries of order 1e3 here, i.e. below double-precision
-    round-off, so every assertion holds identically with or without it.
+    There is no ridge on the normal equations to account for -- the
+    Gaussian prior is the map-maker's only regularisation -- so each
+    assertion below is against the exact normal-equation solution.
     """
 
     @staticmethod

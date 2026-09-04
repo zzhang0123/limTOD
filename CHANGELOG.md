@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- 🎛️ **`wiener_filter_map` accepts a full inverse noise covariance.** The
+  new `noise_inv_cov=` takes the dense `(n_time, n_time)` `N^-1` for
+  correlated noise, same convention as `GLS_mapmaking`'s
+  `noise_inv_cov_group` and mutually exclusive with `noise_variance`. It is
+  never inverted internally, so the `O(n_time^3)` inversion and its
+  conditioning stay with the caller, and it costs nothing over the diagonal
+  path, which already materialises a dense `N^-1`. Validated for shape,
+  finiteness, non-negative diagonal and Hermitian symmetry; symmetry is
+  enforced by symmetrising and rejecting only asymmetry far above the
+  measured inversion round-off floor (`_HERMITIAN_RTOL = 1e-4`; round-off
+  reaches 7.9e-7 at condition number 1e12, genuine errors start at 3.4e-3).
+  Symmetrising is what makes the sub-threshold case safe: `A^H N^-1 A` goes
+  to `solve(assume_a='pos')`, which reads one triangle only, so an
+  unsymmetrised input would let a LAPACK implementation detail pick the
+  answer. **Not** usable through `HPW_mapmaking`'s high-pass path — there
+  the fitted data is `H d` with operator `H A`, and `H N H^T` is
+  rank-deficient because the filter annihilates DC exactly.
 - 📻 **`limTOD.tris`** — an offline bridge to the public TRIS archive, laid out
   as a package (`archive`, `sky`, `beam`, `geometry`, `noise`, `inference`,
   `mapmaking`). Strict readers for the four LAMBDA text products, TRIS→limTOD
@@ -95,8 +112,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from `wiener_filter_map`, which raises because it has a prior to point
   the caller at.
 
+### Fixed
+
+- 🧯 **`noise_variance` no longer accepts a full covariance matrix and
+  quietly do the wrong thing.** Passing an `(n_time, n_time)` covariance —
+  the natural mistake, since the neighbouring `GLS_mapmaking` really does
+  take one — slipped past the length check (`len()` of a 2D array is its
+  row count), reached `1.0 / noise_variance` as a divide-by-zero
+  `RuntimeWarning` rather than an error, and then met `np.diag`, which
+  *extracts* the diagonal of a 2D input instead of building a matrix. The
+  failure surfaced much later as an opaque matmul core-dimension error.
+  Both `wiener_filter_map` and `HPW_mapmaking`'s per-TOD list form now
+  reject anything that is not a scalar or a 1D per-sample vector, and say
+  where a full covariance belongs. Masked arrays are rejected too, in both
+  noise arguments, rather than being silently unmasked.
+
+### Tests
+
+- 🎯 **`tests/test_gls_noise_misspecification.py`** pins what a wrong noise
+  covariance costs the GLS map-maker. The map stays **unbiased** for any
+  invertible weight `W`, exactly and not asymptotically, since
+  `E[d] = U p`; what degrades is efficiency (`||U(p̂ − p)||` 0.131 matched →
+  0.250 with the 1/f knee 10x too low) and, far more sharply, the reported
+  uncertainties, whose true covariance is the sandwich
+  `M U^T W N W U M` and collapses to `M` only at `W = N^-1`. Median
+  reported σ / true scatter: 1.00 matched, 1.34 ignoring 1/f, 0.43 with the
+  knee 10x too low (**2.3x overconfident** — the dangerous direction), 3.57
+  at `alpha` 2 → 1.5. Both the additive and the default multiplicative
+  paths are covered and agree to two decimals.
+
 ### Docs
 
+- ⚖️ **`docs/mapmaking.md` now says what the noise model is worth.** A new
+  "What a wrong noise covariance costs" section records that `GLS_mapmaking`
+  assumes `N` is known and estimates nothing — `gain_noise_params` defaults
+  to the simulator's own truth, which is exact on simulated TOD and an
+  *assertion* on real data — with the unbiasedness argument, the sandwich
+  covariance, and the measured table above. If the 1/f parameters are not
+  known they should be sampled jointly with the sky, which is what the
+  sibling hydra-tod package does. The `HPW_mapmaking` notes now also state
+  that its weighting is diagonal and point at `noise_inv_cov` /
+  `GLS_mapmaking` for correlated noise.
 - 📈 **`docs/driftscan.md` now shows the m-mode path rather than only
   describing it.** Ported the drift-scan narrative from the rheplicant
   documentation and rewrote it against limTOD's own API: four generated

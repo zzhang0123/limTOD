@@ -97,6 +97,17 @@ Notes:
   under-determined pixel set raises `LinAlgError` instead: the fix is an
   informative `Tsky_prior_inv_cov_diag`, a coarser `nside_target`, or a
   higher `threshold`.
+- **The weighting is diagonal.** `noise_variance` is a scalar or one
+  variance per sample; a full time-time covariance is rejected with a
+  message rather than silently mis-broadcast. Left as `None` it is
+  estimated from the residuals with a 100-sample rolling window — which
+  is biased low when the operator does not span the projectable signal,
+  so prefer an explicit value. For correlated noise use `GLS_mapmaking`
+  (below), or call `wiener_filter_map` directly with
+  `noise_inv_cov=inv(N)`. That last route works only on **unfiltered**
+  data: the high-pass path fits `H d` with operator `H A`, whose noise
+  covariance is `H N Hᵀ`, and `H` annihilates DC exactly — there is no
+  inverse to pass.
 - With `use_high_pass=False`, `cutoff_freq_group` may be `None` — the
   solve then uses the unfiltered TOD and operator.
 - The high-pass filter is applied consistently to both the data and the
