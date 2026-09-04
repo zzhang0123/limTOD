@@ -89,15 +89,25 @@ def wiener_filter_map(
     noise_variance: Optional[Union[float, np.floating, np.ndarray]] = None,
     prior_inv_cov: Optional[Union[float, np.ndarray]] = None,
     guess: Optional[np.ndarray] = None,
-    regularization: float = 1e-12,
     return_full_cov: bool = False,
     rolling_variance: bool = True,
 ) -> Union[Tuple[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray, np.ndarray]]:
     """
     Apply Wiener filtering for mapmaking from time-ordered data.
     
-    The Wiener filter solves: (A^T N^-1 A + S^-1)^-1 A^T N^-1 d
-    where A is the operator, N is noise covariance, S is signal covariance, d is data
+    The Wiener filter solves: (A^T N^-1 A + S^-1)^-1 (A^T N^-1 d + S^-1 mu)
+    where A is the operator, N is noise covariance, S is signal covariance,
+    d is data and mu is the prior mean.
+
+    No numerical ridge is added to the normal equations. A ``+ lambda*I``
+    term is exactly a zero-mean Gaussian prior of precision ``lambda``
+    imposed *on top of* ``prior_inv_cov`` -- and, since no matching
+    ``lambda*mu`` is added to the right-hand side, one that contradicts the
+    prior mean and dominates precisely the directions the data leave
+    unconstrained. Regularisation is the prior's job: pass ``prior_inv_cov``
+    (and ``guess``) for the directions the scan does not measure. A system
+    that is singular without a ridge raises rather than returning a
+    ridge-dominated map with a meaningless uncertainty.
     
     Parameters
     ----------
@@ -109,15 +119,19 @@ def wiener_filter_map(
         Noise variance. If None, estimated from TOD
     prior_inv_cov : float or array-like, optional
         Inverse of Prior covariance for the parameters. If None, uses uninformative prior
-    regularization : float, default=1e-12
-        Regularization parameter to ensure matrix invertibility
-        
+
     Returns
     -------
     sky_map : array, shape (n_pixels,)
         Reconstructed sky map
     uncertainty : array, shape (n_pixels,)
         Per-pixel uncertainty (diagonal of covariance matrix)
+
+    Raises
+    ------
+    numpy.linalg.LinAlgError
+        If ``A^T N^-1 A + S^-1`` is singular, i.e. some parameter
+        combination is constrained by neither the data nor the prior.
     """    
     
     # Convert inputs to numpy arrays
@@ -205,8 +219,8 @@ def wiener_filter_map(
         AtN = operator.T @ N_inv  # A^T N^-1
     AtNA = AtN @ operator     # A^dagger N^-1 A
     
-    # Add signal prior and regularization
-    covariance_inv = AtNA + S_inv + regularization * np.eye(n_pixels)
+    # Add the signal prior. Nothing else: see the note in the docstring.
+    covariance_inv = AtNA + S_inv
     
     # Right-hand side: A^T N^-1 d +  S^-1 mu
     rhs = AtN @ TOD + S_inv @ guess 
@@ -215,31 +229,39 @@ def wiener_filter_map(
     try:
         # Solve the linear system: (A^T N^-1 A + S^-1) x = A^T N^-1 d +  S^-1 mu
         sky_map = solve(covariance_inv, rhs, assume_a='pos')
-
-        # Compute uncertainties (diagonal of posterior covariance)
-        try:
-            posterior_cov = np.linalg.inv(covariance_inv)
-            uncertainty = np.sqrt(np.diag(posterior_cov))
-        except (LinAlgError, np.linalg.LinAlgError):
-            logger.warning(
-                "Could not compute full covariance matrix; using diagonal approximation."
-            )
-            uncertainty = 1.0 / np.sqrt(np.diag(covariance_inv))
-
     except (LinAlgError, np.linalg.LinAlgError) as e:
-        logger.warning("Linear algebra error: %s; falling back to pseudo-inverse solution.", e)
-        sky_map = np.linalg.pinv(operator) @ TOD
-        uncertainty = np.ones(n_pixels) * np.nan
+        # Some parameter combination is constrained by neither the data nor
+        # the prior. There is no stabilised answer to hand back: the old
+        # pseudo-inverse fallback silently switched estimator (dropping the
+        # noise weighting AND the prior), and a ridge would only be an
+        # undeclared zero-mean prior. Report the missing information.
+        raise np.linalg.LinAlgError(
+            "the normal-equations matrix A^T N^-1 A + S^-1 is singular: some "
+            "parameter combination is constrained by neither the data nor "
+            "the prior. Supply an informative prior_inv_cov (with a matching "
+            "guess) for the unconstrained directions, or shrink the "
+            "parameter set."
+        ) from e
+
+    # Compute uncertainties (diagonal of posterior covariance)
+    try:
+        posterior_cov = np.linalg.inv(covariance_inv)
+        uncertainty = np.sqrt(np.diag(posterior_cov))
+    except (LinAlgError, np.linalg.LinAlgError):
+        logger.warning(
+            "Could not compute full covariance matrix; using diagonal approximation."
+        )
+        uncertainty = 1.0 / np.sqrt(np.diag(covariance_inv))
 
     if return_full_cov:
-        # posterior_cov stayed None on the degraded paths (inv failure or the
-        # pseudo-inverse fallback) — returning it unbound used to NameError.
+        # posterior_cov stays None when the explicit inverse failed even
+        # though the solve succeeded — returning it unbound used to NameError.
         if posterior_cov is None:
             raise np.linalg.LinAlgError(
                 "return_full_cov=True but the posterior covariance could not "
                 "be computed (the normal-equations matrix is numerically "
-                "singular); rerun with return_full_cov=False or increase "
-                "regularization/priors."
+                "singular); rerun with return_full_cov=False or tighten the "
+                "prior on the weakly constrained directions."
             )
         return sky_map, uncertainty, posterior_cov
     else:
@@ -252,27 +274,24 @@ def wiener_filter_map(
 def simple_wiener_map(
     TOD: np.ndarray,
     operator: np.ndarray,
-    noise_var: Optional[Union[float, np.floating]] = None,
 ) -> np.ndarray:
     """
-    Simplified Wiener filter assuming uninformative signal prior.
-    Equivalent to: (A^T A + lambda*I)^-1 A^T d
-    """    
-    if noise_var is None:
-        # Estimate from residuals
-        residual = TOD - operator @ np.linalg.pinv(operator) @ TOD
-        noise_var = np.var(residual)
-    
-    AtA = operator.T @ operator
-    regularization = noise_var * 1e-6  # Small regularization
-    
-    # Regularized normal equation
-    lhs = AtA + regularization * np.eye(AtA.shape[0])
-    rhs = operator.T @ TOD
-    
-    sky_map = np.linalg.solve(lhs, rhs)
-    
-    return sky_map
+    Quick prior-free map: the least-squares solution of ``A x = d``.
+
+    This is the uninformative-prior limit of :func:`wiener_filter_map`; a
+    scalar noise variance cancels out of the normal equations, so the
+    weighting is immaterial and no ``noise_var`` is needed (the argument
+    used to exist only to scale a hardcoded ``1e-6`` ridge, i.e. an
+    undeclared zero-mean prior whose strength tracked the noise estimate).
+
+    With no prior there is nothing here to determine a rank-deficient
+    system. ``lstsq`` then returns the minimum-norm solution, which is a
+    definite and documented choice rather than a hidden one -- unlike
+    :func:`wiener_filter_map`, which raises in that situation because it
+    *has* a prior to point the caller at. If the scan does not determine
+    every pixel, use :func:`wiener_filter_map` with a prior.
+    """
+    return np.linalg.lstsq(operator, TOD, rcond=None)[0]
 
 
 
@@ -653,7 +672,6 @@ class HPW_mapmaking(_MapmakingBase):
         Tsys_other_prior_mean_group: Optional[Sequence[np.ndarray]] = None,
         Tsys_other_prior_inv_cov_group: Optional[Sequence[np.ndarray]] = None,
         noise_variance: Optional[Union[float, np.ndarray, List[Union[float, np.ndarray]], Tuple[Union[float, np.ndarray], ...]]] = None,
-        regularization: float = 1e-12,
         return_full_cov: bool = False,
         filter_order: int = 4,
         preserve_dc: bool = False,
@@ -726,6 +744,16 @@ class HPW_mapmaking(_MapmakingBase):
             system operator. If False, use the identity matrix and solve the
             unfiltered map-making problem.
 
+        Notes
+        -----
+        The Gaussian prior is the only regularisation. There is no ridge on
+        the normal equations: it would be an undeclared zero-mean prior
+        competing with ``Tsky_prior_mean``, and it would mask a scan that
+        simply does not determine the requested pixel set. If the solve
+        raises ``LinAlgError``, the fix is an informative
+        ``Tsky_prior_inv_cov_diag`` on the unconstrained directions, or a
+        coarser ``nside_target`` / higher ``threshold``.
+
 
         Returns
         -------
@@ -766,7 +794,6 @@ class HPW_mapmaking(_MapmakingBase):
             noise_variance=nv,  # explicit if provided, else auto-estimated inside
             prior_inv_cov=Tsys_prior_inv_cov,
             guess=Tsys_prior_mean,
-            regularization=regularization,
             return_full_cov=return_full_cov,
         )
         # wiener_filter_map returns a 3-tuple when return_full_cov=True; the

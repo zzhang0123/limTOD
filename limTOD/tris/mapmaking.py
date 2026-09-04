@@ -314,7 +314,6 @@ class TRISMapMakingInputs:
         *,
         prior_map: Optional[np.ndarray] = None,
         prior_sigma_k: Optional[Union[float, np.ndarray]] = None,
-        regularization: float = 1e-12,
     ) -> TRISMapSolution:
         """Solve the MAP/Wiener problem with :func:`limTOD.wiener_filter_map`.
 
@@ -325,9 +324,13 @@ class TRISMapMakingInputs:
         is the prior standard deviation, scalar or per selected pixel.
 
         With no prior this is an ordinary least-squares solve of a
-        rank-deficient system and the result is meaningless; a prior is
-        required unless you have restricted the pixel set to something the
-        ring actually determines.
+        rank-deficient system, and it now raises ``LinAlgError`` instead of
+        returning a meaningless map: one ring measures ~15 numbers, so a
+        prior is required unless you have restricted the pixel set to
+        something the ring actually determines. (The solver carries no
+        numerical ridge -- a ridge would silently answer "zero" for the
+        directions the ring never saw, and report a ``1/sqrt(lambda)``
+        uncertainty for them.)
         """
         from ..HPW_filter import wiener_filter_map
 
@@ -378,7 +381,6 @@ class TRISMapMakingInputs:
             noise_variance=self.noise.variance_k2,
             prior_inv_cov=prior_inv_cov,
             guess=guess,
-            regularization=regularization,
         )
         sky_map, uncertainty = solved[0], solved[1]
         zero_level = float(sky_map[-1]) if self.has_zero_level else None

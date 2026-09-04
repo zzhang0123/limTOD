@@ -29,7 +29,6 @@ def test_mapmaker_defaults_to_no_high_pass_without_cutoff():
         dtime=1.0,
         cutoff_freq_group=None,
         noise_variance=1.0,
-        regularization=0.0,
     )
 
     np.testing.assert_allclose(sky_est, tod)

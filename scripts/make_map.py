@@ -187,7 +187,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         Tsky_prior_mean=prior_mean,
         Tsky_prior_inv_cov_diag=prior_inv,
         noise_variance=noise_variance,
-        regularization=1e-12,
         filter_order=args.filter_order,
         use_high_pass=use_high_pass,
     )

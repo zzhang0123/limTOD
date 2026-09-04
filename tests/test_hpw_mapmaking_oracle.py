@@ -1,11 +1,13 @@
 """End-to-end oracle for HPW_mapmaking: the class output must equal the
-regularized normal-equations solution built independently in the test from
-the class's own system operator,
+normal-equations solution built independently in the test from the class's
+own system operator,
 
-    x = solve(A^T N^-1 A + S^-1 + reg*I,  A^T N^-1 d + S^-1 mu).
+    x = solve(A^T N^-1 A + S^-1,  A^T N^-1 d + S^-1 mu).
 
-This is both a correctness statement and an exact-behavior pin protecting
-the internal decomposition refactors of ``__call__``."""
+There is no ridge in that expression, and that is the point: the Gaussian
+prior is the only regularisation. This is both a correctness statement and
+an exact-behavior pin protecting the internal decomposition refactors of
+``__call__``."""
 
 import healpy as hp
 import numpy as np
@@ -15,13 +17,12 @@ from limTOD.HPW_filter import HPW_mapmaking
 
 NSIDE = 4
 LAT = -30.713
-REG = 1e-8
 
 # The comparison only makes sense on a WELL-POSED system: at nside=4 the
 # sphere has 192 pixels, so the pixel-selection threshold must be high
 # enough (0.7 -> ~160 selected) and the time axis long enough (220 samples)
-# that A^T A is full rank; otherwise both the class and the oracle solve a
-# regularization-dominated null space and agree only by accident.
+# that A^T A is full rank. Without a ridge a rank-deficient system does not
+# quietly agree by accident any more -- it raises.
 N1, N2 = 120, 100
 
 
@@ -51,11 +52,11 @@ def setup():
     return mm, a_full, tod_full, tod_group, sigma2
 
 
-def _normal_eq_solution(a, d, sigma2, s_inv_diag=None, mu=None, reg=REG):
+def _normal_eq_solution(a, d, sigma2, s_inv_diag=None, mu=None):
     n_par = a.shape[1]
     s_inv = np.diag(s_inv_diag) if s_inv_diag is not None else np.zeros((n_par, n_par))
     mu = np.zeros(n_par) if mu is None else mu
-    lhs = a.T @ a / sigma2 + s_inv + reg * np.eye(n_par)
+    lhs = a.T @ a / sigma2 + s_inv
     rhs = a.T @ d / sigma2 + s_inv @ mu
     return np.linalg.solve(lhs, rhs)
 
@@ -65,7 +66,6 @@ class TestHPWMapmakingOracle:
         mm, a_full, tod_full, tod_group, sigma2 = setup
         est, unc = mm(
             TOD_group=tod_group, dtime=2.0, noise_variance=sigma2,
-            regularization=REG,
         )
         expected = _normal_eq_solution(a_full, tod_full, sigma2)
         np.testing.assert_allclose(np.asarray(est), expected, rtol=1e-8)
@@ -78,7 +78,6 @@ class TestHPWMapmakingOracle:
         s_inv_diag = np.full(n_par, 1e3)
         est, _ = mm(
             TOD_group=tod_group, dtime=2.0, noise_variance=sigma2,
-            regularization=REG,
             Tsky_prior_mean=mu, Tsky_prior_inv_cov_diag=s_inv_diag,
         )
         expected = _normal_eq_solution(a_full, tod_full, sigma2, s_inv_diag, mu)
@@ -91,11 +90,9 @@ class TestHPWMapmakingOracle:
         est, _ = mm(
             TOD_group=tod_group, dtime=2.0,
             noise_variance=[v1, np.full(len(tod_group[1]), v2)],
-            regularization=REG,
         )
         n_inv = np.diag(1.0 / np.concatenate([np.full(n1, v1), np.full(len(tod_group[1]), v2)]))
-        n_par = a_full.shape[1]
-        lhs = a_full.T @ n_inv @ a_full + REG * np.eye(n_par)
+        lhs = a_full.T @ n_inv @ a_full
         rhs = a_full.T @ n_inv @ tod_full
         expected = np.linalg.solve(lhs, rhs)
         np.testing.assert_allclose(np.asarray(est), expected, rtol=1e-8)
@@ -107,7 +104,6 @@ class TestHPWMapmakingOracle:
         est, _ = mm(
             TOD_group=tod_group, dtime=2.0, noise_variance=sigma2,
             cutoff_freq_group=[1e-3, 1e-3], use_high_pass=True,
-            regularization=REG,
         )
         blocks = mm.HP_exact
         f_a = np.concatenate(
@@ -123,12 +119,12 @@ class TestHPWMapmakingOracle:
         mm, a_full, tod_full, tod_group, sigma2 = setup
         est, unc, cov = mm(
             TOD_group=tod_group, dtime=2.0, noise_variance=sigma2,
-            regularization=REG, return_full_cov=True,
+            return_full_cov=True,
         )
         n_par = a_full.shape[1]
         assert cov.shape == (n_par, n_par)
         np.testing.assert_allclose(np.asarray(unc), np.sqrt(np.diag(cov)), rtol=1e-10)
-        expected_cov = np.linalg.inv(a_full.T @ a_full / sigma2 + REG * np.eye(n_par))
+        expected_cov = np.linalg.inv(a_full.T @ a_full / sigma2)
         np.testing.assert_allclose(cov, expected_cov, rtol=1e-6, atol=1e-12)
 
     def test_gain_and_known_injection(self, setup):
@@ -138,7 +134,7 @@ class TestHPWMapmakingOracle:
         raw = [g * t for g, t in zip(gains, tod_group)]
         est, _ = mm(
             TOD_group=[gains[i] * (tod_group[i] + 0.0) for i in range(2)],
-            dtime=2.0, noise_variance=sigma2, regularization=REG,
+            dtime=2.0, noise_variance=sigma2,
             gain_group=gains,
             known_injection_group=inj,
         )
@@ -157,16 +153,21 @@ class TestAnnotationPassBugFixes:
         out = sim_noise(1.335e-5, 1.099e-3, 2, [0.0, 2.0, 4.0, 6.0])
         assert out.shape == (1, 4) and np.all(np.isfinite(out))
 
-    def test_wiener_full_cov_singular_raises_clearly(self):
+    def test_wiener_singular_system_raises_clearly(self):
+        """With no ridge and no prior the normal equations are singular, and
+        that must be reported -- not papered over by the old pseudo-inverse
+        fallback, which silently dropped both the noise weighting and the
+        prior."""
         from limTOD.HPW_filter import wiener_filter_map
 
         tod = np.zeros(4)
-        operator = np.zeros((4, 3))  # singular normal equations, reg = 0
-        with pytest.raises(np.linalg.LinAlgError, match="posterior covariance"):
+        operator = np.zeros((4, 3))  # nothing constrains any parameter
+        with pytest.raises(np.linalg.LinAlgError, match="singular"):
             wiener_filter_map(
-                tod, operator, noise_variance=1.0, regularization=0.0,
-                return_full_cov=True,
+                tod, operator, noise_variance=1.0, return_full_cov=True,
             )
+        with pytest.raises(np.linalg.LinAlgError, match="neither the data nor"):
+            wiener_filter_map(tod, operator, noise_variance=1.0)
 
     @pytest.fixture()
     def single_tod_geometry(self):
