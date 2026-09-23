@@ -6,6 +6,7 @@
 |---|---|
 | [TODsim_examples.ipynb](TODsim_examples.ipynb) | TOD simulation walkthroughs with `TODSim` |
 | [mm_example.ipynb](mm_example.ipynb) | Full high-pass + Wiener map-making workflow (`HPW_mapmaking`) |
+| [mmode_drift_scan.ipynb](mmode_drift_scan.ipynb) | m-mode solving of a `TODSim` drift scan with `limTOD.mmode`: closed scan, 7 h arc, stacked nights, LST smoothing, bayesmith posterior samples (last section needs `limTOD[mmode-bayes]`) |
 | [DSA/](DSA) | DSA-2000-style single-dish survey study: scan strategies, TOD simulation, map-making comparisons. The large operator/TOD caches are **not** in the repo — regenerate them with the scripts in `DSA/scripts/` (see `DSA/README.md`); the beam-map FITS inputs are included. |
 
 ## Require external data NOT included in this repository

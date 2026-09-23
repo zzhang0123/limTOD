@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- 🔁 **`limTOD.mmode`** — an m-mode solver for single-dish drift scans, laid
+  out as a package (`window`, `kernel`, `linear`, `bayes`). Given
+  time-ordered data on an `LSTWindow` (any sampling; stacked nights carry
+  visit counts as weights) it solves each channel for the m-mode spectra
+  `d_m(nu)`, optionally after smoothing along sidereal time with a Slepian
+  (DPSS) or user kernel whose transfer `K(m)` makes the truncated model
+  exact on the valid region. The error budget is explicit: noise is
+  propagated through the covariance the kernel induces, conditioning is
+  reported on normalised columns, the noise amplification on `d_0` is
+  evaluated in extended precision (float64 `pinv` hides it on a partial
+  arc), and the bias from modes above the truncation is bounded from a
+  user-supplied envelope. Frequency bases (Legendre, cubic spline) are
+  applied after the time solve, which the Kronecker structure of the joint
+  design makes exact. With the `[mmode-bayes]` extra, `mmode.bayes` draws
+  exact Gaussian posteriors and samples through bayesmith, replacing
+  truncation with a prior envelope. See `docs/mmode.md` and
+  `examples/mmode_drift_scan.ipynb`, which drives the solver from a `TODSim`
+  drift scan: closed scan, 7 h arc, stacked nights, smoothing, posterior samples.
+
 - 🎛️ **`wiener_filter_map` accepts a full inverse noise covariance.** The
   new `noise_inv_cov=` takes the dense `(n_time, n_time)` `N^-1` for
   correlated noise, same convention as `GLS_mapmaking`'s

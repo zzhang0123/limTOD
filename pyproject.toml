@@ -52,6 +52,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Bayesian m-mode inference (limTOD.mmode.bayes): exact Gaussian posteriors
+# and samples through bayesmith. The linear solve and error budget in
+# limTOD.mmode need only the base dependencies.
+mmode-bayes = [
+    "bayesmith>=0.10",
+]
 # MPI-parallel runs (mpirun/mpiexec); without it limTOD.mpiutil falls back to
 # serial mode (rank=0, size=1).
 mpi = [
