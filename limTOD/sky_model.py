@@ -4,8 +4,18 @@ import healpy as hp
 import numpy as np
 
 
-def GDSM_sky_model(*, freq: float, nside: int) -> np.ndarray:
-    """Global Sky Model (GSM16) map at `freq` [MHz], regridded to `nside`."""
+def GDSM_sky_model(*, freq: float, nside: int, coord: str = "C") -> np.ndarray:
+    """Global Sky Model (GSM16) map at `freq` [MHz], regridded to `nside`.
+
+    HEALPix RING ordering. pygdsm generates the map in Galactic coordinates;
+    with the default ``coord="C"`` it is rotated to equatorial (RA = phi,
+    Dec = 90 deg - theta), the frame TODSim and the other engines read sky
+    maps in. ``coord="G"`` returns the Galactic map unrotated.
+    """
+    if coord not in ("C", "G"):
+        raise ValueError(
+            f"coord must be 'C' (equatorial) or 'G' (Galactic), got {coord!r}"
+        )
     # pygdsm is an OPTIONAL dependency (it pulls extra packages and downloads
     # sky-model data on first use), imported lazily so that `import limTOD`
     # works without it. Install with: pip install "limTOD[gdsm]".
@@ -19,6 +29,14 @@ def GDSM_sky_model(*, freq: float, nside: int) -> np.ndarray:
     gsm = GlobalSkyModel()
     skymap = gsm.generate(freq)
     skymap = hp.ud_grade(skymap, nside_out=nside)
+    if coord == "C":
+        # Rotate after regridding: a harmonic rotation at the target nside
+        # takes milliseconds and keeps the monopole exact, where rotating the
+        # native nside-1024 map costs ~15 s per call. Unrotated, the Galactic
+        # centre would be read as RA 0, Dec 0 instead of RA 266.4, Dec -28.9.
+        skymap = hp.Rotator(coord=["G", "C"]).rotate_map_alms(
+            skymap, use_pixel_weights=False
+        )
     return skymap
 
 

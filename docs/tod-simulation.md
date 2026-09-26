@@ -56,9 +56,16 @@ pointing, with positive `selfrot_deg` rotating the pattern from ê_el
 toward ê_az. Symmetric beams are unaffected; for asymmetric or
 polarized beams this is load-bearing.
 
+**Sky frame.** The sky map must be in equatorial coordinates
+(RA = φ, Dec = 90° − θ), RING ordering: the frame the beam is pointed
+in. `GDSM_sky_model` rotates the Galactic GSM into it by default
+(`coord="C"`). A map made in Galactic coordinates must be rotated
+first, e.g. `hp.Rotator(coord=["G", "C"]).rotate_map_alms(m)`;
+unrotated, the Galactic centre lands at RA 0, Dec 0.
+
 Built-ins: `example_beam_map` (elliptical Gaussian),
 `example_symm_beam_map` (symmetric Gaussian), `GDSM_sky_model`
-(Global Sky Model, `[gdsm]` extra), and
+(Global Sky Model in equatorial coordinates, `[gdsm]` extra), and
 `generate_gaussian_field` (correlated Gaussian sky realizations from a
 frequency–frequency angular power spectrum).
 
