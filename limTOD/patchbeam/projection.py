@@ -165,8 +165,9 @@ def pixel_directions_to_az_el(
     """Look up HEALPix pixel centres and convert to horizontal coordinates.
 
     Assumes the HEALPix map is in equatorial coordinates with RA = phi and
-    Dec = 90 - theta (the convention used by limTOD / standard sky models
-    such as GDSM).
+    Dec = 90 - theta (the convention used throughout limTOD). Sky models
+    generated in Galactic coordinates must be rotated first, as
+    ``GDSM_sky_model`` does by default.
 
     Parameters
     ----------

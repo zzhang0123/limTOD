@@ -7,10 +7,11 @@ neither should be taken on trust from prose.
 
 Protocol: a zenith drift scan at latitude 53.2 deg (Jodrell Bank, the RHINO
 site), a chromatic Gaussian beam (FWHM ~ lambda), and the GSM16 sky over
-50-100 MHz. Over one sidereal day the beam sweeps the whole ``dec = +53.2``
-circle, so the data runs from the bright Galactic-plane crossings (LST 20h-4h)
-down to the cold minimum near LST 12.5h, where the north Galactic pole passes
-overhead.
+50-100 MHz, rotated from Galactic to equatorial coordinates. Over one
+sidereal day the beam sweeps the whole ``dec = +53.2`` circle, so the data
+runs from the bright Galactic-plane crossings (the plane cuts the circle near
+RA 21.7h and 4h, with Cygnus near 21h) down to the cold high-latitude stretch
+near LST 11h; the north Galactic pole itself stays 26 deg from the zenith.
 
 Four figures, all written to ``docs/_static``:
 
@@ -109,7 +110,12 @@ def gsm_sky(nside: int, freqs_mhz: np.ndarray) -> tuple[jnp.ndarray, str]:
         from pygdsm import GlobalSkyModel16
 
         gsm = GlobalSkyModel16()
-        maps = np.array([hp.ud_grade(gsm.generate(f), nside) for f in freqs_mhz])
+        # GSM16 is Galactic; the drift scan reads the map as equatorial.
+        rot = hp.Rotator(coord=["G", "C"])
+        maps = np.array([
+            rot.rotate_map_alms(hp.ud_grade(gsm.generate(f), nside), use_pixel_weights=False)
+            for f in freqs_mhz
+        ])
         return jnp.asarray(maps), "GSM16"
     except Exception as exc:  # noqa: BLE001 — any pygdsm failure falls back
         print(f"  ! GSM unavailable ({exc!r}); using a synthetic sky")

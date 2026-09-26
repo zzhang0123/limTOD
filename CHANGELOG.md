@@ -133,6 +133,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- 🧭 **`GDSM_sky_model` returns an equatorial map.** pygdsm generates GSM16
+  in Galactic coordinates and the map was passed on unrotated, while
+  `TODSim` (whose default `sky_func` it is) and every other engine read a
+  sky map as RA = φ, Dec = 90° − θ. The Galactic centre was simulated at
+  RA 0, Dec 0 instead of RA 266.4, Dec −28.9, and a zenith drift at
+  latitude +53° swept the b = +53° ring, which never meets the Galactic
+  plane, instead of the Dec = +53° one, which crosses it near RA 21.7 h
+  and 4 h. The map is now rotated after regridding
+  (`hp.Rotator(coord=["G", "C"])`, harmonic, monopole exact); `coord="G"`
+  returns the old Galactic map. **Every TOD simulated on the GDSM sky
+  changes**, its monopole aside. `examples/mmode_drift_scan.ipynb` and the
+  `docs/make_engine_figures.py` figures predate the fix: the notebook's
+  70 MHz m = 0 mode (1964 K against a 2758 K monopole) should rise to
+  about 0.95 of the monopole, going by a Haslam-based stand-in for GSM16.
+  The script now applies the same rotation, and the `limTOD.patchbeam`
+  docstring that called GDSM equatorial is corrected. Pinned by
+  `tests/test_sky_model_frame.py`.
 - 🧯 **`noise_variance` no longer accepts a full covariance matrix and
   quietly do the wrong thing.** Passing an `(n_time, n_time)` covariance —
   the natural mistake, since the neighbouring `GLS_mapmaking` really does
