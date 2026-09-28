@@ -214,3 +214,12 @@ examples/DSA/simulated_TODs_*.npz
 examples/DSA/assets/
 # Stray local scratch dir (near-duplicate of tests/)
 /test/
+
+# Local agent handoffs and installation backups
+/.agent-state/
+
+# Local research analyses and agent workspace
+/studies/
+/.agents/
+/AGENTS.md
+/.codex/
