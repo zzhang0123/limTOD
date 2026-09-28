@@ -45,9 +45,11 @@ d0_smooth = mmode.project_onto_basis(res.d0, basis)
 | `shannon_number(M)` | how many of the `2M+1` real unknowns the window constrains |
 | `closed` | the arc meets itself: smoothing is periodic, no edge is lost |
 
-On a closed scan every mode is separable (`cond ~ 1.4`) and no kernel is
-needed. On a 7 h arc (29% coverage) the low modes are not separable at any
-truncation: the weakest singular direction is `d_0` against the low cosines,
+On a closed scan every mode is separable (`res.cond` = 1 on the
+column-normalised design; the un-normalised design has cond `√2`, the ratio
+of the cosine and constant column norms) and no kernel is needed. On a 7 h
+arc (29% coverage) the low modes are not separable at any truncation: the
+weakest singular direction is `d_0` against the low cosines,
 because `1, cos t, cos 2t` are nearly the same parabola over a short arc. This
 is not a numerical problem and no regularisation supplies the missing
 information; `noise_amplification` puts a number on it (`~1e8` at `m <= 8`).

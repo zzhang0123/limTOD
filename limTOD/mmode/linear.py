@@ -162,7 +162,8 @@ def _estimator(e: np.ndarray, w: np.ndarray, cond: float) -> np.ndarray:
     scaled down (``K(m)`` near zero) is divided back out exactly rather than
     floored away as if it were degenerate: ``cond`` measures mode confusion
     on the same normalised matrix, and the singular-value floor applies to
-    that alone. A column that is exactly zero is refused.
+    that alone. A column whose norm is at most ``_NULLED_COLUMN`` (1e-13)
+    times the largest column norm is refused: the kernel has removed that mode.
     """
     norms = np.linalg.norm(e, axis=0)
     dead = norms <= _NULLED_COLUMN * norms.max()
