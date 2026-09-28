@@ -386,6 +386,37 @@ def test_operator_reproduces_limtod_forward_model_to_machine_precision():
     np.testing.assert_allclose(inputs.operator @ sky, reference, rtol=0.0, atol=1e-12)
     np.testing.assert_allclose(inputs.beam_coverage, 1.0, atol=1e-12)
 
+def test_builder_builds_the_cut_beam_at_nside_hires_instead_of_upsampling():
+    """Upsampling a coarse beam injects pixel-boundary power; build it instead."""
+    nside, hires = 8, 64
+    ra_deg = np.arange(12) * 30.0
+    ring = _ring(ra_deg, np.full(12, 15.0), np.full(12, 0.01))
+    cuts = _tabulated_cuts()
+    pixels = np.arange(hp.nside2npix(nside))
+
+    built = build_tris_mapmaking_inputs(
+        ring, nside=nside, cuts=cuts, pixel_indices=pixels, nside_hires=hires
+    )
+    direct = tris_cut_beam_map(cuts, nside=hires, normalization="peak")
+    assert hp.get_nside(built.beam_map) == hires
+    np.testing.assert_array_equal(built.beam_map, direct)
+
+    explicit = build_tris_mapmaking_inputs(
+        ring, nside=nside, beam_map=direct, pixel_indices=pixels
+    )
+    np.testing.assert_allclose(built.operator, explicit.operator, rtol=0.0, atol=1e-14)
+
+    # The pre-fix behaviour: hand the operator an upsampled nside beam.  It must
+    # not be what nside_hires now produces, or this regression is vacuous.
+    upsampled = hp.ud_grade(
+        tris_cut_beam_map(cuts, nside=nside, normalization="peak"), hires
+    )
+    assert not np.allclose(built.beam_map, upsampled)
+    stale = build_tris_mapmaking_inputs(
+        ring, nside=nside, beam_map=upsampled, pixel_indices=pixels
+    )
+    assert not np.allclose(built.operator, stale.operator)
+
 
 def test_declination_band_reports_the_beam_power_it_drops():
     """Pixels outside the band are removed from the model, not down-weighted."""

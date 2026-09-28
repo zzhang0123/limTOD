@@ -528,7 +528,11 @@ def generate_TOD_sky(
         List of self-rotation values in degrees for each observation.
     nside_hires : int, optional
         If provided, upgrade the beam map to this nside before processing.
-        This can help improve accuracy when the beam is narrow. Default is None.
+        Upsampling cannot add beam structure the input never had, and
+        hp.ud_grade replicates pixels, so the upgrade encodes the input pixel
+        boundaries as extra high-l power.  Prefer passing a beam map that was
+        already built at this resolution; limTOD.tris does exactly that when
+        build_tris_mapmaking_inputs is given nside_hires.  Default is None.
     normalize_beam : bool, optional
         If True, normalize the beam map to have a sum of 1 before computing the weighted sum.
         Default is False.
@@ -908,7 +912,10 @@ class TODSim:
             If True, return the LST values along with the TODs. Default is False.
         nside_hires : int, optional
             If provided, upgrade the beam map to this nside before processing.
-            This can help improve accuracy when the beam is narrow. Default is None.
+            Upsampling cannot add beam structure the input never had, and
+            hp.ud_grade replicates pixels, so the upgrade encodes the input
+            pixel boundaries as extra high-l power.  Prefer passing a beam map
+            that was already built at this resolution.  Default is None.
         normalize_beam : bool, optional
             If True, normalize the beam map to have a sum of 1 before computing the weighted sum.
             Default is False.
@@ -1061,7 +1068,11 @@ def truncate_stacked_beam(
         Note that this is the threshold for singling out pixels.
     nside_hires : int, optional
         If provided, upgrade the beam map to this nside before processing.
-        This can help improve accuracy when the beam is narrow. Default is None.
+        Upsampling cannot add beam structure the input never had, and
+        hp.ud_grade replicates pixels, so the upgrade encodes the input pixel
+        boundaries as extra high-l power.  Prefer passing a beam map that was
+        already built at this resolution; limTOD.tris does exactly that when
+        build_tris_mapmaking_inputs is given nside_hires.  Default is None.
     nside_target : int, optional
         The target nside for the output beam map. This should match the convention used in pixel_indices.   
 
@@ -1177,7 +1188,11 @@ def generate_sky2sys_projection(
         If specified, set all pixels with values below this fraction of the maximum pixel value to zero before normalization. Default is 1e-10.
     nside_hires : int, optional
         If provided, upgrade the beam map to this nside before processing.
-        This can help improve accuracy when the beam is narrow. Default is None.
+        Upsampling cannot add beam structure the input never had, and
+        hp.ud_grade replicates pixels, so the upgrade encodes the input pixel
+        boundaries as extra high-l power.  Prefer passing a beam map that was
+        already built at this resolution; limTOD.tris does exactly that when
+        build_tris_mapmaking_inputs is given nside_hires.  Default is None.
     nside_target : int, optional
         The target nside for the output beam map. This should match the convention used in pixel_indices.
 

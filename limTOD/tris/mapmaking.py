@@ -471,6 +471,10 @@ def build_tris_mapmaking_inputs(
     :func:`limTOD.tris.tris_zenith_geometry` at the ring's own RA labels, which
     also owns the 7-degree E-plane roll -- do not pre-rotate the beam.
 
+    nside_hires builds the cut beam directly at that resolution and then
+    transforms it; it never upsamples the nside beam, because upsampling cannot
+    add structure the coarse map never had.
+
     ``apply_horizon_mask`` is on by default and matters: the cut-based beam has
     genuine response below the horizon (about 1.2e-4 of its power, worth
     ~0.035 K against a 300 K ground, comparable to the published 0.066 K
@@ -493,7 +497,18 @@ def build_tris_mapmaking_inputs(
         raise ValueError("supply exactly one of cuts or beam_map")
     if beam_map is None:
         assert cuts is not None  # guaranteed by the exclusive check above
-        beam = tris_cut_beam_map(cuts, nside=nside, normalization="peak")
+        # Build the cut beam AT nside_hires when one is requested, rather than
+        # upsampling the nside beam to it.  hp.ud_grade replicates pixels, so an
+        # upsampled beam carries the coarse pixel boundaries as extra high-l
+        # power; measured on the real 600.5 MHz ring that biased the
+        # sky-to-sample operator by about 0.16 K rms (13 sigma) against a beam
+        # built directly from the same cuts.  Building at the requested
+        # resolution is what nside_hires is for.
+        beam = tris_cut_beam_map(
+            cuts,
+            nside=nside_hires if nside_hires is not None else nside,
+            normalization="peak",
+        )
     else:
         beam = np.asarray(beam_map, dtype=float)
         if beam.ndim != 1:
