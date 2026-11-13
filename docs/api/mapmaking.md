@@ -17,3 +17,10 @@
    :special-members: __call__
    :show-inheritance:
 ```
+
+## limTOD.gls_sampler — posterior map samples (through hydra-tod)
+
+```{eval-rst}
+.. automodule:: limTOD.gls_sampler
+   :members: GLSPosteriorSamples, hydra_linear_sampler, draw_gls_posterior
+```

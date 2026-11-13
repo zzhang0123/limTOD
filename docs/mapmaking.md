@@ -241,6 +241,107 @@ Gibbs-sampling gains, noise parameters and map together. `GLS_mapmaking`
 is the single-shot solve you reach for once you are willing to condition
 on a particular $N$.
 
+### Posterior map samples (through hydra-tod)
+
+`GLS_mapmaking.posterior_samples` draws maps from the posterior that
+`__call__` summarises by its estimate $\hat p$ and covariance. It runs the
+same GLS solve as `__call__` and passes the converged system to hydra-tod's
+linear sampler:
+
+- `hydra_tod.linear_sampler.params_space_oper_and_data` builds, per TOD,
+  $U_i^\mathsf{T}\Sigma_i^{-1}U_i$ and the noise projection
+  $U_i^\mathsf{T}\Sigma_i^{-1/2}$ at $\hat p$ (multiplicative model; under
+  the additive model limTOD forms the same products with $\Sigma = N$);
+- `hydra_tod.linear_sampler.sample_p_v2` draws one Gaussian constrained
+  realisation per requested draw,
+
+$$
+(A + S^{-1})\,x = (A + S^{-1})\,\hat p
+  + \sum_i U_i^\mathsf{T}\Sigma_i^{-1/2}\omega_i + S^{-1/2}\omega',
+  \qquad \omega_i, \omega' \sim \mathcal{N}(0, I).
+$$
+
+Here $A = \sum_i U_i^\mathsf{T}\Sigma_i^{-1}U_i$ and $S^{-1}$ is the prior
+precision. $\Sigma^{-1/2}$ stands for any factor $F$ with
+$FF^\mathsf{T} = \Sigma^{-1}$; limTOD uses $\mathrm{diag}(1/(U\hat p+\mu))$
+times the Cholesky factor of $N^{-1}$. Each $x$ then follows
+$\mathcal{N}(\hat p, (A+S^{-1})^{-1})$, the estimate and covariance that
+`__call__(..., return_full_cov=True)` returns. hydra-tod's own right-hand
+side, $b = \sum_i U_i^\mathsf{T}\Sigma_i^{-1}(d_i-\mu_i)$ plus $S^{-1}m$,
+gives the same centre once the IRLS has converged; limTOD uses
+$(A+S^{-1})\hat p$ so the draws stay centred on $\hat p$ when it has not.
+
+What is fixed and what is drawn:
+
+| Quantity | In the draws |
+|---|---|
+| Sky pixels | drawn |
+| Temperatures in `Tsys_others_operator_group` (e.g. a receiver temperature) | drawn with the sky |
+| Temperatures in `known_injection_group` (e.g. a noise diode) | fixed |
+| Gains, 1/f and white-noise parameters | fixed |
+
+```python
+samples = mapmaker.posterior_samples(
+    500, seed=0,
+    TOD_group=TOD_group, dtime=2.0,
+    gain_noise_params=(1.335e-5, 1.099e-3, 2), white_noise_var=2.5e-6,
+)
+samples.sky        # (500, n_pix), or (500, npol, n_pix)
+samples.others     # per-TOD other-Tsys draws, or None
+samples.mean       # the GLS estimate the draws are centred on
+samples.precision  # inverse of return_full_cov's posterior_cov
+```
+
+#### Multiplicative model
+
+Under the multiplicative model $\Sigma$ depends on $p$. The sampler holds
+it at $\hat p$. hydra-tod's Gibbs step does the same at its own GLS
+estimate, which omits the prior; limTOD's $\hat p$ includes it. The exact
+posterior keeps the $p$-dependence of $\Sigma$ in the quadratic form and in
+$\log\det\Sigma(p)$. The difference scales with the fractional noise
+amplitude. Over 20 noise realisations of the test geometry in
+`tests/test_gls_sampler.py`, at limTOD's default noise:
+
+| Fixed-$\Sigma$ Gaussian vs exact posterior | Largest value |
+|---|---|
+| Mode shift | 0.004σ |
+| Curvature change | 0.9% |
+
+Under the additive model the posterior is Gaussian and the draws are exact.
+
+#### Notes
+
+- hydra-tod and mpi4py must be importable. hydra-tod is not on PyPI, so it
+  is not a limTOD extra. Install it from
+  [its repository](https://github.com/zzhang0123/hydra-tod) and mpi4py from
+  PyPI.
+- `seed`: hydra-tod draws from NumPy's global RNG. An integer in
+  $[0, 2^{32})$ runs the draws on a stream seeded with it and restores the
+  caller's global state afterwards. A `numpy.random.Generator` is called
+  once to pick that integer. `None` uses, and advances, the current global
+  stream. The draws change NumPy's global RNG state, so they are not
+  thread-safe.
+- Cost per TOD at setup: one factorisation of the
+  $n_\mathrm{time}\times n_\mathrm{time}$ matrix $N^{-1}$ and one
+  $(n_\mathrm{params}, n_\mathrm{time})$ projection. Cost per draw: one
+  $(n_\mathrm{params}, n_\mathrm{time})$ matrix-vector product per TOD and
+  one dense $O(n_\mathrm{params}^3)$ solve, plus a Cholesky factorisation
+  of $S^{-1}$ when the prior is non-diagonal.
+- A semi-definite `noise_inv_cov_group` entry (flagged samples, or a whole
+  TOD, zeroed out of $N^{-1}$) is accepted, as in `__call__`. Its square
+  root then comes from an eigendecomposition instead of a Cholesky factor.
+- A 2D entry in `Tsys_other_prior_inv_cov_group` makes $S^{-1}$
+  non-diagonal. $S^{-1}$ must then be positive definite over every
+  parameter, sky included, because `sample_p_v2` draws the prior term with
+  $\mathrm{cholesky}(S^{-1})$. Give the sky a prior as well
+  (`Tsky_prior_inv_cov_diag`), or pass the other-Tsys priors as 1D
+  diagonals. With diagonal priors, any parameter may have zero prior
+  precision.
+- The draws are conditional on $N$. A wrong $N$ miscalibrates their spread
+  by the same factors as the reported $\sigma$ in the table under "What a
+  wrong noise covariance costs". Sampling the noise parameters needs
+  hydra-tod's full Gibbs sampler.
+
 ## JAX alternative
 
 For differentiable map-making inside a JAX pipeline, the same

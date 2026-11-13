@@ -197,6 +197,32 @@ class TestAnnotationPassBugFixes:
         )
         assert mm_arr.n_params_others == 2
 
+    def test_multi_tod_tsys_others_with_unequal_lengths(self):
+        """TOD i's operator is [sky_i | 0 .. other_i .. 0]; the zero blocks
+        for the other TODs used to be zeros_like(other_j), with TOD j's row
+        count, so TODs of different lengths could not be concatenated."""
+        rng = np.random.default_rng(6)
+        beam_map = rng.random(hp.nside2npix(NSIDE)) + 0.2
+        others = [rng.random((N1, 2)), rng.random((N2, 2))]
+        mm = HPW_mapmaking(
+            beam_map=beam_map,
+            LST_deg_list_group=[np.linspace(0.0, 60.0, N1), np.linspace(100.0, 160.0, N2)],
+            lat_deg=LAT,
+            azimuth_deg_list_group=[np.linspace(-30.0, 30.0, N1), np.zeros(N2)],
+            elevation_deg_list_group=[np.full(N1, 55.0), np.full(N2, 90.0)],
+            threshold=0.7,
+            nside_target=NSIDE,
+            Tsys_others_operator_group=others,
+        )
+        n_sky = mm.nsky_params
+        op0, op1 = mm.Tsys_operators
+        assert op0.shape == (N1, n_sky + 4)
+        assert op1.shape == (N2, n_sky + 4)
+        np.testing.assert_array_equal(op0[:, n_sky:n_sky + 2], others[0])
+        np.testing.assert_array_equal(op0[:, n_sky + 2:], 0.0)
+        np.testing.assert_array_equal(op1[:, n_sky:n_sky + 2], 0.0)
+        np.testing.assert_array_equal(op1[:, n_sky + 2:], others[1])
+
     def test_tsys_others_group_length_mismatch_raises(self, single_tod_geometry):
         n, kw, rng = single_tod_geometry
         others = [rng.random((n, 2)), rng.random((n, 2))]

@@ -40,6 +40,7 @@ For externally calibrated data with *additive* noise
 """
 
 import logging
+from dataclasses import dataclass
 from typing import Any, List, Optional, Sequence, Tuple, Union, cast
 
 import numpy as np
@@ -47,6 +48,14 @@ from scipy.linalg import LinAlgError, cho_factor, cho_solve, solve, toeplitz
 
 from limTOD.HPW_filter import _MapmakingBase
 from limTOD.flicker_model import flicker_corr
+from limTOD.gls_sampler import (
+    GLSPosteriorSamples,
+    SeedLike,
+    check_n_draws,
+    draw_gls_posterior,
+    hydra_linear_sampler,
+    resolve_seed,
+)
 from limTOD.simulator import DEFAULT_GAIN_NOISE_PARAMS
 
 logger = logging.getLogger(__name__)
@@ -224,6 +233,21 @@ def iterative_gls(
     return p_new, Sigma_inv
 
 
+@dataclass(frozen=True, eq=False)
+class _GLSSystem:
+    """One channel's normalised inputs and converged GLS solution."""
+
+    d_list: List[np.ndarray]
+    ops: List[np.ndarray]
+    Ninv_list: List[np.ndarray]
+    mu_list: List[Union[float, np.ndarray]]
+    prior_mean: np.ndarray
+    S_inv: np.ndarray
+    noise_model: str
+    p: np.ndarray
+    A: np.ndarray
+
+
 class GLS_mapmaking(_MapmakingBase):
     """GLS map-maker sharing :class:`limTOD.HPW_mapmaking`'s operator build.
 
@@ -335,6 +359,163 @@ class GLS_mapmaking(_MapmakingBase):
             operators were supplied, and with ``posterior_cov`` when
             ``return_full_cov=True``.
         """
+        system = self._solve_system(
+            TOD_group=TOD_group, dtime=dtime, time_list_group=time_list_group,
+            gain_group=gain_group, known_injection_group=known_injection_group,
+            gain_noise_params=gain_noise_params, white_noise_var=white_noise_var,
+            noise_inv_cov_group=noise_inv_cov_group, noise_model=noise_model,
+            Tsky_prior_mean=Tsky_prior_mean,
+            Tsky_prior_inv_cov_diag=Tsky_prior_inv_cov_diag,
+            Tsys_other_prior_mean_group=Tsys_other_prior_mean_group,
+            Tsys_other_prior_inv_cov_group=Tsys_other_prior_inv_cov_group,
+            tol=tol, min_iter=min_iter, max_iter=max_iter,
+        )
+        return self._assemble_outputs(system.p, system.A, return_full_cov)
+
+    def posterior_samples(
+        self,
+        n_draws: int = 1,
+        *,
+        seed: SeedLike = None,
+        **gls_kwargs: Any,
+    ) -> GLSPosteriorSamples:
+        """Draw maps from the GLS posterior with hydra-tod's linear sampler.
+
+        Runs the same GLS solve as :meth:`__call__`, then passes the
+        converged system to ``hydra_tod.linear_sampler``.
+        ``params_space_oper_and_data`` builds each TOD's normal-equation
+        matrix and noise projection ``U^T Σ^{-1/2}`` at the estimate
+        ``p_hat`` (under the additive model limTOD forms these with
+        ``Σ = N``). ``sample_p_v2`` then draws one Gaussian constrained
+        realisation per requested draw.
+
+        Gains and the 1/f and white-noise parameters are held fixed.
+        Temperatures modelled by the other-Tsys operator (e.g. a receiver
+        temperature) are drawn with the sky. Temperatures passed as
+        ``known_injection_group`` are held fixed.
+
+        Under the multiplicative model ``Σ = diag(U p + mu) N diag(U p + mu)``
+        depends on ``p``. It is held at ``p_hat``, as hydra-tod's Gibbs step
+        holds it at its GLS estimate (hydra-tod's estimate omits the prior;
+        ``p_hat`` includes it). The draws therefore follow
+        ``N(p_hat, posterior_cov)``, where ``posterior_cov`` is the
+        covariance :meth:`__call__` reports. The exact posterior keeps the
+        ``p``-dependence of ``Σ`` in the quadratic form and in
+        ``log det Σ(p)``. The difference scales with the fractional noise
+        amplitude. Over 20 noise realisations of the geometry in
+        ``tests/test_gls_sampler.py``, at limTOD's default noise:
+
+        ========================  ===========
+        largest mode shift        0.004 sigma
+        largest curvature change  0.9 %
+        ========================  ===========
+
+        Under the additive model the posterior is Gaussian and the draws are
+        exact.
+
+        Parameters
+        ----------
+        n_draws : int
+            Number of posterior draws.
+        seed : int, numpy.random.Generator or None
+            hydra-tod draws from NumPy's global RNG. An integer in
+            ``[0, 2**32)`` runs the draws on a stream seeded with it and
+            restores the caller's global state afterwards. A ``Generator``
+            is called once to pick that integer. ``None`` (default) uses,
+            and advances, the current global stream. The draws change
+            NumPy's global RNG state, so they are not thread-safe.
+        **gls_kwargs
+            Every keyword of :meth:`__call__` except ``return_full_cov``
+            (data, noise specification, priors, IRLS controls).
+
+        Returns
+        -------
+        GLSPosteriorSamples
+            ``sky``, ``others``, ``params``, ``mean`` (the estimate
+            ``p_hat``) and ``precision`` (the inverse of ``posterior_cov``).
+
+        Notes
+        -----
+        Needs hydra-tod and mpi4py importable. hydra-tod is not on PyPI,
+        so it is not a limTOD dependency.
+
+        Cost per TOD at setup: one factorisation of the
+        ``(n_time, n_time)`` ``N⁻¹`` and one ``(n_params, n_time)`` noise
+        projection. Cost per draw: one ``(n_params, n_time)``
+        matrix-vector product per TOD and one dense ``O(n_params³)``
+        solve, plus a Cholesky factorisation of ``S⁻¹`` when the prior is
+        non-diagonal.
+
+        An inverse noise covariance may be semi-definite (flagged samples
+        zeroed out, or a whole TOD); its square root then comes from an
+        eigendecomposition instead of a Cholesky factor.
+
+        A 2D entry in ``Tsys_other_prior_inv_cov_group`` makes ``S⁻¹``
+        non-diagonal. ``S⁻¹`` must then be positive definite over every
+        parameter, sky included, because ``sample_p_v2`` draws the prior
+        term with ``cholesky(S⁻¹)``. Give the sky a prior as well, or pass
+        the other-Tsys priors as 1D diagonals.
+        """
+        check_n_draws(n_draws)
+        if "return_full_cov" in gls_kwargs:
+            raise TypeError(
+                "posterior_samples() does not take return_full_cov; the "
+                "posterior precision is returned as .precision"
+            )
+        seed_int = resolve_seed(seed)
+        linear_sampler = hydra_linear_sampler()  # fail before the solve
+        system = self._solve_system(**gls_kwargs)
+        draws = draw_gls_posterior(
+            linear_sampler,
+            d_list=system.d_list, ops=system.ops, Ninv_list=system.Ninv_list,
+            mu_list=system.mu_list, p_hat=system.p, S_inv=system.S_inv,
+            prior_mean=system.prior_mean, noise_model=system.noise_model,
+            n_draws=n_draws, seed=seed_int,
+        )
+        return self._package_samples(draws, system)
+
+    def _package_samples(
+        self, draws: np.ndarray, system: _GLSSystem
+    ) -> GLSPosteriorSamples:
+        """Split joint draws into sky and per-TOD other-Tsys blocks
+        (the layout :meth:`_assemble_outputs` uses)."""
+        sky = draws[:, : self.nsky_params]
+        if self.npol > 1:
+            sky = sky.reshape(draws.shape[0], self.npol, self.num_pixels)
+        others: Optional[List[np.ndarray]] = None
+        if self.Tsys_others:
+            start, width = self.nsky_params, self.n_params_others
+            others = [
+                draws[:, start + i * width: start + (i + 1) * width]
+                for i in range(self.num_tods)
+            ]
+        return GLSPosteriorSamples(
+            sky=sky, others=others, params=draws,
+            mean=system.p, precision=system.A,
+        )
+
+    def _solve_system(
+        self,
+        *,
+        TOD_group: Union[np.ndarray, Sequence[np.ndarray]],
+        dtime: Optional[float] = None,
+        time_list_group: Optional[Sequence[np.ndarray]] = None,
+        gain_group: Optional[Union[float, np.ndarray, Sequence[Union[float, np.ndarray]]]] = None,
+        known_injection_group: Optional[Union[np.ndarray, Sequence[np.ndarray]]] = None,
+        gain_noise_params: Optional[Sequence[float]] = DEFAULT_GAIN_NOISE_PARAMS,
+        white_noise_var: float = 2.5e-6,
+        noise_inv_cov_group: Optional[Sequence[np.ndarray]] = None,
+        noise_model: str = "multiplicative",
+        Tsky_prior_mean: Optional[np.ndarray] = None,
+        Tsky_prior_inv_cov_diag: Optional[np.ndarray] = None,
+        Tsys_other_prior_mean_group: Optional[Sequence[np.ndarray]] = None,
+        Tsys_other_prior_inv_cov_group: Optional[Sequence[np.ndarray]] = None,
+        tol: float = 1e-10,
+        min_iter: int = 5,
+        max_iter: int = 100,
+    ) -> _GLSSystem:
+        """Normalise the inputs and solve; shared by ``__call__`` and
+        ``posterior_samples`` (keywords as documented on ``__call__``)."""
         if noise_model not in _NOISE_MODELS:
             raise ValueError(
                 f"noise_model must be one of {_NOISE_MODELS}, got {noise_model!r}"
@@ -374,8 +555,11 @@ class GLS_mapmaking(_MapmakingBase):
             S_inv=S_inv, prior_mean=prior_mean, noise_model=noise_model,
             tol=tol, min_iter=min_iter, max_iter=max_iter,
         )
-
-        return self._assemble_outputs(p, A_final, return_full_cov)
+        return _GLSSystem(
+            d_list=d_list, ops=ops, Ninv_list=Ninv_list, mu_list=mu_list,
+            prior_mean=prior_mean, S_inv=S_inv, noise_model=noise_model,
+            p=p, A=A_final,
+        )
 
     # ------------------------------------------------------------------ #
     # Input normalisation                                                #

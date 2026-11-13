@@ -46,6 +46,7 @@ from .gls_mapmaking import (
     flicker_noise_inv_cov,
     iterative_gls,
 )
+from .gls_sampler import GLSPosteriorSamples
 
 __all__ = [
     "TODSim",
@@ -68,4 +69,5 @@ __all__ = [
     "flicker_noise_cov",
     "flicker_noise_inv_cov",
     "iterative_gls",
+    "GLSPosteriorSamples",
 ]

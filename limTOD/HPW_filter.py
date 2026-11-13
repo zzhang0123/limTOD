@@ -609,7 +609,12 @@ class _MapmakingBase:
                     truncate_frac_thres=beam_truncate_frac_thres
                 )
                 if Tsys_others_operator_group is not None:
-                    other_operators = [np.zeros_like(item) for item in Tsys_others_operator_group]
+                    # Zero blocks for the other TODs' parameters have TOD
+                    # i's row count; TODs may differ in length.
+                    other_operators = [
+                        np.zeros((sky_operator_i.shape[0], np.shape(item)[1]))
+                        for item in Tsys_others_operator_group
+                    ]
                     other_operators[i] = Tsys_others_operator_group[i]
                     Tsys_operator_i = np.concatenate([sky_operator_i] + other_operators, axis=1) 
                 else:

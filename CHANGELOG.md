@@ -68,6 +68,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   free zero level and the sky monopole.
 - 📊 `TRISLinearFit` now reports `chi_square`, `degrees_of_freedom` and
   `reduced_chi_square`.
+- 🎲 **`GLS_mapmaking.posterior_samples`** draws maps from the GLS
+  posterior with hydra-tod's linear sampler. It runs the same GLS solve as
+  `__call__`. `hydra_tod.linear_sampler.params_space_oper_and_data` then
+  builds each TOD's normal-equation matrix and noise projection at the
+  estimate, and `sample_p_v2` draws one Gaussian constrained realisation
+  per requested draw. The draws follow the estimate and `posterior_cov`
+  that `__call__` returns. Gains and the 1/f and white-noise parameters
+  stay fixed. Temperatures in `Tsys_others_operator_group` (e.g. a
+  receiver temperature) are drawn with the sky; temperatures in
+  `known_injection_group` stay fixed. The method returns a
+  `GLSPosteriorSamples` (`sky`, `others`, `params`, `mean`, `precision`).
+  hydra-tod and mpi4py are imported only when `posterior_samples` runs.
+  hydra-tod is not a limTOD extra because it is not on PyPI. Under the
+  multiplicative model `Σ` is held at the estimate. Against the exact
+  posterior this shifts the mode by at most 0.004σ and changes the
+  curvature by at most 0.9% at the default noise, over 20 noise
+  realisations in `tests/test_gls_sampler.py`'s geometry.
 
 ### Changed
 
@@ -133,6 +150,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- 🧱 **Other-Tsys operators with TODs of different lengths.** With more
+  than one TOD, `HPW_mapmaking` and `GLS_mapmaking` pad TOD i's operator with zero
+  blocks for the other TODs' other-Tsys parameters. The blocks were
+  `zeros_like` of the other TODs' operators, with their row counts, so
+  construction raised whenever the TODs differed in length. They now take
+  TOD i's row count.
 - 🧭 **`GDSM_sky_model` returns an equatorial map.** pygdsm generates GSM16
   in Galactic coordinates and the map was passed on unrotated, while
   `TODSim` (whose default `sky_func` it is) and every other engine read a

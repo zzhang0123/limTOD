@@ -25,7 +25,9 @@ ships:
 
 - **Map-making** — `HPW_mapmaking` (high-pass + Wiener) and
   `GLS_mapmaking` (full 1/f + white noise covariance, ported from
-  hydra-tod's iterative GLS);
+  hydra-tod's iterative GLS). `GLS_mapmaking.posterior_samples` draws
+  posterior maps through hydra-tod's linear sampler when hydra-tod and
+  mpi4py are installed;
 - **`limTOD.patchbeam`** — a MeerKLASS-optimal sky-TOD path that keeps
   narrow, finely-gridded beams on their native (l, m) grid and integrates
   disc-restricted sky patches (no harmonic rotation);
