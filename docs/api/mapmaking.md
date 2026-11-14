@@ -22,5 +22,5 @@
 
 ```{eval-rst}
 .. automodule:: limTOD.gls_sampler
-   :members: GLSPosteriorSamples, hydra_linear_sampler, draw_gls_posterior
+   :members: GLSPosteriorSamples, hydra_map_sampler, draw_gls_posterior
 ```

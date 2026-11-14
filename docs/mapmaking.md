@@ -169,16 +169,74 @@ Notes:
   single non-iterative GLS solve. With a white covariance this
   reproduces `HPW_mapmaking`'s unfiltered solution exactly.
 - Explicit per-TOD inverse covariances can be supplied via
-  `noise_inv_cov_group` (overriding the flicker/white parameters).
+  `noise_inv_cov_group` (overriding the flicker/white parameters). Each
+  entry is the dense $N^{-1}$ or, for uncorrelated noise, its diagonal: a
+  1D array of per-sample inverse variances (zero for a flagged sample),
+  which may vary from sample to sample.
 - Priors and `return_full_cov` work as in `HPW_mapmaking` (including
   the no-ridge rule above); IRLS convergence is controlled by
-  `tol`/`min_iter`/`max_iter`.
-- Cost adds one dense `(n_time)²` covariance inversion per TOD (once)
-  and one reweighted normal-equations solve per iteration (typically
-  converges in ≲10 iterations).
+  `tol`/`min_iter`/`max_iter`. A system that is singular to working
+  precision raises `LinAlgError`.
+- Each IRLS iteration costs one reweighted normal-equations solve; the
+  IRLS typically converges in ≲10 iterations. With 1/f noise, setup adds
+  one dense `(n_time)²` covariance inversion per TOD.
+- With uncorrelated noise (`gain_noise_params=None`, or 1D
+  `noise_inv_cov_group` entries) $N^{-1}$ stays diagonal throughout, so
+  memory and time grow linearly in `n_time` (see the table below).
 - The lower-level pieces are exported too: `flicker_noise_cov` /
   `flicker_noise_inv_cov` (the Toeplitz builder) and `iterative_gls`
   (the faithful single-TOD hydra-tod solver).
+
+### White noise, several TODs, sky only
+
+When the 1/f noise is negligible, pass `gain_noise_params=None`. Leaving
+out `Tsys_others_operator_group` makes the sky pixels the only parameters.
+
+```python
+mapmaker = GLS_mapmaking(beam_map=beam,
+                         LST_deg_list_group=[lst_1, lst_2, ...],
+                         azimuth_deg_list_group=[az_1, az_2, ...],
+                         elevation_deg_list_group=[el_1, el_2, ...],
+                         lat_deg=lat, threshold=0.7, nside_target=nside)
+sky_map, sky_uncertainty = mapmaker(
+    TOD_group=[tod_1, tod_2, ...], dtime=2.0,
+    gain_noise_params=None, white_noise_var=2.5e-6,
+    known_injection_group=[trec_1, trec_2, ...],   # still in the TOD, not subtracted
+)
+```
+
+Under this (default, multiplicative) model the noise scales with the whole
+system temperature, receiver included. A known receiver temperature
+therefore stays in the TOD and goes in `known_injection_group`. If it was
+subtracted earlier, add it back, or use `noise_model="additive"` for data
+calibrated that way. A receiver temperature that is unknown but present in
+the data cannot be left out, since the sky would absorb it. Model it as a
+column of `Tsys_others_operator_group` and discard its estimate.
+
+The table gives wall time and peak memory for random dense operators, with
+`gain_noise_params=None` and the multiplicative model. Peak memory is the
+resident memory added during the call, measured in a fresh process. Most
+of it is the ordinary least-squares solve that starts the IRLS: the stacked
+operators, plus LAPACK's own copy of them.
+
+The noise covariance is block-diagonal across TODs: different TODs share
+no noise, so a dense representation stores one $n_i \times n_i$ block of
+$N^{-1}$ per TOD, $8\,n_i^2$ bytes. The column "Dense $N^{-1}$ blocks"
+gives that storage, per TOD and summed over TODs.
+
+| TODs × samples, parameters | Operators | Dense $N^{-1}$ blocks | Map-maker | 200 posterior draws |
+|---|---|---|---|---|
+| 2 × 200 000, 20 | 64 MB | 320 GB per TOD, 640 GB in all | 0.2 s, 0.21 GB | 1.2 s, 0.22 GB |
+| 64 × 3 000, 200 | 307 MB | 72 MB per TOD, 4.6 GB in all | 0.9 s, 0.67 GB | 2.3 s, 0.69 GB |
+
+The block storage is a lower bound on the dense path. It holds every block
+at once and, while building or using one TOD's block, about three more
+arrays of that size. Measured on the dense (1/f) path:
+
+| TODs × samples, parameters | Dense $N^{-1}$ blocks | Peak memory, map-maker or 200 draws |
+|---|---|---|
+| 2 × 4 000, 20 | 256 MB | 0.70 GB (2.7×) |
+| 16 × 3 000, 200 | 1.15 GB | 1.63–1.67 GB (1.4×) |
 
 ### What a wrong noise covariance costs
 
@@ -244,32 +302,39 @@ on a particular $N$.
 ### Posterior map samples (through hydra-tod)
 
 `GLS_mapmaking.posterior_samples` draws maps from the posterior that
-`__call__` summarises by its estimate $\hat p$ and covariance. It runs the
-same GLS solve as `__call__` and passes the converged system to hydra-tod's
-linear sampler:
+`__call__` summarises by its estimate $\hat p$ and covariance. limTOD runs
+the same GLS solve as `__call__`. It passes the estimate, operators,
+$N^{-1}$, known temperatures and prior precision to
+`hydra_tod.map_sampler.sample_map_posterior`, which draws the samples;
+limTOD draws no random numbers itself. Inside hydra-tod:
 
 - `hydra_tod.linear_sampler.params_space_oper_and_data` builds, per TOD,
   $U_i^\mathsf{T}\Sigma_i^{-1}U_i$ and the noise projection
-  $U_i^\mathsf{T}\Sigma_i^{-1/2}$ at $\hat p$ (multiplicative model; under
-  the additive model limTOD forms the same products with $\Sigma = N$);
-- `hydra_tod.linear_sampler.sample_p_v2` draws one Gaussian constrained
-  realisation per requested draw,
+  $U_i^\mathsf{T}\Sigma_i^{-1/2}$ at $\hat p$, for a dense or diagonal
+  $N^{-1}$ and either noise model. With a diagonal $N^{-1}$ each time
+  sample is weighted by its own inverse variance, and no
+  $n_\mathrm{time}\times n_\mathrm{time}$ array is formed;
+- `hydra_tod.linear_sampler.sample_p_v2` draws a zero-mean constrained
+  realisation $\delta$, and each draw is $x = \hat p + \delta$, with
 
 $$
-(A + S^{-1})\,x = (A + S^{-1})\,\hat p
-  + \sum_i U_i^\mathsf{T}\Sigma_i^{-1/2}\omega_i + S^{-1/2}\omega',
+(A + S^{-1})\,\delta =
+  \sum_i U_i^\mathsf{T}\Sigma_i^{-1/2}\omega_i + S^{-1/2}\omega',
   \qquad \omega_i, \omega' \sim \mathcal{N}(0, I).
 $$
 
 Here $A = \sum_i U_i^\mathsf{T}\Sigma_i^{-1}U_i$ and $S^{-1}$ is the prior
-precision. $\Sigma^{-1/2}$ stands for any factor $F$ with
-$FF^\mathsf{T} = \Sigma^{-1}$; limTOD uses $\mathrm{diag}(1/(U\hat p+\mu))$
-times the Cholesky factor of $N^{-1}$. Each $x$ then follows
+precision. $\Sigma_i^{-1/2}$ stands for any factor $F$ with
+$FF^\mathsf{T} = \Sigma_i^{-1}$. hydra-tod uses $F = \mathrm{diag}(1/(U_i\hat
+p+\mu_i))\,L$ under the multiplicative model and $F = L$ under the additive
+model, where $LL^\mathsf{T} = N_i^{-1}$: the Cholesky factor, the
+element-wise square root of a diagonal, or $V\Lambda^{1/2}$ from an
+eigendecomposition when $N_i^{-1}$ is only semi-definite. Each $x$ follows
 $\mathcal{N}(\hat p, (A+S^{-1})^{-1})$, the estimate and covariance that
-`__call__(..., return_full_cov=True)` returns. hydra-tod's own right-hand
-side, $b = \sum_i U_i^\mathsf{T}\Sigma_i^{-1}(d_i-\mu_i)$ plus $S^{-1}m$,
-gives the same centre once the IRLS has converged; limTOD uses
-$(A+S^{-1})\hat p$ so the draws stay centred on $\hat p$ when it has not.
+`__call__(..., return_full_cov=True)` returns. The prior mean enters only
+through $\hat p$. Drawing $\delta$ and adding $\hat p$ keeps the draws
+centred on $\hat p$ even before the IRLS has converged, and avoids the
+rounding of a large $(A + S^{-1})\hat p$ when $A$ is ill-conditioned.
 
 What is fixed and what is drawn:
 
@@ -311,25 +376,32 @@ Under the additive model the posterior is Gaussian and the draws are exact.
 
 #### Notes
 
-- hydra-tod and mpi4py must be importable. hydra-tod is not on PyPI, so it
-  is not a limTOD extra. Install it from
-  [its repository](https://github.com/zzhang0123/hydra-tod) and mpi4py from
-  PyPI.
-- `seed`: hydra-tod draws from NumPy's global RNG. An integer in
-  $[0, 2^{32})$ runs the draws on a stream seeded with it and restores the
-  caller's global state afterwards. A `numpy.random.Generator` is called
-  once to pick that integer. `None` uses, and advances, the current global
-  stream. The draws change NumPy's global RNG state, so they are not
-  thread-safe.
-- Cost per TOD at setup: one factorisation of the
-  $n_\mathrm{time}\times n_\mathrm{time}$ matrix $N^{-1}$ and one
-  $(n_\mathrm{params}, n_\mathrm{time})$ projection. Cost per draw: one
+- hydra-tod (with `hydra_tod.map_sampler`), mpi4py and jax must be
+  importable; hydra-tod imports jax when the package loads. hydra-tod is
+  not on PyPI, so it is not a limTOD extra:
+  `pip install mpi4py jax "git+https://github.com/zzhang0123/hydra-tod"`.
+- If $A + S^{-1}$ is singular to working precision, some parameter
+  combination is constrained by neither the data nor the prior, and the
+  call raises `LinAlgError`; no ridge is added.
+- `seed` is passed to hydra-tod as its `rng`. A non-negative integer or a
+  `numpy.random.Generator` supplies every random number and leaves NumPy's
+  global RNG state untouched. `None` draws from, and advances, the global
+  state, as the rest of hydra-tod does.
+- Cost per TOD at setup, dense $N^{-1}$: one factorisation of the
+  $n_\mathrm{time}\times n_\mathrm{time}$ matrix and one
+  $(n_\mathrm{params}, n_\mathrm{time})$ projection. Diagonal $N^{-1}$:
+  one $O(n_\mathrm{params}^2 n_\mathrm{time})$ product
+  $U^\mathsf{T}\mathrm{diag}(w)U$, and no $n_\mathrm{time}\times
+  n_\mathrm{time}$ array. Once per call: an eigenvalue check of
+  $A + S^{-1}$. Cost per draw: one
   $(n_\mathrm{params}, n_\mathrm{time})$ matrix-vector product per TOD and
   one dense $O(n_\mathrm{params}^3)$ solve, plus a Cholesky factorisation
   of $S^{-1}$ when the prior is non-diagonal.
-- A semi-definite `noise_inv_cov_group` entry (flagged samples, or a whole
-  TOD, zeroed out of $N^{-1}$) is accepted, as in `__call__`. Its square
-  root then comes from an eigendecomposition instead of a Cholesky factor.
+- A semi-definite dense `noise_inv_cov_group` entry (flagged samples, or
+  a whole TOD, zeroed out of $N^{-1}$) is accepted, as in `__call__`.
+  hydra-tod then takes its square root from an eigendecomposition instead
+  of a Cholesky factor. A diagonal entry may hold zeros; its square root
+  is taken element by element.
 - A 2D entry in `Tsys_other_prior_inv_cov_group` makes $S^{-1}$
   non-diagonal. $S^{-1}$ must then be positive definite over every
   parameter, sky included, because `sample_p_v2` draws the prior term with

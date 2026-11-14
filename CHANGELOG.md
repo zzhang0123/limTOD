@@ -69,22 +69,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 📊 `TRISLinearFit` now reports `chi_square`, `degrees_of_freedom` and
   `reduced_chi_square`.
 - 🎲 **`GLS_mapmaking.posterior_samples`** draws maps from the GLS
-  posterior with hydra-tod's linear sampler. It runs the same GLS solve as
-  `__call__`. `hydra_tod.linear_sampler.params_space_oper_and_data` then
-  builds each TOD's normal-equation matrix and noise projection at the
-  estimate, and `sample_p_v2` draws one Gaussian constrained realisation
-  per requested draw. The draws follow the estimate and `posterior_cov`
-  that `__call__` returns. Gains and the 1/f and white-noise parameters
-  stay fixed. Temperatures in `Tsys_others_operator_group` (e.g. a
-  receiver temperature) are drawn with the sky; temperatures in
-  `known_injection_group` stay fixed. The method returns a
-  `GLSPosteriorSamples` (`sky`, `others`, `params`, `mean`, `precision`).
-  hydra-tod and mpi4py are imported only when `posterior_samples` runs.
-  hydra-tod is not a limTOD extra because it is not on PyPI. Under the
-  multiplicative model `Σ` is held at the estimate. Against the exact
-  posterior this shifts the mode by at most 0.004σ and changes the
-  curvature by at most 0.9% at the default noise, over 20 noise
-  realisations in `tests/test_gls_sampler.py`'s geometry.
+  posterior. limTOD runs the same GLS solve as `__call__`. It passes the
+  estimate, operators, `N⁻¹`, known temperatures and prior precision to
+  `hydra_tod.map_sampler.sample_map_posterior`, which draws the samples;
+  limTOD draws no random numbers itself. The draws follow the estimate and
+  `posterior_cov` that `__call__` returns. Gains and the 1/f and
+  white-noise parameters stay fixed. Temperatures in
+  `Tsys_others_operator_group` (e.g. a receiver temperature) are drawn with
+  the sky; temperatures in `known_injection_group` stay fixed. The method
+  returns a `GLSPosteriorSamples` (`sky`, `others`, `params`, `mean`,
+  `precision`). `seed` is hydra-tod's `rng`: an integer or a `Generator`
+  leaves NumPy's global RNG state untouched, and `None` draws from it.
+  hydra-tod (with `hydra_tod.map_sampler`), mpi4py and jax are imported
+  only when `posterior_samples` runs. hydra-tod is not a limTOD extra
+  because it is not on PyPI. Under the multiplicative model `Σ` is held at
+  the estimate. Over 20 noise realisations of `tests/test_gls_sampler.py`'s
+  geometry at the default noise, this moves the mode by at most 0.004σ
+  and changes the curvature by at most 0.9% against the exact posterior.
+- ⚪ **Uncorrelated noise without `n_time²` matrices in `GLS_mapmaking`.** A
+  `noise_inv_cov_group` entry may now be the `(n_time,)` diagonal of
+  `N⁻¹`: per-sample inverse variances, zero for a flagged sample.
+  `gain_noise_params=None` builds that diagonal instead of a dense
+  `white_noise_var · I`. The solve and the hydra-tod sampler then weight
+  each time sample by its inverse variance, so memory and time grow
+  linearly in `n_time`; `docs/mapmaking.md` has measured times and memory.
+  For the same noise, the diagonal and dense paths give the same estimate
+  and covariance to round-off. With the same seed and no flagged sample,
+  they also give the same draws (`tests/test_gls_diagonal_noise.py`).
 
 ### Changed
 
@@ -150,6 +161,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- 🧮 **`GLS_mapmaking` raises on a numerically singular system.** Its
+  docstring promised a `LinAlgError` when some parameter combination is
+  constrained by neither the data nor the prior, but scipy's `solve` raises
+  only for an exactly singular matrix and merely warns when the reciprocal
+  condition number is below machine precision. Two identical operator
+  columns with no prior then returned estimates of ±3e16 with a warning.
+  That warning is now raised as the documented `LinAlgError`.
 - 🧱 **Other-Tsys operators with TODs of different lengths.** With more
   than one TOD, `HPW_mapmaking` and `GLS_mapmaking` pad TOD i's operator with zero
   blocks for the other TODs' other-Tsys parameters. The blocks were

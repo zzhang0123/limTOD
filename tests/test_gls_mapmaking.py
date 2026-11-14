@@ -372,7 +372,40 @@ class TestReviewRegressions:
         assert not any("FRACTIONAL" in r.message for r in caplog.records)
 
 
+def _collinear_mapmaker():
+    """GLS_mapmaking over synthetic operators whose columns 3 and 4 are
+    identical, skipping the beam-geometry build."""
+    gen = np.random.default_rng(5)
+    ops = [gen.random((200, 8)) + 0.5 for _ in range(2)]
+    for U in ops:
+        U[:, 4] = U[:, 3]
+    mm = object.__new__(GLS_mapmaking)
+    mm.num_tods, mm.Tsys_operators, mm.npol = 2, ops, 1
+    mm.num_pixels = mm.nsky_params = 8
+    mm.Tsys_others, mm.n_params_others = False, 0
+    truth = gen.random(8) * 10.0 + 2.0
+    return mm, [U @ truth for U in ops]
+
+
 class TestGLSErrorPaths:
+    @pytest.mark.parametrize("noise_model", ["multiplicative", "additive"])
+    def test_unconstrained_direction_raises(self, noise_model):
+        """Two identical columns and no prior: A is singular to working
+        precision. scipy only warns on that; the GLS must raise."""
+        mm, d = _collinear_mapmaker()
+        kw = dict(TOD_group=d, noise_model=noise_model,
+                  noise_inv_cov_group=[np.full(200, 1e4)] * 2)
+        with pytest.raises(np.linalg.LinAlgError, match="neither the data nor"):
+            mm(**kw)
+
+    def test_prior_on_the_direction_makes_it_proper(self):
+        mm, d = _collinear_mapmaker()
+        est, _ = mm(TOD_group=d, noise_model="additive",
+                    noise_inv_cov_group=[np.full(200, 1e4)] * 2,
+                    Tsky_prior_mean=np.full(8, 5.0),
+                    Tsky_prior_inv_cov_diag=np.full(8, 1.0))
+        assert np.all(np.isfinite(np.asarray(est)))
+
     def test_bad_noise_model(self, geometry):
         mm, kw, ops, truth, rng = geometry
         d_list = [U @ truth for U in ops]

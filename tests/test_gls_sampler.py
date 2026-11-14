@@ -27,7 +27,7 @@ from limTOD.gls_mapmaking import (
     flicker_noise_cov,
     flicker_noise_inv_cov,
 )
-from limTOD.gls_sampler import draw_gls_posterior, hydra_linear_sampler
+from limTOD.gls_sampler import draw_gls_posterior, hydra_map_sampler
 
 try:
     import hydra_tod.linear_sampler  # noqa: F401
@@ -169,11 +169,11 @@ class TestPosteriorDistribution:
         system = mm._solve_system(**noise_kw, **prior_kw)
         std = np.sqrt(np.diag(np.linalg.inv(system.A)))
         p_off = system.p + 3.0 * std
-        draws = draw_gls_posterior(
-            hydra_linear_sampler(),
+        draws, _ = draw_gls_posterior(
+            hydra_map_sampler(),
             d_list=system.d_list, ops=system.ops, Ninv_list=system.Ninv_list,
             mu_list=system.mu_list, p_hat=p_off, S_inv=system.S_inv,
-            prior_mean=system.prior_mean, noise_model=system.noise_model,
+            noise_model=system.noise_model,
             n_draws=N_DRAWS, seed=7,
         )
         z = (draws.mean(axis=0) - p_off) / std * np.sqrt(N_DRAWS)
@@ -265,11 +265,11 @@ class TestSamplerAPI:
         Run in a fresh process, since this one has imported hydra-tod."""
         code = (
             "import numpy as np\n"
-            "from limTOD.gls_sampler import hydra_linear_sampler\n"
+            "from limTOD.gls_sampler import hydra_map_sampler\n"
             "np.random.seed(5)\n"
             "expected = np.random.rand(3)\n"
             "np.random.seed(5)\n"
-            "hydra_linear_sampler()\n"
+            "hydra_map_sampler()\n"
             "assert np.array_equal(np.random.rand(3), expected)\n"
         )
         env = {**os.environ, "PYTHONPATH": os.pathsep.join(p for p in sys.path if p)}
@@ -353,7 +353,7 @@ class TestSamplerErrors:
             mm.posterior_samples(2, return_full_cov=True, **noise_kw)
 
     @pytest.mark.parametrize("bad, err", [("a", TypeError), (1.5, TypeError),
-                                          (-1, ValueError), (2 ** 40, ValueError)])
+                                          (True, TypeError), (-1, ValueError)])
     def test_bad_seed(self, setup, bad, err):
         mm, ops, truth, d_list, noise_kw = setup
         with pytest.raises(err, match="seed"):
@@ -371,7 +371,7 @@ class TestSamplerErrors:
 
     def test_missing_hydra_names_the_install(self, setup, monkeypatch):
         mm, ops, truth, d_list, noise_kw = setup
-        monkeypatch.setitem(sys.modules, "hydra_tod.linear_sampler", None)
+        monkeypatch.setitem(sys.modules, "hydra_tod.map_sampler", None)
         with pytest.raises(ImportError, match="hydra-tod"):
             mm.posterior_samples(2, **noise_kw)
 

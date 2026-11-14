@@ -40,11 +40,12 @@ For externally calibrated data with *additive* noise
 """
 
 import logging
+import warnings
 from dataclasses import dataclass
 from typing import Any, List, Optional, Sequence, Tuple, Union, cast
 
 import numpy as np
-from scipy.linalg import LinAlgError, cho_factor, cho_solve, solve, toeplitz
+from scipy.linalg import LinAlgError, LinAlgWarning, cho_factor, cho_solve, solve, toeplitz
 
 from limTOD.HPW_filter import _MapmakingBase
 from limTOD.flicker_model import flicker_corr
@@ -53,7 +54,7 @@ from limTOD.gls_sampler import (
     SeedLike,
     check_n_draws,
     draw_gls_posterior,
-    hydra_linear_sampler,
+    hydra_map_sampler,
     resolve_seed,
 )
 from limTOD.simulator import DEFAULT_GAIN_NOISE_PARAMS
@@ -120,10 +121,15 @@ def _solve_normal_equations(A: np.ndarray, b: np.ndarray) -> np.ndarray:
     ``A = sum_i U_i^T Sigma_i^-1 U_i + S^-1`` carries no ridge, so a
     singular ``A`` means a parameter combination is constrained by neither
     the data nor the prior -- information a stabiliser would only hide.
+    scipy raises only for an exactly singular ``A`` and merely warns when
+    its reciprocal condition number is below machine precision; that
+    warning is raised here as the same error.
     """
     try:
-        return solve(A, b, assume_a="sym")
-    except (LinAlgError, np.linalg.LinAlgError) as e:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", LinAlgWarning)
+            return solve(A, b, assume_a="sym")
+    except (LinAlgError, np.linalg.LinAlgError, LinAlgWarning) as e:
         raise np.linalg.LinAlgError(
             "the GLS normal-equations matrix sum_i U_i^T Sigma_i^-1 U_i + "
             "S^-1 is singular: some parameter combination is constrained by "
@@ -173,9 +179,38 @@ def _sigma_inv_weighted(
             "multiplicative noise weights diverged; check the operator/prior "
             "or use noise_model='additive'"
         )
+    if N_inv.ndim == 1:  # diagonal N⁻¹, so Σ⁻¹ is diagonal too
+        weighted = U * (N_inv * D_p_inv ** 2)[:, None]
+        return weighted.T @ U, weighted.T @ (d - mu)
     sigma_inv = N_inv * np.outer(D_p_inv, D_p_inv)
     aux = U.T @ sigma_inv
     return aux @ U, aux @ (d - mu)
+
+
+def _check_noise_inv(N_inv: Any, n_time: int, index: int) -> np.ndarray:
+    """Validate one ``noise_inv_cov_group`` entry and return it as a float
+    array. The entry is the ``(n_time,)`` diagonal of ``N⁻¹`` (per-sample
+    inverse variances, zero for a flagged sample) or the dense
+    ``(n_time, n_time)`` matrix. Raises ``ValueError`` for another shape,
+    or for a diagonal that is not finite and non-negative."""
+    N_inv = np.asarray(N_inv, dtype=float)
+    if N_inv.shape == (n_time,):
+        if not np.all(np.isfinite(N_inv)):
+            raise ValueError(
+                f"noise_inv_cov_group[{index}]: the diagonal of N^-1 must be finite"
+            )
+        if np.any(N_inv < 0):
+            raise ValueError(
+                f"noise_inv_cov_group[{index}]: the diagonal of N^-1 holds "
+                "inverse variances, which must be non-negative"
+            )
+        return N_inv
+    if N_inv.shape != (n_time, n_time):
+        raise ValueError(
+            f"noise_inv_cov_group[{index}] has shape {N_inv.shape}, expected "
+            f"({n_time},) for a diagonal or ({n_time}, {n_time})"
+        )
+    return N_inv
 
 
 def iterative_gls(
@@ -310,16 +345,24 @@ class GLS_mapmaking(_MapmakingBase):
             ``(U p + mu)(1 + n)`` — it is NOT subtracted from the data
             (subtracting would mis-weight the noise); under the additive
             model it enters the residual ``d - mu``.
-        gain_noise_params : (f0, fc, alpha), optional
+        gain_noise_params : (f0, fc, alpha) or None, optional
             Flicker parameters used to build the fractional-noise
             covariance via :func:`flicker_noise_cov`. Default matches
-            ``generate_TOD``. Ignored if ``noise_inv_cov_group`` is given.
+            ``generate_TOD``. ``None`` drops the 1/f term: the noise is
+            white with variance ``white_noise_var``, and ``N⁻¹`` is kept as
+            its diagonal, so no ``(n_time, n_time)`` array is formed.
+            Ignored if ``noise_inv_cov_group`` is given.
         white_noise_var : float
             Fractional white-noise variance for the covariance build
             (``generate_TOD`` default ``2.5e-6``).
-        noise_inv_cov_group : list of (n_time_i, n_time_i) arrays, optional
+        noise_inv_cov_group : list of arrays, optional
             Explicit per-TOD inverse noise covariances (fractional noise
-            for the multiplicative model, additive noise otherwise).
+            for the multiplicative model, additive noise otherwise). Each
+            entry is either the dense ``(n_time_i, n_time_i)`` ``N⁻¹`` or,
+            for uncorrelated noise, its ``(n_time_i,)`` diagonal: per-sample
+            inverse variances (zero for a flagged sample), which may vary
+            from sample to sample. A diagonal entry is never expanded to
+            ``n_time_i²`` storage.
         noise_model : {"multiplicative", "additive"}
             ``"multiplicative"`` (default): IRLS on ``d = (U p + mu)(1+n)``,
             the limTOD/hydra-tod model. ``"additive"``: one GLS solve of
@@ -348,7 +391,8 @@ class GLS_mapmaking(_MapmakingBase):
         is the only regularisation -- no ridge is added to the normal
         equations, since a ridge is just an undeclared zero-mean prior that
         contradicts ``Tsky_prior_mean`` and hides an under-determined pixel
-        set. A singular system raises ``LinAlgError``.
+        set. A system that is singular to working precision raises
+        ``LinAlgError``.
 
         Returns
         -------
@@ -379,15 +423,18 @@ class GLS_mapmaking(_MapmakingBase):
         seed: SeedLike = None,
         **gls_kwargs: Any,
     ) -> GLSPosteriorSamples:
-        """Draw maps from the GLS posterior with hydra-tod's linear sampler.
+        """Draw maps from the GLS posterior with hydra-tod's map sampler.
 
-        Runs the same GLS solve as :meth:`__call__`, then passes the
-        converged system to ``hydra_tod.linear_sampler``.
-        ``params_space_oper_and_data`` builds each TOD's normal-equation
-        matrix and noise projection ``U^T Σ^{-1/2}`` at the estimate
-        ``p_hat`` (under the additive model limTOD forms these with
-        ``Σ = N``). ``sample_p_v2`` then draws one Gaussian constrained
-        realisation per requested draw.
+        Runs the same GLS solve as :meth:`__call__`. The estimate
+        ``p_hat``, operators, ``N⁻¹``, known temperatures and prior
+        precision then go to ``hydra_tod.map_sampler.sample_map_posterior``,
+        which draws the samples; limTOD draws no random numbers itself.
+        hydra-tod builds each TOD's normal-equation matrix and noise
+        projection ``U^T Σ^{-1/2}`` at ``p_hat`` with
+        ``hydra_tod.linear_sampler.params_space_oper_and_data`` (dense or
+        diagonal ``N⁻¹``, multiplicative or additive model). It draws each
+        sample as ``p_hat`` plus a zero-mean Gaussian constrained
+        realisation from ``hydra_tod.linear_sampler.sample_p_v2``.
 
         Gains and the 1/f and white-noise parameters are held fixed.
         Temperatures modelled by the other-Tsys operator (e.g. a receiver
@@ -418,12 +465,10 @@ class GLS_mapmaking(_MapmakingBase):
         n_draws : int
             Number of posterior draws.
         seed : int, numpy.random.Generator or None
-            hydra-tod draws from NumPy's global RNG. An integer in
-            ``[0, 2**32)`` runs the draws on a stream seeded with it and
-            restores the caller's global state afterwards. A ``Generator``
-            is called once to pick that integer. ``None`` (default) uses,
-            and advances, the current global stream. The draws change
-            NumPy's global RNG state, so they are not thread-safe.
+            Passed to hydra-tod as its ``rng``. A non-negative integer or a
+            ``Generator`` supplies every random number and leaves NumPy's
+            global RNG state untouched. ``None`` (default) draws from, and
+            advances, the global state, as the rest of hydra-tod does.
         **gls_kwargs
             Every keyword of :meth:`__call__` except ``return_full_cov``
             (data, noise specification, priors, IRLS controls).
@@ -436,19 +481,30 @@ class GLS_mapmaking(_MapmakingBase):
 
         Notes
         -----
-        Needs hydra-tod and mpi4py importable. hydra-tod is not on PyPI,
-        so it is not a limTOD dependency.
+        Needs hydra-tod (with ``hydra_tod.map_sampler``), mpi4py and jax
+        importable; hydra-tod imports jax when the package loads. hydra-tod
+        is not on PyPI, so it is not a limTOD dependency.
 
-        Cost per TOD at setup: one factorisation of the
-        ``(n_time, n_time)`` ``N⁻¹`` and one ``(n_params, n_time)`` noise
-        projection. Cost per draw: one ``(n_params, n_time)``
-        matrix-vector product per TOD and one dense ``O(n_params³)``
-        solve, plus a Cholesky factorisation of ``S⁻¹`` when the prior is
-        non-diagonal.
+        Setup cost per TOD with a dense ``N⁻¹``: one factorisation of that
+        ``(n_time, n_time)`` matrix and one ``(n_params, n_time)`` noise
+        projection. Setup cost per TOD with a diagonal ``N⁻¹``
+        (``gain_noise_params=None`` or a 1D ``noise_inv_cov_group``
+        entry): one ``O(n_params² n_time)`` product, and no
+        ``(n_time, n_time)`` array. Once per call: an eigenvalue check of
+        ``A + S⁻¹``. Per draw: one ``(n_params, n_time)`` matrix-vector
+        product per TOD and one dense ``O(n_params³)`` solve, plus a
+        Cholesky factorisation of ``S⁻¹`` when the prior is non-diagonal.
 
-        An inverse noise covariance may be semi-definite (flagged samples
-        zeroed out, or a whole TOD); its square root then comes from an
-        eigendecomposition instead of a Cholesky factor.
+        A dense inverse noise covariance may be semi-definite (flagged
+        samples zeroed out, or a whole TOD); hydra-tod then takes its
+        square root from an eigendecomposition instead of a Cholesky
+        factor. A diagonal one may hold zeros; its square root is taken
+        element by element.
+
+        If ``A + S⁻¹`` is singular to working precision, hydra-tod raises
+        ``LinAlgError``: some parameter combination is constrained by
+        neither the data nor the prior. In practice the GLS solve raises
+        the same error first.
 
         A 2D entry in ``Tsys_other_prior_inv_cov_group`` makes ``S⁻¹``
         non-diagonal. ``S⁻¹`` must then be positive definite over every
@@ -462,20 +518,19 @@ class GLS_mapmaking(_MapmakingBase):
                 "posterior_samples() does not take return_full_cov; the "
                 "posterior precision is returned as .precision"
             )
-        seed_int = resolve_seed(seed)
-        linear_sampler = hydra_linear_sampler()  # fail before the solve
+        seed = resolve_seed(seed)
+        map_sampler = hydra_map_sampler()  # fail before the solve
         system = self._solve_system(**gls_kwargs)
-        draws = draw_gls_posterior(
-            linear_sampler,
+        draws, precision = draw_gls_posterior(
+            map_sampler,
             d_list=system.d_list, ops=system.ops, Ninv_list=system.Ninv_list,
             mu_list=system.mu_list, p_hat=system.p, S_inv=system.S_inv,
-            prior_mean=system.prior_mean, noise_model=system.noise_model,
-            n_draws=n_draws, seed=seed_int,
+            noise_model=system.noise_model, n_draws=n_draws, seed=seed,
         )
-        return self._package_samples(draws, system)
+        return self._package_samples(draws, system.p, precision)
 
     def _package_samples(
-        self, draws: np.ndarray, system: _GLSSystem
+        self, draws: np.ndarray, p_hat: np.ndarray, precision: np.ndarray
     ) -> GLSPosteriorSamples:
         """Split joint draws into sky and per-TOD other-Tsys blocks
         (the layout :meth:`_assemble_outputs` uses)."""
@@ -491,7 +546,7 @@ class GLS_mapmaking(_MapmakingBase):
             ]
         return GLSPosteriorSamples(
             sky=sky, others=others, params=draws,
-            mean=system.p, precision=system.A,
+            mean=p_hat, precision=precision,
         )
 
     def _solve_system(
@@ -620,17 +675,10 @@ class GLS_mapmaking(_MapmakingBase):
                     f"noise_inv_cov_group has {len(noise_inv_cov_group)} "
                     f"entries but there are {self.num_tods} TODs"
                 )
-            out = []
-            for i, (Ninv, d_i) in enumerate(zip(noise_inv_cov_group, tod_list)):
-                Ninv = np.asarray(Ninv, dtype=float)
-                n_i = d_i.shape[0]
-                if Ninv.shape != (n_i, n_i):
-                    raise ValueError(
-                        f"noise_inv_cov_group[{i}] has shape {Ninv.shape}, "
-                        f"expected ({n_i}, {n_i})"
-                    )
-                out.append(Ninv)
-            return out
+            return [
+                _check_noise_inv(Ninv, d_i.shape[0], i)
+                for i, (Ninv, d_i) in enumerate(zip(noise_inv_cov_group, tod_list))
+            ]
 
         if time_list_group is not None:
             times = [np.asarray(t, dtype=float) for t in (
@@ -666,6 +714,14 @@ class GLS_mapmaking(_MapmakingBase):
                 "only meaningful if these parameters really describe your "
                 "additive noise; otherwise pass noise_inv_cov_group."
             )
+        if gain_noise_params is None:
+            # white noise only: keep N⁻¹ as its diagonal, never n_time²
+            if not white_noise_var > 0:
+                raise ValueError(
+                    "gain_noise_params=None leaves only the white noise, so "
+                    f"white_noise_var must be > 0, got {white_noise_var}"
+                )
+            return [np.full(t.size, 1.0 / white_noise_var) for t in times]
         return [
             flicker_noise_inv_cov(t, gain_noise_params, white_noise_var)
             for t in times
@@ -703,7 +759,8 @@ class GLS_mapmaking(_MapmakingBase):
             b = b_prior.copy()
             for d_i, U_i, Ninv_i, mu_i in zip(d_list, ops, Ninv_list, mu_list):
                 if noise_model == "additive":
-                    aux = U_i.T @ Ninv_i
+                    aux = ((U_i * Ninv_i[:, None]).T if Ninv_i.ndim == 1
+                           else U_i.T @ Ninv_i)
                     A += aux @ U_i
                     b += aux @ (d_i - mu_i)
                 else:
