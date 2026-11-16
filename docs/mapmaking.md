@@ -198,12 +198,20 @@ mapmaker = GLS_mapmaking(beam_map=beam,
                          azimuth_deg_list_group=[az_1, az_2, ...],
                          elevation_deg_list_group=[el_1, el_2, ...],
                          lat_deg=lat, threshold=0.7, nside_target=nside)
-sky_map, sky_uncertainty = mapmaker(
+data = dict(
     TOD_group=[tod_1, tod_2, ...], dtime=2.0,
     gain_noise_params=None, white_noise_var=2.5e-6,
     known_injection_group=[trec_1, trec_2, ...],   # still in the TOD, not subtracted
 )
+sky_map, sky_uncertainty = mapmaker(**data)
+samples = mapmaker.posterior_samples(1000, seed=0, **data)   # needs hydra-tod
+samples.sky   # (1000, n_pix) posterior map draws
 ```
+
+`posterior_samples` takes the same keywords as the map-maker and draws
+maps from the same posterior, through hydra-tod; see
+[Posterior map samples](#posterior-map-samples-through-hydra-tod). Drop
+`known_injection_group` if the TOD contains no receiver temperature.
 
 Under this (default, multiplicative) model the noise scales with the whole
 system temperature, receiver included. A known receiver temperature
@@ -356,6 +364,14 @@ samples.others     # per-TOD other-Tsys draws, or None
 samples.mean       # the GLS estimate the draws are centred on
 samples.precision  # inverse of return_full_cov's posterior_cov
 ```
+
+`posterior_samples` takes every keyword of the map-maker, so the noise and
+data options are the same. `TOD_group` may hold any number of TODs, and all
+of them constrain one joint posterior. White noise works through
+`gain_noise_params=None` or 1D `noise_inv_cov_group` entries, with no
+$n_\mathrm{time}\times n_\mathrm{time}$ arrays. The example above includes
+1/f noise; [White noise, several TODs, sky only](#white-noise-several-tods-sky-only)
+shows the white-noise call.
 
 #### Multiplicative model
 

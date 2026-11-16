@@ -11,7 +11,10 @@ the package ships:
 
 - **Map-making** — the high-pass + Wiener `HPW_mapmaking` and the
   GLS `GLS_mapmaking` (full 1/f + white noise covariance, ported from
-  [hydra-tod](https://github.com/hydra-cosmology/hydra-tod));
+  [hydra-tod](https://github.com/hydra-cosmology/hydra-tod)).
+  `GLS_mapmaking.posterior_samples` draws posterior maps through
+  hydra-tod's `map_sampler`
+  ([Posterior map samples](mapmaking.md#posterior-map-samples-through-hydra-tod));
 - **`limTOD.patchbeam`** — a disc-restricted sky-TOD path that keeps
   narrow, finely-gridded beams on their native $(l, m)$ grid
   (MeerKLASS-optimal, no harmonic rotation);
