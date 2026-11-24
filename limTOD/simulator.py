@@ -341,6 +341,14 @@ def _truncate_map(input_map: np.ndarray, frac_thres: float = 1e-10) -> np.ndarra
             result[:, mask] = 0.0
     return result
 
+
+def _horizontal_mask_alm(mask: Optional[np.ndarray], n_pointings: int) -> Optional[np.ndarray]:
+    """Analyse the instrument-frame mask once for the pointings on this rank."""
+    if mask is None or n_pointings == 0:
+        return None
+    return hp.map2alm(mask)
+
+
 def pointing_beam_in_eq_sys(
     beam_alm: np.ndarray,
     LST_deg: float,
@@ -394,6 +402,17 @@ def pointing_beam_in_eq_sys(
     array
         The pointed beam map in the equatorial coordinate system.
     """
+    return _point_beam_alm(
+        beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, selfrot_deg,
+        nside, normalize, _horizontal_mask_alm(horizontal_mask, 1), truncate_frac_thres,
+    )
+
+
+def _point_beam_alm(
+    beam_alm: np.ndarray, LST_deg: float, lat_deg: float, azimuth_deg: float,
+    elevation_deg: float, selfrot_deg: float, nside: int, normalize: bool,
+    mask_alm: Optional[np.ndarray], truncate_frac_thres: float,
+) -> np.ndarray:
     psi_rad, theta_rad, phi_rad = zyz_of_pointing(
         LST_deg=LST_deg,
         lat_deg=lat_deg,
@@ -403,7 +422,7 @@ def pointing_beam_in_eq_sys(
     )
     beam_pointed = _rotate_healpix_map(beam_alm, psi_rad, theta_rad, phi_rad, nside)
 
-    if horizontal_mask is not None:
+    if mask_alm is not None:
         # The horizontal-frame mask has its pole at the ZENITH (like beams
         # have theirs at boresight), so horizontal -> equatorial is the
         # zenith pointing: elevation=90 makes delta = el-90 vanish and the
@@ -417,7 +436,6 @@ def pointing_beam_in_eq_sys(
             elevation_deg=90,
             selfrot_deg=0
         )
-        mask_alm = hp.map2alm(horizontal_mask)
         mask_pointed = _rotate_healpix_map(mask_alm, mask_psi_rad, mask_theta_rad, mask_phi_rad, nside)
         mask_pointed = np.where(mask_pointed >= 0.5, 1.0, 0.0)
         beam_pointed = beam_pointed * mask_pointed[np.newaxis, :] if beam_pointed.ndim == 2 else beam_pointed * mask_pointed
@@ -542,8 +560,7 @@ def generate_TOD_sky(
             1 indicates unmasked pixels, 0 indicates masked pixels.
     truncate_frac_thres : float, optional
         The fractional threshold value for beam truncation. 
-        It is ignored if horizontal_mask is provided.
-        If specified, and horizontal_mask is provided, set all pixels with values below this fraction of the maximum pixel value to zero before normalization. Default is 1e-10.
+        It is ignored if horizontal_mask is provided. Default is 1e-10.
 
     Returns
     -------
@@ -551,6 +568,19 @@ def generate_TOD_sky(
         The generated Time-Ordered Data (TOD) as a 1D array.
     """
     
+    return _generate_sky_tod(
+        beam_map, sky_map, LST_deg_list, lat_deg, azimuth_deg_list, elevation_deg_list,
+        selfrot_deg_list, nside_hires, normalize_beam,
+        _horizontal_mask_alm(horizontal_mask, len(LST_deg_list)), truncate_frac_thres,
+    )
+
+
+def _generate_sky_tod(
+    beam_map: np.ndarray, sky_map: np.ndarray, LST_deg_list: AngleList, lat_deg: float,
+    azimuth_deg_list: AngleList, elevation_deg_list: AngleList, selfrot_deg_list: AngleList,
+    nside_hires: Optional[int], normalize_beam: bool, mask_alm: Optional[np.ndarray],
+    truncate_frac_thres: float,
+) -> np.ndarray:
     nside_beam = hp.get_nside(beam_map) if beam_map.ndim == 1 else hp.get_nside(beam_map[0])
     if nside_hires is not None and nside_hires != nside_beam:
         beam_map_hires = hp.ud_grade(beam_map, nside_hires)
@@ -572,16 +602,12 @@ def generate_TOD_sky(
         )
 
     tod = []
-
-        
-
     for LST_deg, azimuth_deg, elevation_deg, selfrot_deg in tqdm.tqdm(
         zip(LST_deg_list, azimuth_deg_list, elevation_deg_list, selfrot_deg_list), total=len(LST_deg_list)
     ):
-        beam_pointed = pointing_beam_in_eq_sys(
+        beam_pointed = _point_beam_alm(
             beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, selfrot_deg,
-            nside=nside_sky, normalize=normalize_beam, 
-            horizontal_mask=horizontal_mask,
+            nside=nside_sky, normalize=normalize_beam, mask_alm=mask_alm,
             truncate_frac_thres=truncate_frac_thres
         )
         sample = _beam_weighted_sum(beam_pointed, sky_map)
@@ -819,11 +845,12 @@ class TODSim:
         el_mine = elevation_deg_list[idx_mine]
         sr_mine = selfrot_deg_list[idx_mine]
 
+        mask_alm = _horizontal_mask_alm(horizontal_mask, nfreq * n_local)
         TOD_local = np.empty((nfreq, n_local), dtype=np.float64)
         for i, freq in enumerate(freq_list):
             beam_map = self.beam_func(freq=freq, nside=self.beam_nside)
             sky_map = self.sky_func(freq=freq, nside=self.sky_nside)
-            TOD_local[i] = generate_TOD_sky(
+            TOD_local[i] = _generate_sky_tod(
                 beam_map,
                 sky_map,
                 lst_mine,
@@ -833,7 +860,7 @@ class TODSim:
                 sr_mine,
                 nside_hires=nside_hires,
                 normalize_beam=normalize_beam,
-                horizontal_mask=horizontal_mask,
+                mask_alm=mask_alm,
                 truncate_frac_thres=truncate_frac_thres,
             )
 
@@ -1116,13 +1143,13 @@ def truncate_stacked_beam(
     # Generate a initial boolean map with all pixels zero
     bool_map = np.zeros(hp.nside2npix(nside_target), dtype=bool)
 
+    mask_alm = _horizontal_mask_alm(horizontal_mask, len(LST_deg_list))
     for LST_deg, azimuth_deg, elevation_deg, selfrot_deg in tqdm.tqdm(
         zip(LST_deg_list, azimuth_deg_list, elevation_deg_list, selfrot_deg_list), total=len(LST_deg_list)
     ):
-        beam_pointed = pointing_beam_in_eq_sys(
+        beam_pointed = _point_beam_alm(
             beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, selfrot_deg,
-            horizontal_mask=horizontal_mask,
-            nside=nside_target
+            nside=nside_target, normalize=True, mask_alm=mask_alm, truncate_frac_thres=1e-10,
         )
         norm = np.max(np.abs(beam_pointed))
         if norm > 0:
@@ -1234,13 +1261,14 @@ def generate_sky2sys_projection(
     else:
         sky2sys = np.zeros((n_data, beam_map.shape[0], n_pixels))
 
+    mask_alm = _horizontal_mask_alm(horizontal_mask, n_data)
     i = 0
     for LST_deg, azimuth_deg, elevation_deg, selfrot_deg in tqdm.tqdm(
         zip(LST_deg_list, azimuth_deg_list, elevation_deg_list, selfrot_deg_list), total=n_data
     ):
-        beam_pointed = pointing_beam_in_eq_sys(
+        beam_pointed = _point_beam_alm(
             beam_alm, LST_deg, lat_deg, azimuth_deg, elevation_deg, selfrot_deg,
-            horizontal_mask=horizontal_mask,
+            mask_alm=mask_alm,
             nside=nside_target, normalize=normalize_beam,
             truncate_frac_thres=truncate_frac_thres
         )

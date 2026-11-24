@@ -34,6 +34,43 @@ from .beam import MeerKLASSBeam
 from .stokes import SUPPORTED_STOKES
 
 
+def _visible_disc(
+    nside: int, lst_deg: float, az_deg: float, el_deg: float, lat_deg: float,
+    radius_deg: float, horizontal_mask: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    """Return the unmasked, above-horizon pixels and their horizontal directions."""
+    if horizontal_mask is not None:
+        expected_npix = hp.nside2npix(nside)
+        if horizontal_mask.shape[-1] != expected_npix:
+            raise ValueError(
+                f"horizontal_mask has {horizontal_mask.shape[-1]} pixels; "
+                f"expected {expected_npix} for nside={nside}."
+            )
+
+    ra, dec = projection.pointing_radec(az_deg, el_deg, lst_deg, lat_deg)
+    pixels = disc.select_disc(nside, ra, dec, radius_deg)
+    if pixels.size == 0:
+        return None
+    az, el = projection.pixel_directions_to_az_el(nside, pixels, lst_deg, lat_deg)
+    keep = el > 0.0
+    if horizontal_mask is not None:
+        keep &= horizontal_mask[pixels]
+    if not np.any(keep):
+        return None
+    return pixels[keep], az[keep], el[keep]
+
+
+def _first_visible(
+    indices: range, lst: np.ndarray, az: np.ndarray, el: np.ndarray, lat: float,
+    nside: int, radius: float, mask: np.ndarray | None,
+) -> int:
+    """Return the first candidate that needs a beam, or the end of the range."""
+    for i in indices:
+        if _visible_disc(nside, lst[i], az[i], el[i], lat, radius, mask) is not None:
+            return i
+    return indices.stop
+
+
 # ---------------------------------------------------------------------- #
 # Single-sample integration                                              #
 # ---------------------------------------------------------------------- #
@@ -45,7 +82,7 @@ def integrate_sample(
     lat_deg: float,
     beam: MeerKLASSBeam,
     sky_maps: np.ndarray,
-    beam_freq_indices: np.ndarray,
+    beam_freq_indices: np.ndarray | None,
     sky_freq_indices: np.ndarray | None = None,
     disc_radius_deg: float,
     polarization: str = "HH",
@@ -77,9 +114,9 @@ def integrate_sample(
         ``n_pix_sky`` must correspond to a valid HEALPix ``nside``. The
         sky is assumed to be in equatorial coordinates (same frame as
         ``horizontal_mask`` if supplied).
-    beam_freq_indices : ndarray of int
+    beam_freq_indices : ndarray of int or None
         Indices into ``beam.freq_MHz`` for each output channel. Shape
-        ``(n_freq_out,)``.
+        ``(n_freq_out,)``. Pass ``None`` for all planes in their stored order.
     sky_freq_indices : ndarray of int, optional
         Indices into ``sky_maps``' frequency axis. Default ``None`` means
         ``np.arange(n_freq_out)`` — i.e. the sky cube is assumed to
@@ -111,13 +148,8 @@ def integrate_sample(
 
     Notes
     -----
-    The two underscore-prefixed parameters (``_beam_power_cube``,
-    ``_omega_b_disc``) are an internal optimisation: when called by the
-    batched :func:`integrate_tod`, the beam power cube and the
-    omega_b-at-output-channels slice are computed once per batch and
-    threaded through here to skip redundant attribute lookups. They
-    default to ``None`` and are recomputed from ``beam`` on demand,
-    which is the right behaviour for one-off calls.
+    The batched driver passes the selected beam planes and their matching
+    solid angles as bare arrays so each worker can reuse them.
     """
     if tuple(stokes_modes) != SUPPORTED_STOKES:
         raise NotImplementedError(
@@ -126,43 +158,21 @@ def integrate_sample(
         )
 
     nside_sky = hp.npix2nside(sky_maps.shape[-1])
-    n_freq_out = len(beam_freq_indices)
+    if beam_freq_indices is None:
+        n_freq_out = len(beam.freq_MHz) if _beam_power_cube is None else len(_beam_power_cube)
+    else:
+        n_freq_out = len(beam_freq_indices)
 
     if sky_freq_indices is None:
         sky_freq_indices = np.arange(n_freq_out, dtype=np.int64)
 
-    # Validate horizontal_mask shape eagerly -- silent fallback was a
-    # foot-gun (silently disables masking; bug found in review).
-    if horizontal_mask is not None:
-        expected_npix = hp.nside2npix(nside_sky)
-        if horizontal_mask.shape[-1] != expected_npix:
-            raise ValueError(
-                f"horizontal_mask has {horizontal_mask.shape[-1]} pixels; "
-                f"expected {expected_npix} for nside={nside_sky}."
-            )
-
-    # 1) pointing -> RA, Dec
-    ra_p, dec_p = projection.pointing_radec(az_pointing_deg, el_pointing_deg, lst_deg, lat_deg)
-
-    # 2) disc query in equatorial coords
-    pix_ids = disc.select_disc(nside_sky, ra_p, dec_p, disc_radius_deg)
-    if pix_ids.size == 0:
+    visible = _visible_disc(
+        nside_sky, lst_deg, az_pointing_deg, el_pointing_deg, lat_deg,
+        disc_radius_deg, horizontal_mask,
+    )
+    if visible is None:
         return np.zeros(n_freq_out, dtype=np.float64)
-
-    # 3) disc pixels back to horizontal at this LST
-    az_s, el_s = projection.pixel_directions_to_az_el(nside_sky, pix_ids, lst_deg, lat_deg)
-
-    keep = np.ones_like(pix_ids, dtype=bool)
-    if horizontal_mask is not None:
-        keep &= horizontal_mask[pix_ids]
-    # Sky pixels below the horizon don't see the antenna; drop them.
-    keep &= el_s > 0.0
-    if not np.any(keep):
-        return np.zeros(n_freq_out, dtype=np.float64)
-
-    pix_ids = pix_ids[keep]
-    az_s = az_s[keep]
-    el_s = el_s[keep]
+    pix_ids, az_s, el_s = visible
 
     # 4) direction cosines in beam frame
     l_dc, m_dc = projection.direction_cosines(az_pointing_deg, el_pointing_deg, az_s, el_s)
@@ -178,11 +188,11 @@ def integrate_sample(
     beam_disc = interpolation.apply_bilinear(weights, cube, beam_freq_indices)  # (nf, npix)
 
     # 7) integrate against the sky
-    omega_b = (
-        _omega_b_disc
-        if _omega_b_disc is not None
-        else beam.beam_solid_angle(polarization)[beam_freq_indices]
-    )
+    omega_b = _omega_b_disc
+    if omega_b is None:
+        omega_b = beam.beam_solid_angle(polarization)
+        if beam_freq_indices is not None:
+            omega_b = omega_b[beam_freq_indices]
     d_omega_pix = 4.0 * np.pi / hp.nside2npix(nside_sky)
     sky_disc = np.ascontiguousarray(sky_maps[sky_freq_indices[:, None], pix_ids[None, :]])
 
@@ -198,7 +208,7 @@ def integrate_sample(
 # Batched worker (used by joblib)                                        #
 # ---------------------------------------------------------------------- #
 def _process_batch(
-    indices: np.ndarray,
+    indices: range,
     lst_arr: np.ndarray,
     az_arr: np.ndarray,
     el_arr: np.ndarray,
@@ -208,7 +218,6 @@ def _process_batch(
     omega_b_disc: np.ndarray,
     sky_maps: np.ndarray,
     sky_freq_idx: np.ndarray,
-    beam_freq_idx: np.ndarray,
     disc_radius_deg: float,
     polarization: str,
     horizontal_mask: np.ndarray | None,
@@ -227,7 +236,7 @@ def _process_batch(
     objects -- this is why we deliberately do NOT pass the
     :class:`MeerKLASSBeam` wrapper here.
     """
-    out = np.empty((len(beam_freq_idx), len(indices)), dtype=np.float64)
+    out = np.empty((len(omega_b_disc), len(indices)), dtype=np.float64)
     for k, i in enumerate(indices):
         out[:, k] = integrate_sample(
             lst_deg=float(lst_arr[i]),
@@ -236,7 +245,7 @@ def _process_batch(
             lat_deg=lat_deg,
             beam=None,  # type: ignore[arg-type]  # all bare-array overrides are set below
             sky_maps=sky_maps,
-            beam_freq_indices=beam_freq_idx,
+            beam_freq_indices=None,
             sky_freq_indices=sky_freq_idx,
             disc_radius_deg=disc_radius_deg,
             polarization=polarization,
@@ -330,7 +339,7 @@ def integrate_tod(
     # inside each worker call) lets joblib auto-memmap the beam cube,
     # which is the difference between linear scaling and the flat
     # scaling observed in v0.1's benchmark.
-    beam_power_cube = beam.power_cube(polarization)
+    full_cube = beam.power_cube(polarization)
     omega_b_disc = beam.beam_solid_angle(polarization)[beam_freq_idx]
 
     n_jobs_resolved = _parallel.resolve_n_jobs(n_jobs)
@@ -344,11 +353,38 @@ def integrate_tod(
         batch_size = max(1, ntime // n_workers) if n_workers > 1 else ntime
     batch_size = max(1, int(batch_size))
 
-    batches = [
-        np.arange(start, min(start + batch_size, ntime), dtype=np.int64)
-        for start in range(0, ntime, batch_size)
-    ]
+    # Contiguous channels share storage. For an arbitrary selection, only
+    # gather and send the planes to workers if some pointing sees the sky.
+    spans = [range(ntime)]
+    if not beam_freq_idx.size or not ntime:
+        beam_power_cube = full_cube[:0]
+    elif np.all(np.diff(beam_freq_idx) == 1):
+        # A one-plane beam can resolve its sole channel to NumPy index -1.
+        start = int(beam_freq_idx[0]) % len(full_cube)
+        beam_power_cube = full_cube[start:start + len(beam_freq_idx)]
+    else:
+        geometry = (
+            lst_arr, az_arr, el_arr, lat_deg, hp.npix2nside(sky_maps.shape[-1]),
+            disc_radius_deg, horizontal_mask,
+        )
+        if ntime and _first_visible(range(1), *geometry) == 1:
+            # The first pointing is usually enough. On a dark start, search
+            # without shipping the beam or reprocessing known dark prefixes.
+            chunk_size = (ntime + n_workers - 1) // n_workers
+            chunks = [range(i, min(i + chunk_size, ntime)) for i in range(1, ntime, chunk_size)]
+            starts = _parallel.map_samples(
+                _first_visible, ((chunk, *geometry) for chunk in chunks),
+                n_jobs=n_jobs_resolved, progress=progress, progress_desc="Checking visibility",
+            )
+            spans = [range(i, chunk.stop) for i, chunk in zip(starts, chunks) if i < chunk.stop]
+            if not spans:
+                return np.zeros((len(freq_arr), ntime), dtype=np.float64)
+        beam_power_cube = full_cube[beam_freq_idx]
 
+    batches = [
+        range(i, min(i + batch_size, span.stop))
+        for span in spans for i in range(span.start, span.stop, batch_size)
+    ]
     margin_deg = beam.margin_deg
     args = [
         (
@@ -362,7 +398,6 @@ def integrate_tod(
             omega_b_disc,
             sky_maps,
             sky_freq_idx,
-            beam_freq_idx,
             disc_radius_deg,
             polarization,
             horizontal_mask,
@@ -370,6 +405,11 @@ def integrate_tod(
         for batch in batches
     ]
     results = _parallel.map_samples(_process_batch, args, n_jobs=n_jobs_resolved, progress=progress)
+    if spans[0].start:
+        tod = np.zeros((len(freq_arr), ntime), dtype=np.float64)
+        for batch, result in zip(batches, results):
+            tod[:, batch.start:batch.stop] = result
+        return tod
     return np.concatenate(results, axis=-1)  # (n_freq_out, ntime)
 
 

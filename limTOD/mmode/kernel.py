@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import Optional, Union
 
 import numpy as np
+from scipy.signal import upfirdn
 
 from .window import LSTWindow
 
@@ -90,7 +91,27 @@ class Kernel:
         y = np.asarray(tod, dtype=float)
         if y.shape[0] != window.n:
             raise ValueError(f"tod has {y.shape[0]} samples, the window {window.n}.")
-        return self.smoothing_operator(window) @ y
+        if type(self) is not Kernel or y.ndim > 2 or not np.all(np.isfinite(y)):
+            # A subclass may define its own matrix. Matmul also defines the
+            # existing semantics for batched arrays and non-finite values.
+            return self.smoothing_operator(window) @ y
+        self._step_rad(window)
+        return self._filter(y, window)
+
+    def _filter(self, values: np.ndarray, window: LSTWindow, *, transpose: bool = False) -> np.ndarray:
+        """Apply S or S.T along axis 0 to validated finite vectors or columns."""
+        if self.length == 1:
+            return values.copy()
+        closed = window.closed
+        # With unit up/downsampling, upfirdn computes a full linear convolution.
+        # S gathers neighboring samples; S.T scatters each sample to those neighbors.
+        taps = self.taps if transpose else self.taps[::-1]
+        full = upfirdn(taps, values, axis=0, mode="wrap" if closed else "constant")
+        if closed:
+            return full[self.half:self.half + window.n]
+        if transpose:
+            return full  # Zero outside the retained centers, spreading back to all n samples.
+        return full[self.length - 1:window.n]  # The fully overlapping windows.
 
     def valid(self, window: LSTWindow) -> LSTWindow:
         """The window of samples that survive :meth:`smooth`."""

@@ -13,14 +13,27 @@ Both scripts are deliberately thin wrappers around library calls — the
 heavy lifting (beam rotation, convolution, 1/f noise, Wiener filter) is
 inside `limTOD.TODSim.generate_TOD` and `limTOD.HPW_mapmaking`.
 
+The [patch-beam CPU benchmark](benchmark_patchbeam.py) uses the base dependencies
+and generates its own 8-channel raster, sky and noise. To reproduce the
+single-thread comparison from the repository root, run
+
+```bash
+PYTHONPATH=. OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
+  python scripts/benchmark_patchbeam.py --repeats 5
+```
+
+For an older revision, run the same script from that revision's repository
+root with `PYTHONPATH=.`. Use `--save-output scan.npz` to compare the sky,
+gain, LSTs and final TOD across revisions.
+
 For the project-specific DSA pipeline (full MPI harness, cached
 operators, custom beam FITS, multi-elevation cascade, etc.) see
 [`examples/DSA/scripts/`](../examples/DSA/scripts/).
 
 ## Prerequisites
 
-- A conda environment with `limTOD` installed (editable install is
-  fine); the repo uses the `TOD` env in the author's setup.
+- A Python environment with `limTOD` installed. An editable install from the
+  repository root (`python -m pip install -e .`) also works.
 - `mpi4py` is an optional dependency since limTOD 1.3.0
   (`pip install -e ".[mpi]"`); without it these scripts run serially
   automatically. You only need `mpirun` (and the `[mpi]` extra) for

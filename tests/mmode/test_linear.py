@@ -258,3 +258,67 @@ def test_modes_beyond_the_sampling_nyquist_are_refused(arc300):
     with pytest.raises(ValueError, match="Nyquist"):
         leakage_bound(arc300, 8, np.ones(800), kernel=dpss_kernel(61, 3.0))
     assert leakage_bound(arc300, 8, np.ones(300), kernel=dpss_kernel(61, 3.0)) < np.inf
+
+
+@pytest.mark.parametrize("closed", [False, True])
+@pytest.mark.parametrize("taps", [[1.0], [-1.0, 4.0, -1.0]])
+def test_ols_propagates_raw_sample_noise_without_a_dense_smoother(closed, taps, monkeypatch):
+    from limTOD.mmode.kernel import Kernel
+
+    n = 25
+    phase = np.linspace(0.0, 360.0 if closed else 260.0, n, endpoint=False)
+    weights = np.linspace(0.4, 2.0, n) ** 2
+    window = LSTWindow(phase, weights=weights)
+    kernel = Kernel(np.array(taps))
+    # Each row is the response of one retained sample to unit impulses on the raw grid.
+    h = kernel.half
+    centers = np.arange(n) if closed else np.arange(h, n - h)
+    smoother = np.zeros((centers.size, n))
+    for row, center in enumerate(centers):
+        smoother[row, (center + np.arange(-h, h + 1)) % n] = kernel.taps
+    angle = np.deg2rad(phase)
+    design = smoother @ np.column_stack([np.ones(n), 2 * np.cos(angle), -2 * np.sin(angle)])
+    sqrt_w = np.sqrt(weights[centers])[:, None]
+    # Fit the impulses as independent RHSs; their raw variance is 1 / weight.
+    responses = np.linalg.lstsq(sqrt_w * design, sqrt_w * smoother, rcond=None)[0]
+    raw = np.random.default_rng(30).normal(size=(n, 2))
+    expected = responses @ raw
+    residuals = smoother @ raw - design @ expected
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("default OLS must not allocate a dense time-domain smoothing matrix")
+
+    monkeypatch.setattr(Kernel, "smoothing_operator", forbidden)
+    result = solve(raw, window, 1, kernel=kernel)
+    np.testing.assert_allclose(pack(result.modes).T, expected, atol=1e-13)
+    np.testing.assert_allclose(result.cov, (responses / weights) @ responses.T, atol=1e-13)
+    np.testing.assert_allclose(result.residual_rms, np.sqrt(np.mean(residuals ** 2, axis=0)))
+
+
+def test_custom_smoothing_operator_drives_the_fit_and_its_noise(monkeypatch):
+    from limTOD.mmode.kernel import Kernel
+
+    class ThreePointAverage(Kernel):
+        def smoothing_operator(self, window):
+            eye = np.eye(window.n)
+            return (np.roll(eye, 1, axis=0) + 2 * eye + np.roll(eye, -1, axis=0)) / 4
+
+    weights = np.arange(1., 10.)
+    window = LSTWindow(np.arange(9) * 40., weights=weights)
+    kernel = ThreePointAverage(np.ones(1))
+    raw = np.arange(9.) ** 2
+    smoothed = (np.roll(raw, 1) + 2 * raw + np.roll(raw, -1)) / 4
+    np.testing.assert_array_equal(kernel.smooth(raw, window), smoothed)
+
+    # The fit is defined by smoothing_operator, even if the subclass
+    # customises the standalone convenience method separately.
+    def unused_smooth(*args):
+        pytest.fail("the estimator must use the same operator for data and covariance")
+
+    monkeypatch.setattr(ThreePointAverage, "smooth", unused_smooth)
+    response = (np.roll(weights, 1) + 2 * weights + np.roll(weights, -1)) / (4 * weights.sum())
+    variance = np.sum(response ** 2 / weights)
+    result = solve(raw, window, 0, kernel=kernel)
+    np.testing.assert_allclose(result.d0[0], np.average(smoothed, weights=weights))
+    np.testing.assert_allclose(result.cov[0, 0], variance)
+    np.testing.assert_allclose(noise_amplification(window, 0, kernel=kernel), np.sqrt(variance))

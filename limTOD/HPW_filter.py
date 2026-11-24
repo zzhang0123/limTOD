@@ -140,9 +140,8 @@ def wiener_filter_map(
         tolerated and symmetrised away, while a genuinely asymmetric matrix
         is rejected. It is never inverted here, so
         pass the INVERSE — that keeps the O(n_time^3) inversion and its
-        numerical conditioning under your control. Costs nothing over the
-        ``noise_variance`` path, which already materialises a dense
-        ``(n_time, n_time)`` ``N^-1`` and multiplies with it.
+        numerical conditioning under your control. Uncorrelated noise
+        weights use at most one value per time sample.
 
         NOT usable through ``HPW_mapmaking``'s high-pass path: there the
         data being fitted is ``H d`` with operator ``H A``, so the relevant
@@ -191,9 +190,9 @@ def wiener_filter_map(
             right_pad = residual[-half_window:][::-1]  # Last N samples, reversed
             padded_residual = np.concatenate([left_pad, residual, right_pad])
 
-            # Apply rolling window to squared residuals
+            # Complex noise power is the squared modulus, independent of phase.
             noise_variance = np.convolve(
-                padded_residual**2,
+                np.abs(padded_residual)**2,
                 np.ones(window_size)/window_size,
                 mode='valid'
             )
@@ -209,8 +208,9 @@ def wiener_filter_map(
             logger.info("Estimated noise variance: %.6f", noise_variance)
 
 
-    # Build the inverse noise covariance N^-1: explicit, diagonal-from-scalar,
-    # or diagonal-from-vector.
+    # Form A^H N^-1. Independent samples weight its columns directly. Keep
+    # the same contiguous layout as the dense product for the subsequent
+    # reductions, especially for ill-conditioned normal equations.
     if noise_inv_cov is not None:
         if noise_variance is not None:
             raise ValueError(
@@ -285,9 +285,12 @@ def wiener_filter_map(
                 f"error — not a numerical artefact. Symmetrise it explicitly "
                 f"if you really intend its Hermitian part."
             )
-        N_inv = hermitian_part
+        AtN = operator.conj().T @ hermitian_part
     elif np.isscalar(noise_variance):
-        N_inv = np.eye(n_time) / cast(float, noise_variance)
+        # A one-element float64 weight broadcasts to every sample and keeps
+        # scalar weighting in double precision for float32/complex64 inputs.
+        weight = np.ones(1, dtype=np.float64) / cast(float, noise_variance)
+        AtN = np.multiply(operator.conj().T, weight, order="C")
     else:
         if np.ma.is_masked(noise_variance):
             raise ValueError(
@@ -302,16 +305,11 @@ def wiener_filter_map(
             # since the neighbouring GLS_mapmaking really does take one. The
             # length check below cannot catch it: len() of a 2D array is its
             # row count, which for a time-time covariance is exactly n_time.
-            # It would then reach `1.0 / noise_variance` (a divide-by-zero
-            # RuntimeWarning on the off-diagonal zeros, not an error) and
-            # np.diag, which EXTRACTS the diagonal of a 2D input instead of
-            # building a matrix — surfacing much later as an opaque matmul
-            # core-dimension error.
             raise ValueError(
                 f"noise_variance must be a scalar or a 1D per-sample variance "
                 f"vector of length {n_time}; got an array of shape "
-                f"{noise_variance.shape}. wiener_filter_map only ever builds a "
-                f"diagonal N^-1 from this argument. For a full time-time "
+                f"{noise_variance.shape}. wiener_filter_map assumes a "
+                f"diagonal N^-1 for this argument. For a full time-time "
                 f"noise covariance N, pass noise_inv_cov=inv(N) instead "
                 f"(this function does accept a full N^-1, it just will not "
                 f"invert one for you); pass np.diag(N) here if the noise is "
@@ -323,8 +321,7 @@ def wiener_filter_map(
                 f"noise_variance has length {len(noise_variance)} but the TOD "
                 f"has {n_time} samples"
             )
-        # Convert to dense diagonal matrix for consistent matrix operations
-        N_inv = np.diag(1.0 / noise_variance)
+        AtN = np.multiply(operator.conj().T, 1.0 / noise_variance, order="C")
     
     # Create signal inverse covariance matrix
     if prior_inv_cov is None:
@@ -350,11 +347,6 @@ def wiener_filter_map(
             raise ValueError("Length of guess must match number of pixels.")
 
     # Compute Wiener filter components
-    # If float type, transpose; if complex, conjugate transpose
-    if np.iscomplexobj(operator):
-        AtN = operator.conj().T @ N_inv  # A^H N^-1
-    else:
-        AtN = operator.T @ N_inv  # A^T N^-1
     AtNA = AtN @ operator     # A^dagger N^-1 A
     
     # Add the signal prior. Nothing else: see the note in the docstring.

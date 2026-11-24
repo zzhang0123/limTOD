@@ -141,10 +141,16 @@ class _System:
     kernel: Kernel
     khat: np.ndarray           # K(m) for m = 0 .. mmax_needed
     e: np.ndarray              # (n_valid, 2M+1) design on the valid window
-    s: np.ndarray              # (n_valid, n) smoothing operator
+    matrix: Optional[np.ndarray]
+
+    def apply_smoothing(self, values: np.ndarray, *, transpose: bool = False) -> np.ndarray:
+        if self.matrix is not None:
+            return (self.matrix.T if transpose else self.matrix) @ values
+        return self.kernel._filter(values, self.window, transpose=transpose)
 
 
-def _system(window: LSTWindow, m_trunc: int, kernel: Optional[Kernel], mmax_needed: int) -> _System:
+def _system(window: LSTWindow, m_trunc: int, kernel: Optional[Kernel], mmax_needed: int,
+            *, dense: bool = False) -> _System:
     kern = identity_kernel() if kernel is None else kernel
     khat = kern.transfer(window, mmax_needed) if kern.length > 1 else np.ones(mmax_needed + 1)
     win_v = kern.valid(window)
@@ -152,7 +158,10 @@ def _system(window: LSTWindow, m_trunc: int, kernel: Optional[Kernel], mmax_need
     if e.shape[0] < e.shape[1]:
         raise ValueError(f"{e.shape[0]} valid samples for {e.shape[1]} unknowns: "
                          "lower m_trunc or shorten the kernel.")
-    return _System(window, win_v, kern, khat, e, kern.smoothing_operator(window))
+    # Custom kernels define their action through smoothing_operator. Use
+    # the same matrix for their data and noise propagation.
+    matrix = kern.smoothing_operator(window) if dense or type(kern) is not Kernel else None
+    return _System(window, win_v, kern, khat, e, matrix)
 
 
 def _estimator(e: np.ndarray, w: np.ndarray, cond: float) -> np.ndarray:
@@ -279,12 +288,12 @@ def solve(tod: np.ndarray, window: LSTWindow, m_trunc: int, kernel: Optional[Ker
     if not np.all(np.isfinite(y)):
         raise ValueError("tod contains NaN or inf; flag and drop those samples from the window first.")
 
-    sysm = _system(window, m_trunc, kernel, m_trunc)
-    e, s, w = sysm.e, sysm.s, sysm.valid.weights
-    ys = s @ y
-    if noise_cov is None:
-        cov_n = (s / window.weights[None, :]) @ s.T
-    else:
+    dense = (weighting == "gls" and noise_cov is None) or y.ndim > 2
+    sysm = _system(window, m_trunc, kernel, m_trunc, dense=dense)
+    e, w = sysm.e, sysm.valid.weights
+    ys = sysm.apply_smoothing(y)
+    cov_n = None
+    if noise_cov is not None:
         cov_n = np.asarray(noise_cov, dtype=float)
         if cov_n.shape != (e.shape[0],) * 2:
             raise ValueError(f"noise_cov has shape {cov_n.shape}, expected {(e.shape[0],) * 2}.")
@@ -295,14 +304,19 @@ def solve(tod: np.ndarray, window: LSTWindow, m_trunc: int, kernel: Optional[Ker
         p = _estimator(e, w, cond)
         # sandwich as G G^T with G = P C^{1/2}: a sum of squares, so a mode the kernel has
         # scaled far down (P ~ 1/K) cannot come out negative through cancellation
-        if noise_cov is None:
-            g = (p @ s) / np.sqrt(window.weights)[None, :]
+        if cov_n is None:
+            # (P S).T = S.T P.T, applied as a finite filter to each estimator row.
+            g = sysm.apply_smoothing(p.T, transpose=True).T / np.sqrt(window.weights)
         else:
             g = p @ _covariance_root(cov_n)
         cov_p = g @ g.T
     else:
         from scipy.linalg import LinAlgError, cho_factor, cho_solve
 
+        if cov_n is None:
+            s = sysm.matrix
+            assert s is not None  # The default GLS covariance requested a dense operator above.
+            cov_n = (s / window.weights[None, :]) @ s.T
         evals = np.linalg.eigvalsh((cov_n + cov_n.T) / 2)
         if evals[0] <= 0 or evals[-1] / evals[0] > _GLS_COV_COND:
             raise LinAlgError(f"noise_cov has condition number {evals[-1] / max(evals[0], 1e-300):.1e}: "
@@ -341,7 +355,7 @@ def noise_amplification(window: LSTWindow, m_trunc: int, kernel: Optional[Kernel
     import mpmath as mp
 
     sysm = _system(window, m_trunc, kernel, m_trunc)
-    e, s, w = sysm.e, sysm.s, sysm.valid.weights
+    e, w = sysm.e, sysm.valid.weights
     _warn_if_degenerate(_conditioning_of(e, w))
     with mp.workdps(dps):
         em = mp.matrix(e.tolist())
@@ -351,7 +365,7 @@ def noise_amplification(window: LSTWindow, m_trunc: int, kernel: Optional[Kernel
         row = mp.lu_solve(em.T * wm * em, unit)                 # (E^T W E)^-1 e_0
         p0 = wm * em * row                                      # W E (E^T W E)^-1 e_0 = P^T e_0
         p0 = np.array([float(v) for v in p0])
-    g0 = (p0 @ s) / np.sqrt(window.weights)
+    g0 = sysm.apply_smoothing(p0, transpose=True) / np.sqrt(window.weights)
     return float(np.sqrt(g0 @ g0))
 
 

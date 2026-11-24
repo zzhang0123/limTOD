@@ -16,6 +16,7 @@ from limTOD.simulator import (
     _normalize_map,
     generate_TOD_sky,
     pointing_beam_in_eq_sys,
+    TODSim,
 )
 from limTOD.sky_model import generate_gaussian_field
 
@@ -24,6 +25,42 @@ class TestHorizontalMaskOrientation:
     """The horizontal-frame mask (pole at zenith) must land at the zenith's
     equatorial position (RA = LST, Dec = latitude) — before the v1.3.0 fix it
     was rotated 90 deg onto the horizon (elevation=0 instead of 90)."""
+
+    def test_multi_channel_scan_reuses_local_mask_and_rotates_each_sample(self, monkeypatch):
+        # With an isotropic beam the mean unit vector of a hemisphere is
+        # zenith / 2. The mean of an equatorial x-dipole must track its RA.
+        nside = 16
+        pixels = np.arange(hp.nside2npix(nside))
+        x, _, z = hp.pix2vec(nside, pixels)
+        mask = (z >= 0).astype(float)
+        sim = TODSim(
+            beam_func=lambda **kw: np.ones_like(z),
+            sky_func=lambda *, freq, nside: freq * x,
+            beam_nside=nside, sky_nside=nside,
+        )
+        analyses = []
+        map2alm = hp.map2alm
+
+        def count_mask(pixel_map, *args, **kwargs):
+            if pixel_map is mask:
+                analyses.append(1)
+            return map2alm(pixel_map, *args, **kwargs)
+
+        monkeypatch.setattr(hp, "map2alm", count_mask)
+        freqs = np.array([1., 2.])
+        # Flip the same caller-owned array between scans. Coefficients belong
+        # to one scan, while the local zenith changes with every LST.
+        for i, sign in enumerate((1, -1), start=1):
+            tod, lst = sim.simulate_sky_TOD(
+                freqs, [0., 21600., 43200.], [10., 35., 20.], [60., 55., 48.],
+                normalize_beam=True, horizontal_mask=mask, return_LSTs=True,
+            )
+            assert len(analyses) == i
+            mean_x = 0.5 * np.cos(np.deg2rad(sim.ant_latitude_deg)) * np.cos(np.deg2rad(lst))
+            # The binary horizon is pixelized before harmonic rotation.
+            np.testing.assert_allclose(tod / freqs[:, None], np.tile(sign * mean_x, (2, 1)),
+                                       rtol=0, atol=0.03)
+            mask[:] = 1.0 - mask
 
     def test_mask_peak_lands_at_zenith_radec(self):
         nside = 16
