@@ -13,9 +13,7 @@ sample with ``hydra_tod.linear_sampler.sample_p_v2``. The draws follow
 reports. This module checks the arguments, imports hydra-tod and packages
 the draws; it draws no random numbers itself.
 
-hydra-tod is not on PyPI. Its ``linear_sampler`` imports ``mpi4py`` and the
-package imports jax; all three are imported only when samples are
-requested.
+Posterior sampling loads hydra-tod and its MPI dependency on demand.
 """
 
 import importlib
@@ -27,18 +25,17 @@ import numpy as np
 
 _INSTALL_HINT = (
     "GLS_mapmaking.posterior_samples needs hydra_tod.map_sampler, which "
-    "could not be imported. It requires hydra-tod, mpi4py and jax; the "
-    "chained error names the missing one. hydra-tod is not on PyPI: "
-    "pip install mpi4py jax 'git+https://github.com/zzhang0123/hydra-tod' "
-    "(an older hydra-tod without map_sampler must be updated)."
+    "could not be imported. Install or update the sampler with "
+    "pip install mpi4py 'git+https://github.com/zzhang0123/hydra-tod'. "
+    "The chained error identifies any missing dependency."
 )
 
 
 def hydra_map_sampler() -> ModuleType:
     """Import ``hydra_tod.map_sampler``, or raise with install advice.
 
-    The import pulls in jax, whose own import draws from NumPy's global RNG;
-    the caller's global state is restored afterwards."""
+    Preserve the caller's RNG state across imports, including older
+    hydra-tod versions which also load JAX."""
     state = np.random.get_state()
     try:
         return importlib.import_module("hydra_tod.map_sampler")

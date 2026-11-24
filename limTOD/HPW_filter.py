@@ -100,6 +100,7 @@ def wiener_filter_map(
     noise_variance: Optional[Union[float, np.floating, np.ndarray]] = None,
     prior_inv_cov: Optional[Union[float, np.ndarray]] = None,
     guess: Optional[np.ndarray] = None,
+    *,
     return_full_cov: bool = False,
     rolling_variance: bool = True,
     noise_inv_cov: Optional[np.ndarray] = None,

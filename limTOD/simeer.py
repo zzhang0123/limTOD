@@ -3,8 +3,7 @@
 The patch-beam subpackage shipped as ``limTOD.simeer`` only in release
 1.4.0 (same-day); from 1.5.0 it lives at :mod:`limTOD.patchbeam` with
 ``PatchBeamTODSim`` replacing ``SimeerTODSim``. This shim keeps the old
-imports working with a :class:`DeprecationWarning`; it will be removed
-in 2.0.
+imports working in 2.0 with a :class:`DeprecationWarning`.
 """
 
 import sys
@@ -31,7 +30,7 @@ from limTOD.patchbeam import (
 
 warnings.warn(
     "limTOD.simeer was renamed to limTOD.patchbeam in 1.5.0 "
-    "(SimeerTODSim -> PatchBeamTODSim); this alias will be removed in 2.0.",
+    "(SimeerTODSim -> PatchBeamTODSim).",
     DeprecationWarning,
     stacklevel=2,
 )

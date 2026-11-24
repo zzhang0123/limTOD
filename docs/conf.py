@@ -17,7 +17,7 @@ try:
 
     release = _dist_version("limTOD")
 except Exception:  # pragma: no cover - bare checkout
-    release = "1.8.0"
+    release = "0.0.0.dev0"
 version = ".".join(release.split(".")[:2])
 
 extensions = [
@@ -66,25 +66,6 @@ templates_path = []
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
 exclude_patterns = ["_build", "README.md", "superpowers/**"]
-
-# TRIS is unreleased (see the Unreleased section of the changelog), so its two
-# pages are NOT published. Build them locally with:
-#
-#     python -m sphinx -b html docs docs/_build -t tris
-#
-# The switch is opt-IN rather than opt-out on purpose. Keying it off an
-# environment variable that Read the Docs happens to set would publish the
-# pages the moment that variable changed name or failed to reach the build;
-# this way the default -- which is what Read the Docs runs -- excludes them,
-# and only a deliberate `-t tris` brings them back.
-#
-# `toc.excluded` is the warning for the two toctree entries that then point at
-# excluded documents. It is suppressed only on the non-TRIS build, so a
-# genuinely broken toctree entry elsewhere still fails to go unnoticed.
-suppress_warnings: list[str] = []
-if not tags.has("tris"):  # noqa: F821 -- `tags` is injected by Sphinx
-    exclude_patterns += ["tris.md", "api/tris.md"]
-    suppress_warnings.append("toc.excluded")
 
 html_theme = "sphinx_rtd_theme"
 html_title = f"limTOD {release}"

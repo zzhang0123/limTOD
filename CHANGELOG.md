@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-24
+
+### Migrating from 1.10
+
+- Remove `regularization=` from `wiener_filter_map` and from calls to
+  `HPW_mapmaking` and `GLS_mapmaking`. In `wiener_filter_map`, all options
+  after `guess` are keyword-only. Pass `return_full_cov=` and
+  `rolling_variance=` by name when upgrading positional calls.
+  For unconstrained modes, specify a physical prior with its mean and
+  precision, or reduce the fitted parameter set. Singular systems now raise
+  `LinAlgError`.
+- Call `simple_wiener_map(TOD, operator)` without `noise_var`. It returns
+  the minimum-norm least-squares map for a rank-deficient operator.
+- `GDSM_sky_model` now returns an equatorial map by default. Recompute
+  simulations that relied on the old sky orientation. Use `coord="G"` when
+  you need the original Galactic-coordinate map.
+- For a normalized `DriftScanMmode` on a uniform full turn, obtain the modes
+  of the normalized signal with
+  `mmodes_from_tod_uniform(op(sky_alm), lmax=op.lmax, phase0=op.dphi[0])`.
+- The base install requires SciPy 1.10 or newer for the m-mode spline basis.
+  The deprecated `limTOD.simeer` import remains available in 2.0. Use
+  `from limTOD.patchbeam import PatchBeamTODSim` in new code.
+
 ### Added
 
 - 🔁 **`limTOD.mmode`** — an m-mode solver for single-dish drift scans, laid
@@ -33,8 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   correlated noise, same convention as `GLS_mapmaking`'s
   `noise_inv_cov_group` and mutually exclusive with `noise_variance`. It is
   never inverted internally, so the `O(n_time^3)` inversion and its
-  conditioning stay with the caller, and it costs nothing over the diagonal
-  path, which already materialises a dense `N^-1`. Validated for shape,
+  conditioning stay with the caller. Independent noise weights are applied
+  directly to the operator columns. The dense input is validated for shape,
   finiteness, non-negative diagonal and Hermitian symmetry; symmetry is
   enforced by symmetrising and rejecting only asymmetry far above the
   measured inversion round-off floor (`_HERMITIAN_RTOL = 1e-4`; round-off
@@ -80,8 +103,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returns a `GLSPosteriorSamples` (`sky`, `others`, `params`, `mean`,
   `precision`). `seed` is hydra-tod's `rng`: an integer or a `Generator`
   leaves NumPy's global RNG state untouched, and `None` draws from it.
-  hydra-tod (with `hydra_tod.map_sampler`), mpi4py and jax are imported
-  only when `posterior_samples` runs. hydra-tod is not a limTOD extra
+  hydra-tod (with `hydra_tod.map_sampler`) is loaded on demand and uses
+  mpi4py. hydra-tod is not a limTOD extra
   because it is not on PyPI. Under the multiplicative model `Σ` is held at
   the estimate. Over 20 noise realisations of `tests/test_gls_sampler.py`'s
   geometry at the default noise, this moves the mode by at most 0.004σ
@@ -99,6 +122,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- m-mode OLS applies the smoothing kernel and its adjoint directly.
+  Patch-beam scans reuse the selected beam planes and skip pointings with
+  no visible pixels before copying noncontiguous planes. Harmonic scans reuse
+  the horizon-mask transform on each active MPI rank.
+- The rolling Wiener noise estimate uses the squared modulus of complex
+  residuals, so the inferred noise power is invariant under phase rotation.
 - 🚫 **The Gaussian prior is now the only regularisation of the map-making
   solve.** The `regularization` parameter is gone from `wiener_filter_map`,
   `HPW_mapmaking.__call__`, `GLS_mapmaking.__call__` and
@@ -244,14 +273,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `horizon_truncated_beam` / `horizon_beam_fraction` / `horizon_partition_weights`
   — the f_sky split, the T_collected weighting, and the horizon-ring
   convention that is worth ~8.6 K of a 200 K effect.
-- 🔒 **The two TRIS pages are no longer published.** `limTOD.tris` is still
-  unreleased, so `docs/tris.md` and `docs/api/tris.md` are excluded from the
-  documentation build by default and restored with a `-t tris` tag:
-  `python -m sphinx -b html docs docs/_build -t tris`. Opt-in rather than
-  opt-out on purpose — keying it off an environment variable Read the Docs
-  happens to set would publish the pages the moment that variable changed.
-  Note that the changelog entries below still describe the module, and the
-  changelog *is* published.
+- The default documentation build includes the TRIS user guide and API
+  reference, together with the drift-scan m-mode solver guide.
 - 📐 **Documentation content column widened to 1100px** (`sphinx_rtd_theme`
   caps it at 800). The pages carry two-panel figures, wide comparison tables
   and side-by-side cards that were all being squeezed; the drift-scan

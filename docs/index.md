@@ -57,6 +57,7 @@ uvbeam
 cstbeam
 limtod-jax
 driftscan
+mmode
 tris
 ```
 

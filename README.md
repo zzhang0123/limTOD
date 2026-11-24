@@ -65,7 +65,8 @@ are opt-in extras:
 | `[jax]` | jax, s2fft | The `limtod_jax` package (Python ≥ 3.11). |
 | `[uvbeam]` | pyuvdata | `limTOD.uvbeam`: use pyuvdata `UVBeam` objects as beams (Python ≥ 3.11). |
 | `[parallel]` | joblib | Parallel sample loop in `limTOD.patchbeam` (`n_jobs != 1`). |
-| `[full]` | all of the above | The complete setup. |
+| `[full]` | the MPI, GDSM, JAX, UVBeam and parallel extras | Simulation with all optional backends. |
+| `[mmode-bayes]` | bayesmith | Bayesian m-mode inference (Python ≥ 3.11). Install separately or together with `[full]`. |
 
 ```bash
 pip install "limTOD[full]"
@@ -125,7 +126,8 @@ Full documentation: **<https://limtod.readthedocs.io>**
 | [Patch-beam path](https://limtod.readthedocs.io/en/latest/patchbeam.html) | `limTOD.patchbeam`: disc-restricted (l, m) beam interpolation |
 | [UVBeam support](https://limtod.readthedocs.io/en/latest/uvbeam.html) | pyuvdata beams as `beam_func` or patch beams |
 | [CST beams](https://limtod.readthedocs.io/en/latest/cstbeam.html) | CST Studio far-field exports as `beam_func` or HEALPix maps |
-| [TRIS support](docs/tris.md) | Public TRIS archive conventions, offline readers, and safe reduced inference. Unreleased, so this one is not published to Read the Docs — the source renders on GitHub, or build the docs with `-t tris` |
+| [m-mode solver](https://limtod.readthedocs.io/en/latest/mmode.html) | Drift-scan fits, noise propagation and optional Bayesian inference |
+| [TRIS support](https://limtod.readthedocs.io/en/latest/tris.html) | Public TRIS archive conventions, offline readers and reduced inference |
 | [Theory & conventions](https://limtod.readthedocs.io/en/latest/theory.html) | Signal model, coordinate chain, Euler-angle conventions |
 | [API reference](https://limtod.readthedocs.io/en/latest/api/index.html) | Generated from docstrings |
 | [limtod_jax](https://limtod.readthedocs.io/en/latest/limtod-jax.html) | The JAX port: usage, exactness contract, precision requirements |

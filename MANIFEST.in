@@ -2,6 +2,7 @@
 # example notebooks/data stay on GitHub (linked from docs).
 include CHANGELOG.md
 recursive-include docs *.md
+prune docs/superpowers
 prune examples
 prune scripts
 prune tests

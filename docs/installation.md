@@ -15,7 +15,8 @@ Python ≥ 3.8. Heavier dependencies are opt-in extras:
 | `[jax]` | jax, s2fft | The `limtod_jax` package (Python ≥ 3.11). |
 | `[uvbeam]` | pyuvdata | `limTOD.uvbeam`: use pyuvdata `UVBeam` objects as beams (Python ≥ 3.11). |
 | `[parallel]` | joblib | Parallel sample loop in `limTOD.patchbeam` (`n_jobs != 1`). |
-| `[full]` | all of the above | The complete setup. |
+| `[full]` | the MPI, GDSM, JAX, UVBeam and parallel extras | Simulation with all optional backends. |
+| `[mmode-bayes]` | bayesmith | Bayesian m-mode inference (Python ≥ 3.11). Install it together with `[full]` when you want both. |
 
 ```bash
 pip install "limTOD[full]"
@@ -23,14 +24,15 @@ pip install "limTOD[full]"
 
 ## From source
 
-Clone the [repository](https://github.com/zzhang0123/limTOD) and install
-in editable mode with the development extras:
+The published wheel supports Python 3.8 and later. Building from source
+requires Python 3.9 or later for setuptools. The following development
+setup includes the JAX and UVBeam extras and requires Python 3.11 or later.
 
 ```bash
 git clone https://github.com/zzhang0123/limTOD.git
 cd limTOD
 pip install -e ".[dev,full]"
-pytest          # ~310 tests; optional-dependency paths skip cleanly
+pytest
 ```
 
 Running the suite in an environment *without* the extras exercises the

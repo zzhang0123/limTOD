@@ -9,6 +9,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from limTOD.HPW_filter import HPW_mapmaking, wiener_filter_map
 
 
+def test_old_positional_ridge_cannot_be_interpreted_as_return_full_cov():
+    data, operator = np.ones(3), np.ones((3, 1))
+    with pytest.raises(TypeError):
+        wiener_filter_map(data, operator, 1.0, None, None, 1e-12)
+    _, _, covariance = wiener_filter_map(data, operator, 1.0, None, None, return_full_cov=True)
+    np.testing.assert_allclose(covariance, [[1.0 / 3.0]])
+
+
 def _identity_mapmaker(n_samples):
     mapper = HPW_mapmaking.__new__(HPW_mapmaking)
     mapper.num_tods = 1

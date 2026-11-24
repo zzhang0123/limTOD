@@ -392,10 +392,9 @@ Under the additive model the posterior is Gaussian and the draws are exact.
 
 #### Notes
 
-- hydra-tod (with `hydra_tod.map_sampler`), mpi4py and jax must be
-  importable; hydra-tod imports jax when the package loads. hydra-tod is
-  not on PyPI, so it is not a limTOD extra:
-  `pip install mpi4py jax "git+https://github.com/zzhang0123/hydra-tod"`.
+- Posterior sampling needs mpi4py and a version of hydra-tod that provides
+  `hydra_tod.map_sampler`. Install them with
+  `pip install mpi4py "git+https://github.com/zzhang0123/hydra-tod"`.
 - If $A + S^{-1}$ is singular to working precision, some parameter
   combination is constrained by neither the data nor the prior, and the
   call raises `LinAlgError`; no ridge is added.

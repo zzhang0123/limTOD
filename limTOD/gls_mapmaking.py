@@ -481,9 +481,8 @@ class GLS_mapmaking(_MapmakingBase):
 
         Notes
         -----
-        Needs hydra-tod (with ``hydra_tod.map_sampler``), mpi4py and jax
-        importable; hydra-tod imports jax when the package loads. hydra-tod
-        is not on PyPI, so it is not a limTOD dependency.
+        Requires mpi4py and a separate installation of hydra-tod that
+        provides ``hydra_tod.map_sampler``.
 
         Setup cost per TOD with a dense ``N⁻¹``: one factorisation of that
         ``(n_time, n_time)`` matrix and one ``(n_params, n_time)`` noise
